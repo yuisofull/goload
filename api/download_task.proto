@@ -26,15 +26,9 @@ enum DownloadStatus {
   Success = 4;
 }
 
-// ===== Models =====
-message User {
-  uint64 id = 1;
-  string username = 2;
-}
-
 message DownloadTask {
   uint64 id = 1;
-  User of_user = 2;
+  uint64 ofAccountId = 2;
   DownloadType download_type = 3;
   string url = 4;
   DownloadStatus download_status = 5;

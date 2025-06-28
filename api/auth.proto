@@ -12,16 +12,16 @@ service AuthService {
 
 // ===== Auth Messages =====
 message CreateAccountRequest {
-  string username = 1;
+  string AccountName = 1;
   string password = 2;
 }
 
 message CreateAccountResponse {
-  uint64 user_id = 1;
+  uint64 accountId = 1;
 }
 
 message CreateSessionRequest {
-  string username = 1;
+  string accountName = 1;
   string password = 2;
 }
 
