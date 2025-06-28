@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "github.com/yuisofull/goload/internal/downloadtask/pb";
+
+// ===== Download Task Service =====
+service DownloadTaskService {
+  rpc CreateDownloadTask(CreateDownloadTaskRequest) returns (CreateDownloadTaskResponse) {}
+  rpc GetDownloadTaskList(GetDownloadTaskListRequest) returns (GetDownloadTaskListResponse) {}
+  rpc UpdateDownloadTask(UpdateDownloadTaskRequest) returns (UpdateDownloadTaskResponse) {}
+  rpc DeleteDownloadTask(DeleteDownloadTaskRequest) returns (DeleteDownloadTaskResponse) {}
+}
+
+// ===== Enums =====
+enum DownloadType {
+  UndefinedType = 0;
+  HTTP = 1;
+}
+
+enum DownloadStatus {
+  UndefinedStatus = 0;
+  Pending = 1;
+  Downloading = 2;
+  Failed = 3;
+  Success = 4;
+}
+
+// ===== Models =====
+message User {
+  uint64 id = 1;
+  string username = 2;
+}
+
+message DownloadTask {
+  uint64 id = 1;
+  User of_user = 2;
+  DownloadType download_type = 3;
+  string url = 4;
+  DownloadStatus download_status = 5;
+}
+
+// ===== Download Task Messages =====
+message CreateDownloadTaskRequest {
+  string token = 1;
+  DownloadType download_type = 2;
+  string url = 3;
+}
+
+message CreateDownloadTaskResponse {
+  DownloadTask download_task = 1;
+}
+
+message GetDownloadTaskListRequest {
+  string token = 1;
+  uint64 offset = 2;
+  uint64 limit = 3;
+}
+
+message GetDownloadTaskListResponse {
+  repeated DownloadTask download_task_list = 1;
+  uint64 total_download_task_count = 2;
+}
+
+message UpdateDownloadTaskRequest {
+  string token = 1;
+  uint64 download_task_id = 2;
+  string url = 3;
+}
+
+message UpdateDownloadTaskResponse {
+  DownloadTask download_task = 1;
+}
+
+message DeleteDownloadTaskRequest {
+  string token = 1;
+  DownloadTask download_task = 2;
+}
+
+message DeleteDownloadTaskResponse {}

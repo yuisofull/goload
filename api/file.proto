@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "github.com/yuisofull/goload/internal/file/pb";
+
+// ===== File Service =====
+service FileService {
+  rpc GetDownloadTaskFile(GetDownloadTaskFileRequest) returns (stream GetDownloadTaskFileResponse) {}
+}
+
+// ===== File Messages =====
+message GetDownloadTaskFileRequest {
+  string token = 1;
+  uint64 download_task_id = 2;
+}
+
+message GetDownloadTaskFileResponse {
+  bytes data = 1;
+}
