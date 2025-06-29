@@ -33,29 +33,34 @@ type Service interface {
 	CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error)
 }
 
-type accountStore interface {
+type AccountStore interface {
 	CreateAccount(ctx context.Context, account *Account) (uint64, error)
 	GetAccountByID(ctx context.Context, id uint64) (*Account, error)
 	GetAccountByAccountName(ctx context.Context, accountName string) (*Account, error)
 }
 
-type accountPasswordStore interface {
+type AccountPasswordStore interface {
 	CreateAccountPassword(ctx context.Context, accountPassword *AccountPassword) error
 	UpdateAccountPassword(ctx context.Context, accountPassword *AccountPassword) error
 }
 
-type passwordHasher interface {
+type TxManager interface {
+	DoInTx(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+type PasswordHasher interface {
 	Hash(ctx context.Context, password string) (string, error)
 	Verify(ctx context.Context, password, hash string) error
 }
 
 type service struct {
-	accountStore         accountStore
-	accountPasswordStore accountPasswordStore
-	passwordHasher       passwordHasher
+	accountStore         AccountStore
+	accountPasswordStore AccountPasswordStore
+	passwordHasher       PasswordHasher
+	txManager            TxManager
 }
 
-func NewService(accountStore accountStore, accountPasswordStore accountPasswordStore, hasher passwordHasher) Service {
+func NewService(accountStore AccountStore, accountPasswordStore AccountPasswordStore, hasher PasswordHasher) Service {
 	return &service{
 		accountStore:         accountStore,
 		accountPasswordStore: accountPasswordStore,
@@ -75,21 +80,28 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 		return CreateAccountOutput{}, err
 	}
 
-	account := &Account{
-		AccountName: params.AccountName,
-	}
+	var (
+		accountID       uint64
+		account         *Account
+		accountPassword *AccountPassword
+	)
 
-	accountID, err := s.accountStore.CreateAccount(ctx, account)
-	if err != nil {
-		return CreateAccountOutput{}, err
-	}
+	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
+		account = &Account{
+			AccountName: params.AccountName,
+		}
 
-	accountPassword := &AccountPassword{
-		OfAccountId: accountID,
-		Hash:        hash,
-	}
+		accountID, err := s.accountStore.CreateAccount(ctx, account)
+		if err != nil {
+			return err
+		}
 
-	if err := s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword); err != nil {
+		accountPassword = &AccountPassword{
+			OfAccountID: accountID,
+			Hash:        hash,
+		}
+		return s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword)
+	}); err != nil {
 		return CreateAccountOutput{}, err
 	}
 

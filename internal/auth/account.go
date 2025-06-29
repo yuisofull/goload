@@ -1,6 +1,6 @@
 package auth
 
 type Account struct {
-	AccountId   uint64
+	AccountID   uint64
 	AccountName string
 }

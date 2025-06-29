@@ -10,17 +10,17 @@ var (
 	ErrInvalidPassword = errors.New("invalid password")
 )
 
-type ph struct {
+type passwordHasher struct {
 	hasher crypto.Hasher
 }
 
-func NewPasswordHasher(hasher crypto.Hasher) *ph {
-	return &ph{
+func NewPasswordHasher(hasher crypto.Hasher) PasswordHasher {
+	return &passwordHasher{
 		hasher: hasher,
 	}
 }
 
-func (h *ph) Hash(ctx context.Context, password string) (string, error) {
+func (h *passwordHasher) Hash(ctx context.Context, password string) (string, error) {
 	hashed, err := h.hasher.Hash([]byte(password))
 	if err != nil {
 		return "", err
@@ -29,7 +29,7 @@ func (h *ph) Hash(ctx context.Context, password string) (string, error) {
 	return string(hashed), nil
 }
 
-func (h *ph) Verify(ctx context.Context, password, hash string) error {
+func (h *passwordHasher) Verify(ctx context.Context, password, hash string) error {
 	isMatch, err := h.hasher.Compare([]byte(hash), []byte(password))
 	if err != nil {
 		return err
