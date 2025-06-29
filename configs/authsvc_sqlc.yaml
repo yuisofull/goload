@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: "mysql"
+    schema: "../internal/auth/mysql/sqlc/schema.sql"
+    queries: "../internal/auth/mysql/sqlc/query.sql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "../internal/auth/mysql/sqlc"
+        emit_interface: false
+        emit_json_tags: true
