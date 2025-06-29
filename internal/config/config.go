@@ -1,43 +1,34 @@
 package config
 
 import (
-	"github.com/kelseyhightower/envconfig"
 	"github.com/yuisofull/goload/configs"
 	"gopkg.in/yaml.v3"
+	"os"
 )
 
 type Config struct {
-	HTTP struct {
-		Address string `yaml:"address" envconfig:"HTTP_ADDRESS"`
-	}
-	GRPC struct {
-		Address string `yaml:"address" envconfig:"GRPC_ADDRESS"`
-	}
-	Auth struct {
-		GRPC struct {
-			Address string `yaml:"address" envconfig:"AUTH_GRPC_ADDRESS"`
-		}
-	}
-	DownloadTask struct {
-		GRPC struct {
-			Address string `yaml:"address" envconfig:"DOWNLOAD_TASK_GRPC_ADDRESS"`
-		}
-	}
-	File struct {
-		GRPC struct {
-			Address string `yaml:"address" envconfig:"FILE_GRPC_ADDRESS"`
-		}
-	}
+	MySQL               MySQLConfig               `yaml:"mysql"`
+	Redis               RedisConfig               `yaml:"redis"`
+	Auth                AuthConfig                `yaml:"auth"`
+	APIGateway          APIGatewayConfig          `yaml:"apigateway"`
+	AuthService         AuthServiceConfig         `yaml:"authservice"`
+	DownloadTaskService DownloadTaskServiceConfig `yaml:"downloadtaskservice"`
+	FileService         FileServiceConfig         `yaml:"fileservice"`
 }
 
-func Load() (*Config, error) {
+func Load(configFilePath string) (*Config, error) {
+	var configBytes []byte
+	var err error
 	config := &Config{}
-	err := yaml.Unmarshal(configs.DefaultConfigBytes, config)
-	if err != nil {
-		return nil, err
+
+	if configFilePath != "" {
+		if configBytes, err = os.ReadFile(configFilePath); err != nil {
+			return nil, err
+		}
+	} else {
+		configBytes = configs.DefaultConfigBytes
 	}
-	err = envconfig.Process("", config)
-	if err != nil {
+	if err := yaml.Unmarshal(configBytes, config); err != nil {
 		return nil, err
 	}
 	return config, nil
