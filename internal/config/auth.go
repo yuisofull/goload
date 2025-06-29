@@ -1,7 +1,11 @@
 package config
 
 type AuthHashConfig struct {
-	Cost int `yaml:"cost"`
+	Bcrypt BcryptConfig `yaml:"bcrypt"`
+}
+
+type BcryptConfig struct {
+	HashCost int `yaml:"hash_cost"`
 }
 
 type AuthTokenConfig struct {

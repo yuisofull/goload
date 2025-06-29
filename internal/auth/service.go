@@ -44,13 +44,18 @@ type accountPasswordStore interface {
 	UpdateAccountPassword(ctx context.Context, accountPassword *AccountPassword) error
 }
 
+type passwordHasher interface {
+	Hash(ctx context.Context, password string) (string, error)
+	Verify(ctx context.Context, password, hash string) error
+}
+
 type service struct {
 	accountStore         accountStore
 	accountPasswordStore accountPasswordStore
-	passwordHasher       PasswordHasher
+	passwordHasher       passwordHasher
 }
 
-func NewService(accountStore accountStore, accountPasswordStore accountPasswordStore, hasher PasswordHasher) Service {
+func NewService(accountStore accountStore, accountPasswordStore accountPasswordStore, hasher passwordHasher) Service {
 	return &service{
 		accountStore:         accountStore,
 		accountPasswordStore: accountPasswordStore,

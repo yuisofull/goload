@@ -10,7 +10,8 @@ redis:
   password: ""
 auth:
   hash:
-    cost: 10
+    bcrypt:
+      hash_cost: 10
   token:
     expires_in: 24h
     regenerate_token_before_expiry: 1h
