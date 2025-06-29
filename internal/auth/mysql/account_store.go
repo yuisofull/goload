@@ -12,7 +12,6 @@ import (
 
 type accountStore struct {
 	queries *sqlc.Queries
-	db      *sql.DB
 }
 
 func NewAccountStore(config config.MySQLConfig) (auth.AccountStore, error) {
@@ -23,7 +22,6 @@ func NewAccountStore(config config.MySQLConfig) (auth.AccountStore, error) {
 	}
 	return &accountStore{
 		queries: sqlc.New(db),
-		db:      db,
 	}, nil
 }
 

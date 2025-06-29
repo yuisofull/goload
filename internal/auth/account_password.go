@@ -1,6 +1,6 @@
 package auth
 
 type AccountPassword struct {
-	OfAccountID uint64 `sql:"of_account_id"`
-	Hash        string `sql:"hash"`
+	OfAccountID    uint64 `sql:"of_account_id"`
+	HashedPassword string `sql:"hashed_password"`
 }

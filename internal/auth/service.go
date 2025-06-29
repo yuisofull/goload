@@ -97,8 +97,8 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 		}
 
 		accountPassword = &AccountPassword{
-			OfAccountID: accountID,
-			Hash:        hash,
+			OfAccountID:    accountID,
+			HashedPassword: hash,
 		}
 		return s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword)
 	}); err != nil {
