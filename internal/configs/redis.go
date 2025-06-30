@@ -1,6 +1,6 @@
-package config
+package configs
 
-type RedisConfig struct {
+type Redis struct {
 	Address  string `yaml:"address"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`

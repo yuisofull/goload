@@ -5,7 +5,7 @@
 package sqlc
 
 type Account struct {
-	AccountID   uint64 `json:"account_id"`
+	ID          uint64 `json:"id"`
 	AccountName string `json:"account_name"`
 }
 

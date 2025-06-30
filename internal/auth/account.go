@@ -1,6 +1,6 @@
 package auth
 
 type Account struct {
-	AccountID   uint64 `sql:"account_id"`
+	ID          uint64 `sql:"id"`
 	AccountName string `sql:"account_name"`
 }

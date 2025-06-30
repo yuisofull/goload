@@ -3,25 +3,18 @@ package mysql
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
-	"github.com/yuisofull/goload/internal/config"
 )
 
 type accountPasswordStore struct {
 	queries *sqlc.Queries
 }
 
-func NewAccountPasswordStore(config config.MySQLConfig) (auth.AccountPasswordStore, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", config.Username, config.Password, config.Host, config.Port, config.Database)
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, err
-	}
+func NewAccountPasswordStore(db *sql.DB) auth.AccountPasswordStore {
 	return &accountPasswordStore{
 		queries: sqlc.New(db),
-	}, nil
+	}
 }
 
 func (a *accountPasswordStore) CreateAccountPassword(ctx context.Context, accountPassword *auth.AccountPassword) error {

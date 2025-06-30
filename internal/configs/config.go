@@ -1,4 +1,4 @@
-package config
+package configs
 
 import (
 	"github.com/yuisofull/goload/configs"
@@ -7,13 +7,13 @@ import (
 )
 
 type Config struct {
-	MySQL               MySQLConfig               `yaml:"mysql"`
-	Redis               RedisConfig               `yaml:"redis"`
-	Auth                AuthConfig                `yaml:"auth"`
-	APIGateway          APIGatewayConfig          `yaml:"apigateway"`
-	AuthService         AuthServiceConfig         `yaml:"authservice"`
-	DownloadTaskService DownloadTaskServiceConfig `yaml:"downloadtaskservice"`
-	FileService         FileServiceConfig         `yaml:"fileservice"`
+	MySQL               MySQL               `yaml:"mysql"`
+	Redis               Redis               `yaml:"redis"`
+	Auth                Auth                `yaml:"auth"`
+	APIGateway          APIGateway          `yaml:"apigateway"`
+	AuthService         AuthService         `yaml:"authservice"`
+	DownloadTaskService DownloadTaskService `yaml:"downloadtaskservice"`
+	FileService         FileService         `yaml:"fileservice"`
 }
 
 func Load(configFilePath string) (*Config, error) {

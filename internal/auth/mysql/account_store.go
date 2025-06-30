@@ -3,26 +3,19 @@ package mysql
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
-	"github.com/yuisofull/goload/internal/config"
 )
 
 type accountStore struct {
 	queries *sqlc.Queries
 }
 
-func NewAccountStore(config config.MySQLConfig) (auth.AccountStore, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", config.Username, config.Password, config.Host, config.Port, config.Database)
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, err
-	}
+func NewAccountStore(db *sql.DB) auth.AccountStore {
 	return &accountStore{
 		queries: sqlc.New(db),
-	}, nil
+	}
 }
 
 func getTxFrom(ctx context.Context) (*sql.Tx, bool) {
@@ -59,7 +52,7 @@ func (a *accountStore) GetAccountByID(ctx context.Context, id uint64) (*auth.Acc
 		return nil, err
 	}
 	return &auth.Account{
-		AccountID:   account.AccountID,
+		ID:          account.ID,
 		AccountName: account.AccountName,
 	}, nil
 }
@@ -74,7 +67,7 @@ func (a *accountStore) GetAccountByAccountName(ctx context.Context, accountName 
 		return nil, err
 	}
 	return &auth.Account{
-		AccountID:   account.AccountID,
+		ID:          account.ID,
 		AccountName: account.AccountName,
 	}, nil
 }

@@ -35,7 +35,7 @@ func (q *Queries) CreateAccountPassword(ctx context.Context, arg CreateAccountPa
 }
 
 const getAccountByAccountName = `-- name: GetAccountByAccountName :one
-SELECT account_id, account_name
+SELECT id, account_name
 FROM accounts
 WHERE account_name = ?
 `
@@ -43,26 +43,26 @@ WHERE account_name = ?
 func (q *Queries) GetAccountByAccountName(ctx context.Context, accountName string) (Account, error) {
 	row := q.db.QueryRowContext(ctx, getAccountByAccountName, accountName)
 	var i Account
-	err := row.Scan(&i.AccountID, &i.AccountName)
+	err := row.Scan(&i.ID, &i.AccountName)
 	return i, err
 }
 
 const getAccountByID = `-- name: GetAccountByID :one
-SELECT account_id, account_name
+SELECT id, account_name
 FROM accounts
-WHERE account_id = ?
+WHERE id = ?
 `
 
-func (q *Queries) GetAccountByID(ctx context.Context, accountID uint64) (Account, error) {
-	row := q.db.QueryRowContext(ctx, getAccountByID, accountID)
+func (q *Queries) GetAccountByID(ctx context.Context, id uint64) (Account, error) {
+	row := q.db.QueryRowContext(ctx, getAccountByID, id)
 	var i Account
-	err := row.Scan(&i.AccountID, &i.AccountName)
+	err := row.Scan(&i.ID, &i.AccountName)
 	return i, err
 }
 
 const updateAccountPassword = `-- name: UpdateAccountPassword :exec
 UPDATE account_passwords
-SET hashed_password  = ?
+SET hashed_password = ?
 WHERE of_account_id = ?
 `
 

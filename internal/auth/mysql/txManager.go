@@ -3,12 +3,20 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
 )
 
 type txManager struct {
 	queries *sqlc.Queries
 	db      *sql.DB
+}
+
+func NewTxManager(db *sql.DB) auth.TxManager {
+	return &txManager{
+		queries: sqlc.New(db),
+		db:      db,
+	}
 }
 
 type txKey struct{}

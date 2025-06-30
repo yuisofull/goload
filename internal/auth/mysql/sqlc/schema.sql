@@ -1,6 +1,6 @@
 CREATE TABLE accounts
 (
-    account_id   BIGINT UNSIGNED PRIMARY KEY,
+    id           BIGINT UNSIGNED PRIMARY KEY,
     account_name VARCHAR(256) NOT NULL
 );
 
