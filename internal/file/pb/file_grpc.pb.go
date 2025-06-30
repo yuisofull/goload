@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileService_GetDownloadTaskFile_FullMethodName = "/pb.FileService/GetDownloadTaskFile"
+	FileService_GetDownloadTaskFile_FullMethodName = "/file.v1.FileService/GetDownloadTaskFile"
 )
 
 // FileServiceClient is the client API for FileService service.
@@ -114,7 +114,7 @@ type FileService_GetDownloadTaskFileServer = grpc.ServerStreamingServer[GetDownl
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var FileService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "pb.FileService",
+	ServiceName: "file.v1.FileService",
 	HandlerType: (*FileServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

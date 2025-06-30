@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package pb;
+package downloadtask.v1;
 
-option go_package = "github.com/yuisofull/goload/internal/downloadtask/pb";
+option go_package = "github.com/yuisofull/goload/internal/downloadtask/pb;pb";
 
 // ===== Download Task Service =====
 service DownloadTaskService {
@@ -14,27 +14,27 @@ service DownloadTaskService {
 
 // ===== Enums =====
 enum DownloadType {
-  UndefinedType = 0;
-  HTTP = 1;
+  DOWNLOAD_TYPE_UNSPECIFIED = 0;
+  DOWNLOAD_TYPE_HTTP = 1;
 }
 
 enum DownloadStatus {
-  UndefinedStatus = 0;
-  Pending = 1;
-  Downloading = 2;
-  Failed = 3;
-  Success = 4;
+  DOWNLOAD_STATUS_UNSPECIFIED = 0;
+  DOWNLOAD_STATUS_PENDING = 1;
+  DOWNLOAD_STATUS_DOWNLOADING = 2;
+  DOWNLOAD_STATUS_FAILED = 3;
+  DOWNLOAD_STATUS_SUCCESS = 4;
 }
 
+// ===== Messages =====
 message DownloadTask {
   uint64 id = 1;
-  uint64 ofAccountId = 2;
+  uint64 of_account_id = 2;
   DownloadType download_type = 3;
   string url = 4;
   DownloadStatus download_status = 5;
 }
 
-// ===== Download Task Messages =====
 message CreateDownloadTaskRequest {
   string token = 1;
   DownloadType download_type = 2;
@@ -52,8 +52,8 @@ message GetDownloadTaskListRequest {
 }
 
 message GetDownloadTaskListResponse {
-  repeated DownloadTask download_task_list = 1;
-  uint64 total_download_task_count = 2;
+  repeated DownloadTask download_tasks = 1;
+  uint64 total_count = 2;
 }
 
 message UpdateDownloadTaskRequest {

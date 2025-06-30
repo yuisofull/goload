@@ -60,11 +60,12 @@ type service struct {
 	txManager            TxManager
 }
 
-func NewService(accountStore AccountStore, accountPasswordStore AccountPasswordStore, hasher PasswordHasher) Service {
+func NewService(accountStore AccountStore, accountPasswordStore AccountPasswordStore, txManager TxManager, hasher PasswordHasher) Service {
 	return &service{
 		accountStore:         accountStore,
 		accountPasswordStore: accountPasswordStore,
 		passwordHasher:       hasher,
+		txManager:            txManager,
 	}
 }
 
@@ -97,7 +98,7 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 		}
 
 		accountPassword = &AccountPassword{
-			OfAccountID:    accountID,
+			OfAccountId:    accountID,
 			HashedPassword: hash,
 		}
 		return s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword)

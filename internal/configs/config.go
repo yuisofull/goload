@@ -3,7 +3,6 @@ package configs
 import (
 	"github.com/yuisofull/goload/configs"
 	"gopkg.in/yaml.v3"
-	"os"
 )
 
 type Config struct {
@@ -16,18 +15,9 @@ type Config struct {
 	FileService         FileService         `yaml:"fileservice"`
 }
 
-func Load(configFilePath string) (*Config, error) {
-	var configBytes []byte
-	var err error
+func Load() (*Config, error) {
 	config := &Config{}
-
-	if configFilePath != "" {
-		if configBytes, err = os.ReadFile(configFilePath); err != nil {
-			return nil, err
-		}
-	} else {
-		configBytes = configs.DefaultConfigBytes
-	}
+	configBytes := configs.DefaultConfigBytes
 	if err := yaml.Unmarshal(configBytes, config); err != nil {
 		return nil, err
 	}

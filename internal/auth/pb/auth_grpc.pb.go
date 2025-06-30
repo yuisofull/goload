@@ -4,7 +4,7 @@
 // - protoc             v3.12.4
 // source: auth.proto
 
-package pb
+package authpb
 
 import (
 	context "context"
@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_CreateAccount_FullMethodName = "/pb.AuthService/CreateAccount"
-	AuthService_CreateSession_FullMethodName = "/pb.AuthService/CreateSession"
+	AuthService_CreateAccount_FullMethodName = "/auth.v1.AuthService/CreateAccount"
+	AuthService_CreateSession_FullMethodName = "/auth.v1.AuthService/CreateSession"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -146,7 +146,7 @@ func _AuthService_CreateSession_Handler(srv interface{}, ctx context.Context, de
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AuthService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "pb.AuthService",
+	ServiceName: "auth.v1.AuthService",
 	HandlerType: (*AuthServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

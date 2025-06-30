@@ -1,4 +1,4 @@
-package mysql
+package authmysql
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func (a *accountPasswordStore) CreateAccountPassword(ctx context.Context, accoun
 		q = q.WithTx(tx)
 	}
 	return q.CreateAccountPassword(ctx, sqlc.CreateAccountPasswordParams{
-		OfAccountID:    accountPassword.OfAccountID,
+		OfAccountID:    accountPassword.OfAccountId,
 		HashedPassword: accountPassword.HashedPassword,
 	})
 }
@@ -34,7 +34,7 @@ func (a *accountPasswordStore) UpdateAccountPassword(ctx context.Context, accoun
 		q = q.WithTx(tx)
 	}
 	return q.UpdateAccountPassword(ctx, sqlc.UpdateAccountPasswordParams{
-		OfAccountID:    accountPassword.OfAccountID,
+		OfAccountID:    accountPassword.OfAccountId,
 		HashedPassword: accountPassword.HashedPassword,
 	})
 }

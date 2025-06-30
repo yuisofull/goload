@@ -1,4 +1,4 @@
-package mysql
+package authmysql
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func (a *accountStore) GetAccountByID(ctx context.Context, id uint64) (*auth.Acc
 		return nil, err
 	}
 	return &auth.Account{
-		ID:          account.ID,
+		Id:          account.ID,
 		AccountName: account.AccountName,
 	}, nil
 }
@@ -67,7 +67,7 @@ func (a *accountStore) GetAccountByAccountName(ctx context.Context, accountName 
 		return nil, err
 	}
 	return &auth.Account{
-		ID:          account.ID,
+		Id:          account.ID,
 		AccountName: account.AccountName,
 	}, nil
 }

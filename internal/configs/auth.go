@@ -1,8 +1,10 @@
 package configs
 
-import "time"
+import (
+	"time"
+)
 
-type AuthHashConfig struct {
+type Hash struct {
 	Bcrypt Bcrypt `yaml:"bcrypt"`
 }
 
@@ -16,6 +18,6 @@ type Token struct {
 }
 
 type Auth struct {
-	Hash  AuthHashConfig `yaml:"hash"`
-	Token Token          `yaml:"token"`
+	Hash  Hash  `yaml:"hash"`
+	Token Token `yaml:"token"`
 }

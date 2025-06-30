@@ -19,10 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DownloadTaskService_CreateDownloadTask_FullMethodName  = "/pb.DownloadTaskService/CreateDownloadTask"
-	DownloadTaskService_GetDownloadTaskList_FullMethodName = "/pb.DownloadTaskService/GetDownloadTaskList"
-	DownloadTaskService_UpdateDownloadTask_FullMethodName  = "/pb.DownloadTaskService/UpdateDownloadTask"
-	DownloadTaskService_DeleteDownloadTask_FullMethodName  = "/pb.DownloadTaskService/DeleteDownloadTask"
+	DownloadTaskService_CreateDownloadTask_FullMethodName  = "/downloadtask.v1.DownloadTaskService/CreateDownloadTask"
+	DownloadTaskService_GetDownloadTaskList_FullMethodName = "/downloadtask.v1.DownloadTaskService/GetDownloadTaskList"
+	DownloadTaskService_UpdateDownloadTask_FullMethodName  = "/downloadtask.v1.DownloadTaskService/UpdateDownloadTask"
+	DownloadTaskService_DeleteDownloadTask_FullMethodName  = "/downloadtask.v1.DownloadTaskService/DeleteDownloadTask"
 )
 
 // DownloadTaskServiceClient is the client API for DownloadTaskService service.
@@ -214,7 +214,7 @@ func _DownloadTaskService_DeleteDownloadTask_Handler(srv interface{}, ctx contex
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var DownloadTaskService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "pb.DownloadTaskService",
+	ServiceName: "downloadtask.v1.DownloadTaskService",
 	HandlerType: (*DownloadTaskServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
