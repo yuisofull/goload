@@ -4,6 +4,7 @@ import (
 	"context"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
 	"github.com/yuisofull/goload/internal/auth"
 	authendpoint "github.com/yuisofull/goload/internal/auth/endpoint"
@@ -31,6 +32,7 @@ func main() {
 	var logger log.Logger
 	{
 		logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
+		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.Log.Level, level.DebugValue())))
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
@@ -53,7 +55,7 @@ func main() {
 	{
 		grpcListener, err := net.Listen("tcp", config.AuthService.GRPC.Address)
 		if err != nil {
-			logger.Log("transport", "gRPC", "during", "Listen", "err", err)
+			level.Error(logger).Log("transport", "gRPC", "during", "Listen", "err", err)
 			os.Exit(1)
 		}
 
@@ -61,7 +63,7 @@ func main() {
 		authpb.RegisterAuthServiceServer(baseServer, grpcServer)
 
 		g.Add(func() error {
-			logger.Log("transport", "gRPC", "addr", config.AuthService.GRPC.Address)
+			level.Info(logger).Log("transport", "gRPC", "addr", config.AuthService.GRPC.Address)
 			return baseServer.Serve(grpcListener)
 		}, func(error) {
 			baseServer.GracefulStop()
@@ -75,7 +77,8 @@ func main() {
 			case <-ctx.Done():
 				return ctx.Err()
 			}
-		}, nil)
+		}, func(error) {
+		})
 	}
-	logger.Log("exit", g.Run())
+	level.Info(logger).Log("exit", g.Run())
 }

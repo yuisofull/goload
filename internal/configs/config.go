@@ -6,6 +6,7 @@ import (
 )
 
 type Config struct {
+	Log                 Log                 `yaml:"log"`
 	MySQL               MySQL               `yaml:"mysql"`
 	Redis               Redis               `yaml:"redis"`
 	Auth                Auth                `yaml:"auth"`
