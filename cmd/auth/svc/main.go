@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -39,14 +41,27 @@ func main() {
 
 	store, closeStore, err := authmysql.New(config.MySQL)
 	if err != nil {
-		panic(err)
+		level.Error(logger).Log("err", err)
+		os.Exit(1)
 	}
 	defer closeStore()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, config.Auth.Token.JWTRS512.RSABits)
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		os.Exit(1)
+	}
+
+	tokenManager, err := auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, store)
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		os.Exit(1)
+	}
 
 	var (
 		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
 		hasher       = auth.NewPasswordHasher(bcryptHasher)
-		service      = auth.NewService(store, store, store, hasher)
+		service      = auth.NewService(store, store, store, hasher, tokenManager)
 		endpointSet  = authendpoint.New(service)
 		grpcServer   = authtransport.NewGRPCServer(endpointSet, logger)
 	)

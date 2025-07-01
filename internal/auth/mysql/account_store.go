@@ -44,9 +44,6 @@ func (a *accountStore) CreateAccount(ctx context.Context, account *auth.Account)
 
 func (a *accountStore) GetAccountByID(ctx context.Context, id uint64) (*auth.Account, error) {
 	q := a.queries
-	if tx, ok := getTxFrom(ctx); ok {
-		q = q.WithTx(tx)
-	}
 	account, err := q.GetAccountByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -59,9 +56,6 @@ func (a *accountStore) GetAccountByID(ctx context.Context, id uint64) (*auth.Acc
 
 func (a *accountStore) GetAccountByAccountName(ctx context.Context, accountName string) (*auth.Account, error) {
 	q := a.queries
-	if tx, ok := getTxFrom(ctx); ok {
-		q = q.WithTx(tx)
-	}
 	account, err := q.GetAccountByAccountName(ctx, accountName)
 	if err != nil {
 		return nil, err

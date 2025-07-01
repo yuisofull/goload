@@ -13,3 +13,8 @@ type AccountPassword struct {
 	OfAccountID    uint64 `json:"of_account_id"`
 	HashedPassword string `json:"hashed_password"`
 }
+
+type TokenPublicKey struct {
+	ID        uint64 `json:"id"`
+	PublicKey []byte `json:"public_key"`
+}

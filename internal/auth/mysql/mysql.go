@@ -11,6 +11,7 @@ type Store struct {
 	auth.AccountStore
 	auth.AccountPasswordStore
 	auth.TxManager
+	auth.TokenPublicKeyStore
 }
 
 func New(config configs.MySQL) (Store, func(), error) {
@@ -23,6 +24,7 @@ func New(config configs.MySQL) (Store, func(), error) {
 			AccountStore:         NewAccountStore(db),
 			AccountPasswordStore: NewAccountPasswordStore(db),
 			TxManager:            NewTxManager(db),
+			TokenPublicKeyStore:  NewTokenPublicKeyStore(db),
 		}, func() {
 			db.Close()
 		}, nil

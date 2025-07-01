@@ -13,8 +13,13 @@ type Bcrypt struct {
 }
 
 type Token struct {
+	JWTRS512                    JWTRS512      `yaml:"jwt_rs512"`
 	ExpiresIn                   time.Duration `yaml:"expires_in"`
 	RegenerateTokenBeforeExpiry time.Duration `yaml:"regenerate_token_before_expiry"`
+}
+
+type JWTRS512 struct {
+	RSABits int `yaml:"rsa_bits"`
 }
 
 type Auth struct {

@@ -38,3 +38,18 @@ func (a *accountPasswordStore) UpdateAccountPassword(ctx context.Context, accoun
 		HashedPassword: accountPassword.HashedPassword,
 	})
 }
+
+func (a *accountPasswordStore) GetAccountPassword(ctx context.Context, ofAccountID uint64) (auth.AccountPassword, error) {
+	q := a.queries
+	if tx, ok := getTxFrom(ctx); ok {
+		q = q.WithTx(tx)
+	}
+	accountPassword, err := q.GetAccountPassword(ctx, ofAccountID)
+	if err != nil {
+		return auth.AccountPassword{}, err
+	}
+	return auth.AccountPassword{
+		OfAccountId:    accountPassword.OfAccountID,
+		HashedPassword: accountPassword.HashedPassword,
+	}, nil
+}

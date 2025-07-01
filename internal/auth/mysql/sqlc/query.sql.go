@@ -34,6 +34,15 @@ func (q *Queries) CreateAccountPassword(ctx context.Context, arg CreateAccountPa
 	return err
 }
 
+const createTokenPublicKey = `-- name: CreateTokenPublicKey :execresult
+INSERT INTO token_public_keys (public_key)
+VALUES (?)
+`
+
+func (q *Queries) CreateTokenPublicKey(ctx context.Context, publicKey []byte) (sql.Result, error) {
+	return q.db.ExecContext(ctx, createTokenPublicKey, publicKey)
+}
+
 const getAccountByAccountName = `-- name: GetAccountByAccountName :one
 SELECT id, account_name
 FROM accounts
@@ -57,6 +66,32 @@ func (q *Queries) GetAccountByID(ctx context.Context, id uint64) (Account, error
 	row := q.db.QueryRowContext(ctx, getAccountByID, id)
 	var i Account
 	err := row.Scan(&i.ID, &i.AccountName)
+	return i, err
+}
+
+const getAccountPassword = `-- name: GetAccountPassword :one
+SELECT of_account_id, hashed_password
+FROM account_passwords
+WHERE of_account_id = ?
+`
+
+func (q *Queries) GetAccountPassword(ctx context.Context, ofAccountID uint64) (AccountPassword, error) {
+	row := q.db.QueryRowContext(ctx, getAccountPassword, ofAccountID)
+	var i AccountPassword
+	err := row.Scan(&i.OfAccountID, &i.HashedPassword)
+	return i, err
+}
+
+const getTokenPublicKey = `-- name: GetTokenPublicKey :one
+SELECT id, public_key
+FROM token_public_keys
+WHERE id = ?
+`
+
+func (q *Queries) GetTokenPublicKey(ctx context.Context, id uint64) (TokenPublicKey, error) {
+	row := q.db.QueryRowContext(ctx, getTokenPublicKey, id)
+	var i TokenPublicKey
+	err := row.Scan(&i.ID, &i.PublicKey)
 	return i, err
 }
 

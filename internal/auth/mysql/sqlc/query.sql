@@ -20,3 +20,17 @@ VALUES (?, ?);
 UPDATE account_passwords
 SET hashed_password = ?
 WHERE of_account_id = ?;
+
+-- name: GetAccountPassword :one
+SELECT of_account_id, hashed_password
+FROM account_passwords
+WHERE of_account_id = ?;
+
+-- name: CreateTokenPublicKey :execresult
+INSERT INTO token_public_keys (public_key)
+VALUES (?);
+
+-- name: GetTokenPublicKey :one
+SELECT id, public_key
+FROM token_public_keys
+WHERE id = ?;

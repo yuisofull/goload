@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var (
@@ -42,6 +43,7 @@ type AccountStore interface {
 type AccountPasswordStore interface {
 	CreateAccountPassword(ctx context.Context, accountPassword *AccountPassword) error
 	UpdateAccountPassword(ctx context.Context, accountPassword *AccountPassword) error
+	GetAccountPassword(ctx context.Context, ofAccountID uint64) (AccountPassword, error)
 }
 
 type TxManager interface {
@@ -50,7 +52,13 @@ type TxManager interface {
 
 type PasswordHasher interface {
 	Hash(ctx context.Context, password string) (string, error)
-	Verify(ctx context.Context, password, hash string) error
+	Verify(ctx context.Context, password, hashedPassword string) error
+}
+
+type TokenManager interface {
+	Sign(accountID uint64) (string, error)
+	GetAccountIDFrom(token string) (uint64, error)
+	GetExpiryFrom(token string) (time.Time, error)
 }
 
 type service struct {
@@ -58,14 +66,22 @@ type service struct {
 	accountPasswordStore AccountPasswordStore
 	passwordHasher       PasswordHasher
 	txManager            TxManager
+	tokenManager         TokenManager
 }
 
-func NewService(accountStore AccountStore, accountPasswordStore AccountPasswordStore, txManager TxManager, hasher PasswordHasher) Service {
+func NewService(
+	accountStore AccountStore,
+	accountPasswordStore AccountPasswordStore,
+	txManager TxManager,
+	hasher PasswordHasher,
+	tokenManager TokenManager,
+) Service {
 	return &service{
 		accountStore:         accountStore,
 		accountPasswordStore: accountPasswordStore,
 		passwordHasher:       hasher,
 		txManager:            txManager,
+		tokenManager:         tokenManager,
 	}
 }
 
@@ -114,7 +130,28 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 }
 
 func (s *service) CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error) {
-	return CreateSessionOutput{}, nil
+	account, err := s.accountStore.GetAccountByAccountName(ctx, params.AccountName)
+	if err != nil {
+		return CreateSessionOutput{}, err
+	}
+
+	accountPassword, err := s.accountPasswordStore.GetAccountPassword(ctx, account.Id)
+	if err != nil {
+		return CreateSessionOutput{}, err
+	}
+
+	if err := s.passwordHasher.Verify(ctx, params.Password, accountPassword.HashedPassword); err != nil {
+		return CreateSessionOutput{}, err
+	}
+
+	token, err := s.tokenManager.Sign(account.Id)
+	if err != nil {
+		return CreateSessionOutput{}, err
+	}
+
+	return CreateSessionOutput{
+		Token: token,
+	}, nil
 }
 
 func (s *service) isAccountNameExists(ctx context.Context, accountName string) (bool, error) {
