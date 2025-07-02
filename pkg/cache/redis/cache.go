@@ -1,8 +1,9 @@
 package rediscache
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"time"
@@ -23,11 +24,26 @@ func New[K comparable, V any](client *redis.Client, prefix string) *RedisCache[K
 }
 
 func (c *RedisCache[K, V]) key(k K) string {
-	return fmt.Sprintf("%s:%v", c.prefix, k)
+	return fmt.Sprintf("%s:%T:%v", c.prefix, k, k)
+}
+
+func encode[V any](v V) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(v)
+	return buf.Bytes(), err
+}
+
+func decode[V any](data []byte) (V, error) {
+	var v V
+	buf := bytes.NewBuffer(data)
+	dec := gob.NewDecoder(buf)
+	err := dec.Decode(&v)
+	return v, err
 }
 
 func (c *RedisCache[K, V]) Set(ctx context.Context, key K, value V, ttl time.Duration) {
-	data, err := json.Marshal(value)
+	data, err := encode(value)
 	if err != nil {
 		return
 	}
@@ -37,13 +53,13 @@ func (c *RedisCache[K, V]) Set(ctx context.Context, key K, value V, ttl time.Dur
 func (c *RedisCache[K, V]) Get(ctx context.Context, key K) (V, bool) {
 	var zero V
 
-	val, err := c.client.Get(ctx, c.key(key)).Result()
+	val, err := c.client.Get(ctx, c.key(key)).Bytes()
 	if errors.Is(err, redis.Nil) || err != nil {
 		return zero, false
 	}
 
-	var v V
-	if err := json.Unmarshal([]byte(val), &v); err != nil {
+	v, err := decode[V](val)
+	if err != nil {
 		return zero, false
 	}
 	return v, true
@@ -77,7 +93,7 @@ func (c *RedisCache[K, V]) Len(ctx context.Context) int {
 func (c *RedisCache[K, V]) Add(ctx context.Context, key K, members ...V) error {
 	vals := make([]interface{}, len(members))
 	for i, m := range members {
-		b, err := json.Marshal(m)
+		b, err := encode(m)
 		if err != nil {
 			return err
 		}
@@ -89,7 +105,7 @@ func (c *RedisCache[K, V]) Add(ctx context.Context, key K, members ...V) error {
 func (c *RedisCache[K, V]) Remove(ctx context.Context, key K, members ...V) error {
 	vals := make([]interface{}, len(members))
 	for i, m := range members {
-		b, err := json.Marshal(m)
+		b, err := encode(m)
 		if err != nil {
 			return err
 		}
@@ -99,7 +115,7 @@ func (c *RedisCache[K, V]) Remove(ctx context.Context, key K, members ...V) erro
 }
 
 func (c *RedisCache[K, V]) Contains(ctx context.Context, key K, member V) (bool, error) {
-	b, err := json.Marshal(member)
+	b, err := encode(member)
 	if err != nil {
 		return false, err
 	}
@@ -114,8 +130,8 @@ func (c *RedisCache[K, V]) Members(ctx context.Context, key K) ([]V, error) {
 
 	result := make([]V, 0, len(raw))
 	for _, str := range raw {
-		var v V
-		if err := json.Unmarshal([]byte(str), &v); err != nil {
+		v, err := decode[V]([]byte(str))
+		if err != nil {
 			continue // skip bad entry
 		}
 		result = append(result, v)
