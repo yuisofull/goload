@@ -2,7 +2,11 @@ package authtransport
 
 import (
 	"context"
+	"errors"
+	"github.com/go-kit/log/level"
 	"github.com/yuisofull/goload/internal/auth/endpoint"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/transport"
@@ -22,24 +26,43 @@ type grpcServer struct {
 func (s *grpcServer) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.CreateAccountResponse, error) {
 	_, resp, err := s.createAccount.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.CreateAccountResponse), nil
 }
 
 // CreateSession implements the gRPC CreateSession method
 func (s *grpcServer) CreateSession(ctx context.Context, req *pb.CreateSessionRequest) (*pb.CreateSessionResponse, error) {
-	_, resp, err := s.createSession.ServeGRPC(ctx, req)
+	ctx, resp, err := s.createSession.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.CreateSessionResponse), nil
 }
 
+func encodeError(_ context.Context, err error) error {
+	var svcErr *auth.ServiceError
+	if errors.As(err, &svcErr) {
+		switch svcErr.Code {
+		case auth.ErrCodeAlreadyExists:
+			return status.Error(codes.AlreadyExists, svcErr.Message)
+		case auth.ErrCodeNotFound:
+			return status.Error(codes.NotFound, svcErr.Message)
+		case auth.ErrCodeInvalidPassword:
+			return status.Error(codes.Unauthenticated, svcErr.Message)
+		default:
+			return status.Error(codes.Internal, svcErr.Message)
+		}
+	}
+
+	return status.Error(codes.Unknown, err.Error())
+}
+
 func NewGRPCServer(endpoints authendpoint.Set, logger log.Logger) pb.AuthServiceServer {
 	options := []grpctransport.ServerOption{
-		grpctransport.ServerErrorHandler(transport.NewLogErrorHandler(logger)),
+		grpctransport.ServerErrorHandler(transport.NewLogErrorHandler(level.Error(logger))),
 	}
+
 	return &grpcServer{
 		createAccount: grpctransport.NewServer(
 			endpoints.CreateAccountEndpoint,

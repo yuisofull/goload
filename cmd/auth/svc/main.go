@@ -79,9 +79,8 @@ func main() {
 		tokenStore     = store.TokenPublicKeyStore
 		publicKeyCache = rediscache.New[authcache.TokenPublicKeyCacheKey, []byte](redisClient, "auth:token_public_key")
 	)
-
 	{
-		tokenStore = authcache.NewTokenPublicKeyStore(publicKeyCache, store)
+		tokenStore = authcache.NewTokenPublicKeyStore(logger, publicKeyCache, store)
 		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, tokenStore)
 		if err != nil {
 			level.Error(logger).Log("err", err)
@@ -93,7 +92,7 @@ func main() {
 		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
 		hasher       = auth.NewPasswordHasher(bcryptHasher)
 		nameCache    = rediscache.New[authcache.AccountNameTakenSetKey, string](redisClient, "auth:account_name")
-		accountStore = authcache.NewAccountStore(nameCache, store)
+		accountStore = authcache.NewAccountStore(logger, nameCache, store)
 		service      = auth.NewService(accountStore, store, store, hasher, tokenManager)
 		endpointSet  = authendpoint.New(service)
 		grpcServer   = authtransport.NewGRPCServer(endpointSet, logger)

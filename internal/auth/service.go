@@ -86,15 +86,17 @@ func NewService(
 }
 
 func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error) {
-	if exists, err := s.isAccountNameTaken(ctx, params.AccountName); err != nil {
-		return CreateAccountOutput{}, err
-	} else if exists {
-		return CreateAccountOutput{}, ErrAccountAlreadyExists
+	exists, err := s.isAccountNameTaken(ctx, params.AccountName)
+	if err != nil {
+		return CreateAccountOutput{}, NewServiceError(ErrCodeInternal, "checking account name failed", err)
+	}
+	if exists {
+		return CreateAccountOutput{}, NewServiceError(ErrCodeAlreadyExists, "account already exists", nil)
 	}
 
 	hash, err := s.passwordHasher.Hash(ctx, params.Password)
 	if err != nil {
-		return CreateAccountOutput{}, err
+		return CreateAccountOutput{}, NewServiceError(ErrCodeInternal, "hashing password failed", err)
 	}
 
 	var (
@@ -104,20 +106,21 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 	)
 
 	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
-		account = &Account{
-			AccountName: params.AccountName,
-		}
+		account = &Account{AccountName: params.AccountName}
 
-		accountID, err := s.accountStore.CreateAccount(ctx, account)
+		accountID, err = s.accountStore.CreateAccount(ctx, account)
 		if err != nil {
-			return err
+			return NewServiceError(ErrCodeInternal, "creating account failed", err)
 		}
 
 		accountPassword = &AccountPassword{
 			OfAccountId:    accountID,
 			HashedPassword: hash,
 		}
-		return s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword)
+		if err := s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword); err != nil {
+			return NewServiceError(ErrCodeInternal, "storing account password failed", err)
+		}
+		return nil
 	}); err != nil {
 		return CreateAccountOutput{}, err
 	}
@@ -126,32 +129,29 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 		ID:          accountID,
 		AccountName: account.AccountName,
 	}, nil
-
 }
 
 func (s *service) CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error) {
 	account, err := s.accountStore.GetAccountByAccountName(ctx, params.AccountName)
-	if err != nil {
-		return CreateSessionOutput{}, err
+	if err != nil || account == nil {
+		return CreateSessionOutput{}, NewServiceError(ErrCodeNotFound, "account not found", err)
 	}
 
 	accountPassword, err := s.accountPasswordStore.GetAccountPassword(ctx, account.Id)
 	if err != nil {
-		return CreateSessionOutput{}, err
+		return CreateSessionOutput{}, NewServiceError(ErrCodeInternal, "failed to get password", err)
 	}
 
 	if err := s.passwordHasher.Verify(ctx, params.Password, accountPassword.HashedPassword); err != nil {
-		return CreateSessionOutput{}, err
+		return CreateSessionOutput{}, NewServiceError(ErrCodeInvalidPassword, "invalid password", err)
 	}
 
 	token, err := s.tokenManager.Sign(account.Id)
 	if err != nil {
-		return CreateSessionOutput{}, err
+		return CreateSessionOutput{}, NewServiceError(ErrCodeInternal, "token signing failed", err)
 	}
 
-	return CreateSessionOutput{
-		Token: token,
-	}, nil
+	return CreateSessionOutput{Token: token}, nil
 }
 
 func (s *service) isAccountNameTaken(ctx context.Context, accountName string) (bool, error) {
