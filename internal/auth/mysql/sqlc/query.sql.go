@@ -25,8 +25,8 @@ VALUES (?, ?)
 `
 
 type CreateAccountPasswordParams struct {
-	OfAccountID    uint64 `json:"of_account_id"`
-	HashedPassword string `json:"hashed_password"`
+	OfAccountID    sql.NullInt64 `json:"of_account_id"`
+	HashedPassword string        `json:"hashed_password"`
 }
 
 func (q *Queries) CreateAccountPassword(ctx context.Context, arg CreateAccountPasswordParams) error {
@@ -39,7 +39,7 @@ INSERT INTO token_public_keys (public_key)
 VALUES (?)
 `
 
-func (q *Queries) CreateTokenPublicKey(ctx context.Context, publicKey []byte) (sql.Result, error) {
+func (q *Queries) CreateTokenPublicKey(ctx context.Context, publicKey string) (sql.Result, error) {
 	return q.db.ExecContext(ctx, createTokenPublicKey, publicKey)
 }
 
@@ -62,7 +62,7 @@ FROM accounts
 WHERE id = ?
 `
 
-func (q *Queries) GetAccountByID(ctx context.Context, id uint64) (Account, error) {
+func (q *Queries) GetAccountByID(ctx context.Context, id sql.NullInt64) (Account, error) {
 	row := q.db.QueryRowContext(ctx, getAccountByID, id)
 	var i Account
 	err := row.Scan(&i.ID, &i.AccountName)
@@ -75,7 +75,7 @@ FROM account_passwords
 WHERE of_account_id = ?
 `
 
-func (q *Queries) GetAccountPassword(ctx context.Context, ofAccountID uint64) (AccountPassword, error) {
+func (q *Queries) GetAccountPassword(ctx context.Context, ofAccountID sql.NullInt64) (AccountPassword, error) {
 	row := q.db.QueryRowContext(ctx, getAccountPassword, ofAccountID)
 	var i AccountPassword
 	err := row.Scan(&i.OfAccountID, &i.HashedPassword)
@@ -88,7 +88,7 @@ FROM token_public_keys
 WHERE id = ?
 `
 
-func (q *Queries) GetTokenPublicKey(ctx context.Context, id uint64) (TokenPublicKey, error) {
+func (q *Queries) GetTokenPublicKey(ctx context.Context, id sql.NullInt64) (TokenPublicKey, error) {
 	row := q.db.QueryRowContext(ctx, getTokenPublicKey, id)
 	var i TokenPublicKey
 	err := row.Scan(&i.ID, &i.PublicKey)
@@ -102,8 +102,8 @@ WHERE of_account_id = ?
 `
 
 type UpdateAccountPasswordParams struct {
-	HashedPassword string `json:"hashed_password"`
-	OfAccountID    uint64 `json:"of_account_id"`
+	HashedPassword string        `json:"hashed_password"`
+	OfAccountID    sql.NullInt64 `json:"of_account_id"`
 }
 
 func (q *Queries) UpdateAccountPassword(ctx context.Context, arg UpdateAccountPasswordParams) error {

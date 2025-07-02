@@ -1,17 +1,20 @@
-CREATE TABLE accounts
+CREATE TABLE IF NOT EXISTS accounts
 (
-    id           BIGINT UNSIGNED PRIMARY KEY,
-    account_name VARCHAR(256) NOT NULL
+    id           BIGINT UNSIGNED AUTO_INCREMENT,
+    account_name VARCHAR(256) NOT NULL,
+    PRIMARY KEY (id)
 );
 
-CREATE TABLE account_passwords
+CREATE TABLE IF NOT EXISTS account_passwords
 (
-    of_account_id   BIGINT UNSIGNED PRIMARY KEY,
-    hashed_password VARCHAR(128) NOT NULL
+    of_account_id   BIGINT UNSIGNED AUTO_INCREMENT,
+    hashed_password VARCHAR(128) NOT NULL,
+    PRIMARY KEY (of_account_id)
 );
 
-CREATE TABLE token_public_keys
+CREATE TABLE IF NOT EXISTS token_public_keys
 (
-    id         BIGINT UNSIGNED PRIMARY KEY,
-    public_key VARBINARY(512) NOT NULL
+    id         BIGINT UNSIGNED AUTO_INCREMENT,
+    public_key TEXT NOT NULL,
+    PRIMARY KEY (id)
 );
