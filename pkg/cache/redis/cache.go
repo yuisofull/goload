@@ -73,3 +73,52 @@ func (c *RedisCache[K, V]) Len(ctx context.Context) int {
 	}
 	return len(keys)
 }
+
+func (c *RedisCache[K, V]) Add(ctx context.Context, key K, members ...V) error {
+	vals := make([]interface{}, len(members))
+	for i, m := range members {
+		b, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		vals[i] = b
+	}
+	return c.client.SAdd(ctx, c.key(key), vals...).Err()
+}
+
+func (c *RedisCache[K, V]) Remove(ctx context.Context, key K, members ...V) error {
+	vals := make([]interface{}, len(members))
+	for i, m := range members {
+		b, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		vals[i] = b
+	}
+	return c.client.SRem(ctx, c.key(key), vals...).Err()
+}
+
+func (c *RedisCache[K, V]) Contains(ctx context.Context, key K, member V) (bool, error) {
+	b, err := json.Marshal(member)
+	if err != nil {
+		return false, err
+	}
+	return c.client.SIsMember(ctx, c.key(key), b).Result()
+}
+
+func (c *RedisCache[K, V]) Members(ctx context.Context, key K) ([]V, error) {
+	raw, err := c.client.SMembers(ctx, c.key(key)).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]V, 0, len(raw))
+	for _, str := range raw {
+		var v V
+		if err := json.Unmarshal([]byte(str), &v); err != nil {
+			continue // skip bad entry
+		}
+		result = append(result, v)
+	}
+	return result, nil
+}

@@ -25,3 +25,10 @@ type Cache[K comparable, V any] interface {
 	// Len will return the number of values stored in the cache.
 	Len(ctx context.Context) int
 }
+
+type SetCache[K comparable, V any] interface {
+	Add(ctx context.Context, key K, members ...V) error
+	Remove(ctx context.Context, key K, members ...V) error
+	Members(ctx context.Context, key K) ([]V, error)
+	Contains(ctx context.Context, key K, member V) (bool, error)
+}
