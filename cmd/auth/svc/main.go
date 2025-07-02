@@ -8,12 +8,15 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
+	"github.com/redis/go-redis/v9"
 	"github.com/yuisofull/goload/internal/auth"
+	authcache "github.com/yuisofull/goload/internal/auth/cache"
 	authendpoint "github.com/yuisofull/goload/internal/auth/endpoint"
 	authmysql "github.com/yuisofull/goload/internal/auth/mysql"
 	authpb "github.com/yuisofull/goload/internal/auth/pb"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
 	"github.com/yuisofull/goload/internal/configs"
+	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 	"github.com/yuisofull/goload/pkg/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"net"
@@ -39,12 +42,31 @@ func main() {
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
 
-	store, closeStore, err := authmysql.New(config.MySQL)
-	if err != nil {
-		level.Error(logger).Log("err", err)
-		os.Exit(1)
+	var redisClient *redis.Client
+	{
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     config.Redis.Address,
+			Username: config.Redis.Username,
+			Password: config.Redis.Password,
+		})
+
+		_, err = redisClient.Ping(ctx).Result()
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			os.Exit(1)
+		}
 	}
-	defer closeStore()
+
+	var store authmysql.Store
+	{
+		var closeStore func()
+		store, closeStore, err = authmysql.New(config.MySQL)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			os.Exit(1)
+		}
+		defer closeStore()
+	}
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, config.Auth.Token.JWTRS512.RSABits)
 	if err != nil {
@@ -52,16 +74,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	tokenManager, err := auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, store)
-	if err != nil {
-		level.Error(logger).Log("err", err)
-		os.Exit(1)
+	var (
+		tokenManager   auth.TokenManager
+		tokenStore     = store.TokenPublicKeyStore
+		publicKeyCache = rediscache.New[authcache.TokenPublicKeyCacheKey, []byte](redisClient, "auth:token_public_key")
+	)
+
+	{
+		tokenStore = authcache.NewTokenPublicKeyStore(publicKeyCache, store)
+		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, tokenStore)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			os.Exit(1)
+		}
 	}
 
 	var (
 		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
 		hasher       = auth.NewPasswordHasher(bcryptHasher)
-		service      = auth.NewService(store, store, store, hasher, tokenManager)
+		nameCache    = rediscache.New[authcache.AccountNameTakenSetKey, string](redisClient, "auth:account_name")
+		accountStore = authcache.NewAccountStore(nameCache, store)
+		service      = auth.NewService(accountStore, store, store, hasher, tokenManager)
 		endpointSet  = authendpoint.New(service)
 		grpcServer   = authtransport.NewGRPCServer(endpointSet, logger)
 	)

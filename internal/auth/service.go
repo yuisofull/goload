@@ -86,7 +86,7 @@ func NewService(
 }
 
 func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error) {
-	if exists, err := s.isAccountNameExists(ctx, params.AccountName); err != nil {
+	if exists, err := s.isAccountNameTaken(ctx, params.AccountName); err != nil {
 		return CreateAccountOutput{}, err
 	} else if exists {
 		return CreateAccountOutput{}, ErrAccountAlreadyExists
@@ -154,7 +154,7 @@ func (s *service) CreateSession(ctx context.Context, params CreateSessionParams)
 	}, nil
 }
 
-func (s *service) isAccountNameExists(ctx context.Context, accountName string) (bool, error) {
+func (s *service) isAccountNameTaken(ctx context.Context, accountName string) (bool, error) {
 	account, err := s.accountStore.GetAccountByAccountName(ctx, accountName)
 	if err != nil || account == nil {
 		return false, err

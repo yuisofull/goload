@@ -1,0 +1,42 @@
+package authcache
+
+import (
+	"context"
+	"github.com/yuisofull/goload/internal/auth"
+	"github.com/yuisofull/goload/pkg/cache"
+)
+
+type tokenPublicKeyStoreCache struct {
+	cache cache.Cache[TokenPublicKeyCacheKey, []byte]
+	next  auth.TokenPublicKeyStore
+}
+
+type TokenPublicKeyCacheKey struct {
+	kid uint64
+}
+
+func NewTokenPublicKeyStore(cache cache.Cache[TokenPublicKeyCacheKey, []byte], next auth.TokenPublicKeyStore) auth.TokenPublicKeyStore {
+	return &tokenPublicKeyStoreCache{
+		cache: cache,
+		next:  next,
+	}
+}
+
+func (t *tokenPublicKeyStoreCache) CreateTokenPublicKey(ctx context.Context, tokenPublicKey *auth.TokenPublicKey) (kid uint64, err error) {
+	t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0)
+	return t.next.CreateTokenPublicKey(ctx, tokenPublicKey)
+}
+
+func (t *tokenPublicKeyStoreCache) GetTokenPublicKey(ctx context.Context, kid uint64) (auth.TokenPublicKey, error) {
+	if v, ok := t.cache.Get(ctx, TokenPublicKeyCacheKey{kid: kid}); ok {
+		return auth.TokenPublicKey{Id: kid, PublicKey: v}, nil
+	}
+
+	tokenPublicKey, err := t.next.GetTokenPublicKey(ctx, kid)
+	if err != nil {
+		return auth.TokenPublicKey{}, err
+	}
+
+	t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0)
+	return tokenPublicKey, nil
+}
