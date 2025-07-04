@@ -12,8 +12,7 @@ type item[V any] struct {
 }
 
 type Cache[K comparable, V any] struct {
-	mu     sync.RWMutex
-	data   map[K]item[V]
+	data   sync.Map // key: K, value: item[V]
 	ticker *time.Ticker
 	stop   chan struct{}
 }
@@ -21,7 +20,6 @@ type Cache[K comparable, V any] struct {
 // New creates a new memory cache with a background reaper.
 func New[K comparable, V any](reapInterval time.Duration) (cache *Cache[K, V], closeFunc func()) {
 	c := &Cache[K, V]{
-		data:   make(map[K]item[V]),
 		ticker: time.NewTicker(reapInterval),
 		stop:   make(chan struct{}),
 	}
@@ -33,35 +31,29 @@ func New[K comparable, V any](reapInterval time.Duration) (cache *Cache[K, V], c
 }
 
 func (c *Cache[K, V]) Set(_ context.Context, key K, value V, ttl time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	var exp time.Time
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
-	c.data[key] = item[V]{value, exp}
+	c.data.Store(key, item[V]{value: value, expiration: exp})
 }
 
 func (c *Cache[K, V]) Get(_ context.Context, key K) (V, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	var zero V
-	it, ok := c.data[key]
+	val, ok := c.data.Load(key)
 	if !ok {
 		return zero, false
 	}
+	it := val.(item[V])
 	if !it.expiration.IsZero() && time.Now().After(it.expiration) {
+		c.data.Delete(key)
 		return zero, false
 	}
 	return it.value, true
 }
 
 func (c *Cache[K, V]) Delete(_ context.Context, key K) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.data, key)
+	c.data.Delete(key)
 }
 
 func (c *Cache[K, V]) Has(ctx context.Context, key K) bool {
@@ -70,15 +62,19 @@ func (c *Cache[K, V]) Has(ctx context.Context, key K) bool {
 }
 
 func (c *Cache[K, V]) Clear(_ context.Context) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.data = make(map[K]item[V])
+	c.data.Range(func(key, _ any) bool {
+		c.data.Delete(key)
+		return true
+	})
 }
 
 func (c *Cache[K, V]) Len(_ context.Context) int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return len(c.data)
+	count := 0
+	c.data.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return count
 }
 
 func (c *Cache[K, V]) reap() {
@@ -86,13 +82,13 @@ func (c *Cache[K, V]) reap() {
 		select {
 		case <-c.ticker.C:
 			now := time.Now()
-			c.mu.Lock()
-			for k, v := range c.data {
-				if !v.expiration.IsZero() && v.expiration.Before(now) {
-					delete(c.data, k)
+			c.data.Range(func(key, value any) bool {
+				it := value.(item[V])
+				if !it.expiration.IsZero() && it.expiration.Before(now) {
+					c.data.Delete(key)
 				}
-			}
-			c.mu.Unlock()
+				return true
+			})
 		case <-c.stop:
 			return
 		}
