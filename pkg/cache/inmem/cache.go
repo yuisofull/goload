@@ -18,16 +18,13 @@ type Cache[K comparable, V any] struct {
 }
 
 // New creates a new memory cache with a background reaper.
-func New[K comparable, V any](reapInterval time.Duration) (cache *Cache[K, V], closeFunc func()) {
+func New[K comparable, V any](reapInterval time.Duration) (cache *Cache[K, V]) {
 	c := &Cache[K, V]{
 		ticker: time.NewTicker(reapInterval),
 		stop:   make(chan struct{}),
 	}
 	go c.reap()
-	return c, func() {
-		c.ticker.Stop()
-		close(c.stop)
-	}
+	return c
 }
 
 func (c *Cache[K, V]) Set(_ context.Context, key K, value V, ttl time.Duration) {
@@ -93,4 +90,9 @@ func (c *Cache[K, V]) reap() {
 			return
 		}
 	}
+}
+
+func (c *Cache[K, V]) Close() {
+	close(c.stop)
+	c.ticker.Stop()
 }

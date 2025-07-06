@@ -2,26 +2,28 @@ package authcache
 
 import (
 	"context"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
+	"fmt"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/pkg/cache"
 )
 
+type CacheErrorHandler func(context.Context, error)
+
 type tokenPublicKeyStoreCache struct {
-	logger log.Logger
-	cache  cache.Cache[TokenPublicKeyCacheKey, []byte]
-	next   auth.TokenPublicKeyStore
+	cacheErrorHandler CacheErrorHandler
+	cache             cache.Cache[TokenPublicKeyCacheKey, []byte]
+	next              auth.TokenPublicKeyStore
 }
 
 type TokenPublicKeyCacheKey struct {
 	kid uint64
 }
 
-func NewTokenPublicKeyStore(logger log.Logger, cache cache.Cache[TokenPublicKeyCacheKey, []byte], next auth.TokenPublicKeyStore) auth.TokenPublicKeyStore {
+func NewTokenPublicKeyStore(cache cache.Cache[TokenPublicKeyCacheKey, []byte], next auth.TokenPublicKeyStore, cacheErrorHandler CacheErrorHandler) auth.TokenPublicKeyStore {
 	return &tokenPublicKeyStoreCache{
-		cache: cache,
-		next:  next,
+		cache:             cache,
+		next:              next,
+		cacheErrorHandler: cacheErrorHandler,
 	}
 }
 
@@ -34,8 +36,7 @@ func (t *tokenPublicKeyStoreCache) GetTokenPublicKey(ctx context.Context, kid ui
 	if v, ok := t.cache.Get(ctx, TokenPublicKeyCacheKey{kid: kid}); ok {
 		return auth.TokenPublicKey{Id: kid, PublicKey: v}, nil
 	}
-	level.Info(t.logger).Log("msg", "token public key not found in cache, fetching from db", "kid", kid)
-
+	t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", ErrCacheMiss))
 	tokenPublicKey, err := t.next.GetTokenPublicKey(ctx, kid)
 	if err != nil {
 		return auth.TokenPublicKey{}, err

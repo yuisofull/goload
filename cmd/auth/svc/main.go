@@ -57,15 +57,14 @@ func main() {
 		}
 	}
 
-	var store authmysql.Store
+	var store *authmysql.Store
 	{
-		var closeStore func()
-		store, closeStore, err = authmysql.New(config.MySQL)
+		store, err = authmysql.New(config.MySQL)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			os.Exit(1)
 		}
-		defer closeStore()
+		defer store.Close()
 	}
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, config.Auth.Token.JWTRS512.RSABits)
@@ -80,7 +79,10 @@ func main() {
 		publicKeyCache = rediscache.New[authcache.TokenPublicKeyCacheKey, []byte](redisClient, "auth:token_public_key")
 	)
 	{
-		tokenStore = authcache.NewTokenPublicKeyStore(logger, publicKeyCache, store)
+		cacheErrorHandler := func(ctx context.Context, err error) {
+			level.Error(logger).Log("err", err)
+		}
+		tokenStore = authcache.NewTokenPublicKeyStore(publicKeyCache, store, cacheErrorHandler)
 		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, tokenStore)
 		if err != nil {
 			level.Error(logger).Log("err", err)
@@ -89,10 +91,13 @@ func main() {
 	}
 
 	var (
-		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
-		hasher       = auth.NewPasswordHasher(bcryptHasher)
-		nameCache    = rediscache.New[authcache.AccountNameTakenSetKey, string](redisClient, "auth:account_name")
-		accountStore = authcache.NewAccountStore(logger, nameCache, store)
+		bcryptHasher      = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
+		hasher            = auth.NewPasswordHasher(bcryptHasher)
+		nameCache         = rediscache.New[authcache.AccountNameTakenSetKey, string](redisClient, "auth:account_name")
+		cacheErrorHandler = func(ctx context.Context, err error) {
+			level.Error(logger).Log("err", err)
+		}
+		accountStore = authcache.NewAccountStore(nameCache, store, cacheErrorHandler)
 		service      = auth.NewService(accountStore, store, store, hasher, tokenManager)
 		endpointSet  = authendpoint.New(service)
 		grpcServer   = authtransport.NewGRPCServer(endpointSet, logger)

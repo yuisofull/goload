@@ -2,21 +2,25 @@ package authcache
 
 import (
 	"context"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
+	"errors"
+	"fmt"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/pkg/cache"
 )
 
+var (
+	ErrCacheMiss = errors.New("cache miss")
+)
+
 type accountStoreCache struct {
-	logger    log.Logger
-	nameCache cache.SetCache[AccountNameTakenSetKey, string]
-	next      auth.AccountStore
+	cacheErrorHandler CacheErrorHandler
+	nameCache         cache.SetCache[AccountNameTakenSetKey, string]
+	next              auth.AccountStore
 }
 
 type AccountNameTakenSetKey struct{}
 
-func NewAccountStore(logger log.Logger, nameCache cache.SetCache[AccountNameTakenSetKey, string], next auth.AccountStore) auth.AccountStore {
+func NewAccountStore(nameCache cache.SetCache[AccountNameTakenSetKey, string], next auth.AccountStore, cacheErrorHandler CacheErrorHandler) auth.AccountStore {
 	return &accountStoreCache{
 		nameCache: nameCache,
 		next:      next,
@@ -30,9 +34,7 @@ func (a *accountStoreCache) CreateAccount(ctx context.Context, account *auth.Acc
 		return 0, auth.ErrAccountAlreadyExists
 	}
 
-	if err != nil {
-		level.Error(a.logger).Log("err", err)
-	}
+	a.cacheErrorHandler(ctx, err)
 
 	accountID, err := a.next.CreateAccount(ctx, account)
 	if err != nil {
@@ -40,7 +42,7 @@ func (a *accountStoreCache) CreateAccount(ctx context.Context, account *auth.Acc
 	}
 
 	if err := a.nameCache.Add(ctx, AccountNameTakenSetKey{}, account.AccountName); err != nil {
-		level.Error(a.logger).Log("err", err)
+		a.cacheErrorHandler(ctx, fmt.Errorf("failed to add account name to cache: %w", err))
 	}
 
 	return accountID, nil
