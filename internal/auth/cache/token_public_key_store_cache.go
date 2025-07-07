@@ -2,6 +2,7 @@ package authcache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/pkg/cache"
@@ -28,20 +29,31 @@ func NewTokenPublicKeyStore(cache cache.Cache[TokenPublicKeyCacheKey, []byte], n
 }
 
 func (t *tokenPublicKeyStoreCache) CreateTokenPublicKey(ctx context.Context, tokenPublicKey *auth.TokenPublicKey) (kid uint64, err error) {
-	t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0)
+	if err := t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0); err != nil {
+		t.cacheErrorHandler(ctx, fmt.Errorf("failed to set token public key to cache: %w", err))
+	}
 	return t.next.CreateTokenPublicKey(ctx, tokenPublicKey)
 }
 
 func (t *tokenPublicKeyStoreCache) GetTokenPublicKey(ctx context.Context, kid uint64) (auth.TokenPublicKey, error) {
-	if v, ok := t.cache.Get(ctx, TokenPublicKeyCacheKey{kid: kid}); ok {
+	v, err := t.cache.Get(ctx, TokenPublicKeyCacheKey{kid: kid})
+	if err == nil {
 		return auth.TokenPublicKey{Id: kid, PublicKey: v}, nil
 	}
-	t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", ErrCacheMiss))
+
+	if !errors.Is(err, cache.Nil) {
+		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", err))
+	} else {
+		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", ErrCacheMiss))
+	}
+
 	tokenPublicKey, err := t.next.GetTokenPublicKey(ctx, kid)
 	if err != nil {
 		return auth.TokenPublicKey{}, err
 	}
 
-	t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0)
+	if err := t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0); err != nil {
+		t.cacheErrorHandler(ctx, fmt.Errorf("failed to set token public key to cache: %w", err))
+	}
 	return tokenPublicKey, nil
 }

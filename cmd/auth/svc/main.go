@@ -76,7 +76,15 @@ func main() {
 	var (
 		tokenManager   auth.TokenManager
 		tokenStore     = store.TokenPublicKeyStore
-		publicKeyCache = rediscache.New[authcache.TokenPublicKeyCacheKey, []byte](redisClient, "auth:token_public_key")
+		publicKeyCache = rediscache.New[authcache.TokenPublicKeyCacheKey, []byte](
+			redisClient,
+			rediscache.WithKeyEncoder[authcache.TokenPublicKeyCacheKey, []byte](
+				rediscache.PrefixKeyEncoder[authcache.TokenPublicKeyCacheKey]{
+					Prefix: "auth:token_public_key",
+					Inner:  rediscache.DefaultKeyEncoder[authcache.TokenPublicKeyCacheKey]{},
+				},
+			),
+		)
 	)
 	{
 		cacheErrorHandler := func(ctx context.Context, err error) {
@@ -91,9 +99,17 @@ func main() {
 	}
 
 	var (
-		bcryptHasher      = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
-		hasher            = auth.NewPasswordHasher(bcryptHasher)
-		nameCache         = rediscache.New[authcache.AccountNameTakenSetKey, string](redisClient, "auth:account_name")
+		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
+		hasher       = auth.NewPasswordHasher(bcryptHasher)
+		nameCache    = rediscache.New[authcache.AccountNameTakenSetKey, string](
+			redisClient,
+			rediscache.WithKeyEncoder[authcache.AccountNameTakenSetKey, string](
+				rediscache.PrefixKeyEncoder[authcache.AccountNameTakenSetKey]{
+					Prefix: "auth:account_name",
+					Inner:  rediscache.DefaultKeyEncoder[authcache.AccountNameTakenSetKey]{},
+				},
+			),
+		)
 		cacheErrorHandler = func(ctx context.Context, err error) {
 			level.Error(logger).Log("err", err)
 		}
