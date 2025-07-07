@@ -86,19 +86,32 @@ func New(svc auth.Service) Set {
 }
 
 func (e *Set) CreateAccount(ctx context.Context, params auth.CreateAccountParams) (auth.CreateAccountOutput, error) {
-	out, err := e.CreateAccountEndpoint(ctx, &CreateAccountRequest{
+	resp, err := e.CreateAccountEndpoint(ctx, &CreateAccountRequest{
 		AccountName: params.AccountName,
 		Password:    params.Password,
 	})
+	if err != nil {
+		return auth.CreateAccountOutput{}, err
+	}
+	out := resp.(*CreateAccountResponse)
 
-	return out.(auth.CreateAccountOutput), err
+	return auth.CreateAccountOutput{
+		ID:          out.AccountId,
+		AccountName: params.AccountName,
+	}, nil
 }
 
 func (e *Set) CreateSession(ctx context.Context, params auth.CreateSessionParams) (auth.CreateSessionOutput, error) {
-	out, err := e.CreateSessionEndpoint(ctx, &CreateSessionRequest{
+	resp, err := e.CreateSessionEndpoint(ctx, &CreateSessionRequest{
 		AccountName: params.AccountName,
 		Password:    params.Password,
 	})
+	if err != nil {
+		return auth.CreateSessionOutput{}, err
+	}
+	out := resp.(*CreateSessionResponse)
 
-	return out.(auth.CreateSessionOutput), err
+	return auth.CreateSessionOutput{
+		Token: out.Token,
+	}, nil
 }

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	error2 "github.com/yuisofull/goload/internal/errors"
 	"time"
 )
 
@@ -88,15 +89,15 @@ func NewService(
 func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error) {
 	exists, err := s.isAccountNameTaken(ctx, params.AccountName)
 	if err != nil {
-		return CreateAccountOutput{}, NewServiceError(ErrCodeInternal, "checking account name failed", err)
+		return CreateAccountOutput{}, error2.NewServiceError(error2.ErrCodeInternal, "checking account name failed", err)
 	}
 	if exists {
-		return CreateAccountOutput{}, NewServiceError(ErrCodeAlreadyExists, "account already exists", nil)
+		return CreateAccountOutput{}, error2.NewServiceError(error2.ErrCodeAlreadyExists, "account already exists", nil)
 	}
 
 	hash, err := s.passwordHasher.Hash(ctx, params.Password)
 	if err != nil {
-		return CreateAccountOutput{}, NewServiceError(ErrCodeInternal, "hashing password failed", err)
+		return CreateAccountOutput{}, error2.NewServiceError(error2.ErrCodeInternal, "hashing password failed", err)
 	}
 
 	var (
@@ -110,7 +111,7 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 
 		accountID, err = s.accountStore.CreateAccount(ctx, account)
 		if err != nil {
-			return NewServiceError(ErrCodeInternal, "creating account failed", err)
+			return error2.NewServiceError(error2.ErrCodeInternal, "creating account failed", err)
 		}
 
 		accountPassword = &AccountPassword{
@@ -118,7 +119,7 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 			HashedPassword: hash,
 		}
 		if err := s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword); err != nil {
-			return NewServiceError(ErrCodeInternal, "storing account password failed", err)
+			return error2.NewServiceError(error2.ErrCodeInternal, "storing account password failed", err)
 		}
 		return nil
 	}); err != nil {
@@ -134,21 +135,21 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 func (s *service) CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error) {
 	account, err := s.accountStore.GetAccountByAccountName(ctx, params.AccountName)
 	if err != nil || account == nil {
-		return CreateSessionOutput{}, NewServiceError(ErrCodeNotFound, "account not found", err)
+		return CreateSessionOutput{}, error2.NewServiceError(error2.ErrCodeNotFound, "account not found", err)
 	}
 
 	accountPassword, err := s.accountPasswordStore.GetAccountPassword(ctx, account.Id)
 	if err != nil {
-		return CreateSessionOutput{}, NewServiceError(ErrCodeInternal, "failed to get password", err)
+		return CreateSessionOutput{}, error2.NewServiceError(error2.ErrCodeInternal, "failed to get password", err)
 	}
 
 	if err := s.passwordHasher.Verify(ctx, params.Password, accountPassword.HashedPassword); err != nil {
-		return CreateSessionOutput{}, NewServiceError(ErrCodeInvalidPassword, "invalid password", err)
+		return CreateSessionOutput{}, error2.NewServiceError(ErrCodeInvalidPassword, "invalid password", err)
 	}
 
 	token, err := s.tokenManager.Sign(account.Id)
 	if err != nil {
-		return CreateSessionOutput{}, NewServiceError(ErrCodeInternal, "token signing failed", err)
+		return CreateSessionOutput{}, error2.NewServiceError(error2.ErrCodeInternal, "token signing failed", err)
 	}
 
 	return CreateSessionOutput{Token: token}, nil

@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"github.com/golang-jwt/jwt/v5"
+	error2 "github.com/yuisofull/goload/internal/errors"
 	internalrsa "github.com/yuisofull/goload/pkg/crypto/rsa"
 	"time"
 )
@@ -81,21 +82,21 @@ func (t *jwtRS256TokenManager) GetAccountIDFrom(tokenStr string) (uint64, error)
 	parsedToken, err := t.parseToken(tokenStr)
 
 	if err != nil {
-		return 0, err
+		return 0, error2.NewServiceError(ErrCodeInvalidToken, "cannot parse token", err)
 	}
 
 	if !parsedToken.Valid {
-		return 0, errors.New("invalid token")
+		return 0, error2.NewServiceError(ErrCodeInvalidToken, "invalid token", err)
 	}
 
 	claims, ok := parsedToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return 0, errors.New("cannot get token's claims")
+		return 0, error2.NewServiceError(ErrCodeInvalidToken, "cannot get token's claims", err)
 	}
 
 	accountID, ok := claims["account_id"].(float64)
 	if !ok {
-		return 0, errors.New("cannot get token's account id")
+		return 0, error2.NewServiceError(ErrCodeInvalidToken, "cannot get token's account id", err)
 	}
 
 	return uint64(accountID), nil
@@ -109,17 +110,17 @@ func (t *jwtRS256TokenManager) GetExpiryFrom(token string) (time.Time, error) {
 	}
 
 	if !parsedToken.Valid {
-		return time.Time{}, errors.New("invalid token")
+		return time.Time{}, error2.NewServiceError(ErrCodeInvalidToken, "invalid token", err)
 	}
 
 	claims, ok := parsedToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return time.Time{}, errors.New("cannot get token's claims")
+		return time.Time{}, error2.NewServiceError(ErrCodeInvalidToken, "cannot get token's claims", err)
 	}
 
 	exp, ok := claims["exp"].(float64)
 	if !ok {
-		return time.Time{}, errors.New("cannot get token's expiry")
+		return time.Time{}, error2.NewServiceError(ErrCodeInvalidToken, "cannot get token's expiry", err)
 	}
 
 	return time.Unix(int64(exp), 0), nil

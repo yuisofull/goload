@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/go-kit/log/level"
 	"github.com/yuisofull/goload/internal/auth/endpoint"
+	internalerrors "github.com/yuisofull/goload/internal/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -41,21 +42,19 @@ func (s *grpcServer) CreateSession(ctx context.Context, req *pb.CreateSessionReq
 }
 
 func encodeError(_ context.Context, err error) error {
-	var svcErr *auth.ServiceError
+	var svcErr *internalerrors.ServiceError
 	if errors.As(err, &svcErr) {
 		switch svcErr.Code {
-		case auth.ErrCodeAlreadyExists:
-			return status.Error(codes.AlreadyExists, svcErr.Message)
-		case auth.ErrCodeNotFound:
-			return status.Error(codes.NotFound, svcErr.Message)
 		case auth.ErrCodeInvalidPassword:
+			return status.Error(codes.Unauthenticated, svcErr.Message)
+		case auth.ErrCodeInvalidToken:
 			return status.Error(codes.Unauthenticated, svcErr.Message)
 		default:
 			return status.Error(codes.Internal, svcErr.Message)
 		}
 	}
 
-	return status.Error(codes.Unknown, err.Error())
+	return internalerrors.EncodeGRPCError(err)
 }
 
 func NewGRPCServer(endpoints authendpoint.Set, logger log.Logger) pb.AuthServiceServer {
