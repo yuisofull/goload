@@ -2,6 +2,7 @@ package inmem
 
 import (
 	"context"
+	"github.com/yuisofull/goload/pkg/cache"
 	"sync"
 	"time"
 )
@@ -27,51 +28,57 @@ func New[K comparable, V any](reapInterval time.Duration) (cache *Cache[K, V]) {
 	return c
 }
 
-func (c *Cache[K, V]) Set(_ context.Context, key K, value V, ttl time.Duration) {
+func (c *Cache[K, V]) Set(_ context.Context, key K, value V, ttl time.Duration) error {
 	var exp time.Time
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
 	c.data.Store(key, item[V]{value: value, expiration: exp})
+	return nil
 }
 
-func (c *Cache[K, V]) Get(_ context.Context, key K) (V, bool) {
+func (c *Cache[K, V]) Get(_ context.Context, key K) (V, error) {
 	var zero V
 	val, ok := c.data.Load(key)
 	if !ok {
-		return zero, false
+		return zero, cache.Nil
 	}
 	it := val.(item[V])
 	if !it.expiration.IsZero() && time.Now().After(it.expiration) {
 		c.data.Delete(key)
-		return zero, false
+		return zero, cache.Nil
 	}
-	return it.value, true
+	return it.value, nil
 }
 
-func (c *Cache[K, V]) Delete(_ context.Context, key K) {
+func (c *Cache[K, V]) Delete(_ context.Context, key K) error {
 	c.data.Delete(key)
+	return nil
 }
 
-func (c *Cache[K, V]) Has(ctx context.Context, key K) bool {
-	_, ok := c.Get(ctx, key)
-	return ok
+func (c *Cache[K, V]) Has(ctx context.Context, key K) (bool, error) {
+	_, err := c.Get(ctx, key)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-func (c *Cache[K, V]) Clear(_ context.Context) {
+func (c *Cache[K, V]) Clear(_ context.Context) error {
 	c.data.Range(func(key, _ any) bool {
 		c.data.Delete(key)
 		return true
 	})
+	return nil
 }
 
-func (c *Cache[K, V]) Len(_ context.Context) int {
+func (c *Cache[K, V]) Len(_ context.Context) (int, error) {
 	count := 0
 	c.data.Range(func(_, _ any) bool {
 		count++
 		return true
 	})
-	return count
+	return count, nil
 }
 
 func (c *Cache[K, V]) reap() {
