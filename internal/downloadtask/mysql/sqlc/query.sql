@@ -2,8 +2,19 @@
 INSERT INTO download_tasks (of_account_id, download_type, url, download_status, metadata)
 VALUES (?, ?, ?, ?, ?);
 
+-- name: GetDownloadTaskByID :one
+SELECT *
+FROM download_tasks
+WHERE id = ?;
+
+-- name: GetDownloadTaskByIDWithLock :one
+SELECT *
+FROM download_tasks
+WHERE id = ? FOR
+UPDATE;
+
 -- name: GetDownloadTaskListOfUser :many
-SELECT id, of_account_id, download_type, url, download_status
+SELECT *
 FROM download_tasks
 WHERE of_account_id = ?
 ORDER BY id DESC
@@ -20,5 +31,6 @@ SET url = ?
 WHERE id = ?;
 
 -- name: DeleteDownloadTask :exec
-DELETE FROM download_tasks
+DELETE
+FROM download_tasks
 WHERE id = ?;

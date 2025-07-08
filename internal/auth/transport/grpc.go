@@ -140,6 +140,10 @@ func encodeCreateSessionResponse(_ context.Context, response interface{}) (inter
 	resp := response.(*authendpoint.CreateSessionResponse)
 	return &pb.CreateSessionResponse{
 		Token: resp.Token,
+		Account: &pb.Account{
+			Id:          resp.Account.Id,
+			AccountName: resp.Account.AccountName,
+		},
 	}, nil
 }
 
@@ -178,5 +182,9 @@ func decodeCreateSessionResponse(_ context.Context, grpcResp interface{}) (inter
 	resp := grpcResp.(*pb.CreateSessionResponse)
 	return &authendpoint.CreateSessionResponse{
 		Token: resp.Token,
+		Account: &pb.Account{
+			Id:          resp.Account.Id,
+			AccountName: resp.Account.AccountName,
+		},
 	}, nil
 }

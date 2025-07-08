@@ -27,7 +27,8 @@ type CreateSessionParams struct {
 }
 
 type CreateSessionOutput struct {
-	Token string
+	Token   string
+	Account *Account
 }
 
 type Service interface {
@@ -152,7 +153,7 @@ func (s *service) CreateSession(ctx context.Context, params CreateSessionParams)
 		return CreateSessionOutput{}, error2.NewServiceError(error2.ErrCodeInternal, "token signing failed", err)
 	}
 
-	return CreateSessionOutput{Token: token}, nil
+	return CreateSessionOutput{Token: token, Account: account}, nil
 }
 
 func (s *service) isAccountNameTaken(ctx context.Context, accountName string) (bool, error) {

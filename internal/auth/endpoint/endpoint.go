@@ -113,5 +113,9 @@ func (e *Set) CreateSession(ctx context.Context, params auth.CreateSessionParams
 
 	return auth.CreateSessionOutput{
 		Token: out.Token,
+		Account: &auth.Account{
+			Id:          out.Account.Id,
+			AccountName: out.Account.AccountName,
+		},
 	}, nil
 }

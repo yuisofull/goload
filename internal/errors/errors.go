@@ -10,10 +10,12 @@ import (
 type Code string
 
 const (
-	ErrCodeAlreadyExists Code = "ALREADY_EXISTS"
-	ErrCodeNotFound      Code = "NOT_FOUND"
-	ErrCodeInternal      Code = "INTERNAL"
-	ErrCodeUnknown       Code = "UNKNOWN"
+	ErrCodeAlreadyExists    Code = "ALREADY_EXISTS"
+	ErrCodeNotFound         Code = "NOT_FOUND"
+	ErrCodeInternal         Code = "INTERNAL"
+	ErrCodeUnknown          Code = "UNKNOWN"
+	ErrCodeUnauthenticated  Code = "UNAUTHENTICATED"
+	ErrCodePermissionDenied Code = "PERMISSION_DENIED"
 )
 
 type ServiceError struct {
@@ -51,6 +53,10 @@ func EncodeGRPCError(err error) error {
 			return status.Error(codes.NotFound, svcErr.Message)
 		case ErrCodeInternal:
 			return status.Error(codes.Internal, svcErr.Message)
+		case ErrCodeUnauthenticated:
+			return status.Error(codes.Unauthenticated, svcErr.Message)
+		case ErrCodePermissionDenied:
+			return status.Error(codes.PermissionDenied, svcErr.Message)
 		default:
 			return status.Error(codes.Unknown, svcErr.Message)
 		}

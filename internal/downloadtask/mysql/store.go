@@ -3,6 +3,8 @@ package downloadtaskmysql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"github.com/yuisofull/goload/internal/downloadtask"
 	"github.com/yuisofull/goload/internal/downloadtask/mysql/sqlc"
 )
@@ -22,12 +24,17 @@ func (s *store) Create(ctx context.Context, task downloadtask.DownloadTask) (uin
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)
 	}
+
+	metadata, err := json.Marshal(task.Metadata)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal metadata: %w", err)
+	}
 	result, err := q.CreateDownloadTask(ctx, sqlc.CreateDownloadTaskParams{
 		OfAccountID:    task.OfAccountId,
 		DownloadType:   int16(task.DownloadType),
 		Url:            task.Url,
 		DownloadStatus: int16(task.DownloadStatus),
-		Metadata:       task.Metadata,
+		Metadata:       metadata,
 	})
 	if err != nil {
 		return 0, err
@@ -37,6 +44,52 @@ func (s *store) Create(ctx context.Context, task downloadtask.DownloadTask) (uin
 		return 0, err
 	}
 	return uint64(id), nil
+}
+
+func (s *store) GetTaskByID(ctx context.Context, id uint64) (*downloadtask.DownloadTask, error) {
+	q := s.queries
+	if tx, ok := getTxFrom(ctx); ok {
+		q = q.WithTx(tx)
+	}
+	row, err := q.GetDownloadTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	metadata := make(map[string]any)
+	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+	return &downloadtask.DownloadTask{
+		Id:             row.ID,
+		OfAccountId:    row.OfAccountID,
+		DownloadType:   downloadtask.DownloadType(row.DownloadType),
+		Url:            row.Url,
+		DownloadStatus: downloadtask.DownloadStatus(row.DownloadStatus),
+		Metadata:       metadata,
+	}, nil
+}
+
+func (s *store) GetTaskByIDWithLock(ctx context.Context, id uint64) (*downloadtask.DownloadTask, error) {
+	q := s.queries
+	if tx, ok := getTxFrom(ctx); ok {
+		q = q.WithTx(tx)
+	}
+	row, err := q.GetDownloadTaskByIDWithLock(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	metadata := make(map[string]any)
+	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+	return &downloadtask.DownloadTask{
+		Id:             row.ID,
+		OfAccountId:    row.OfAccountID,
+		DownloadType:   downloadtask.DownloadType(row.DownloadType),
+		Url:            row.Url,
+		DownloadStatus: downloadtask.DownloadStatus(row.DownloadStatus),
+		Metadata:       metadata,
+	}, nil
 }
 
 func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uint64) ([]downloadtask.DownloadTask, error) {
@@ -54,12 +107,17 @@ func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uin
 	}
 	tasks := make([]downloadtask.DownloadTask, len(rows))
 	for i, row := range rows {
+		metadata := make(map[string]any)
+		if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
 		tasks[i] = downloadtask.DownloadTask{
 			Id:             row.ID,
 			OfAccountId:    row.OfAccountID,
 			DownloadType:   downloadtask.DownloadType(row.DownloadType),
 			Url:            row.Url,
 			DownloadStatus: downloadtask.DownloadStatus(row.DownloadStatus),
+			Metadata:       metadata,
 		}
 	}
 	return tasks, nil

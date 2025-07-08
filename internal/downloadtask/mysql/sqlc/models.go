@@ -4,11 +4,15 @@
 
 package sqlc
 
+import (
+	"encoding/json"
+)
+
 type DownloadTask struct {
-	ID             uint64 `json:"id"`
-	OfAccountID    uint64 `json:"of_account_id"`
-	DownloadType   int16  `json:"download_type"`
-	Url            string `json:"url"`
-	DownloadStatus int16  `json:"download_status"`
-	Metadata       string `json:"metadata"`
+	ID             uint64          `json:"id"`
+	OfAccountID    uint64          `json:"of_account_id"`
+	DownloadType   int16           `json:"download_type"`
+	Url            string          `json:"url"`
+	DownloadStatus int16           `json:"download_status"`
+	Metadata       json.RawMessage `json:"metadata"`
 }

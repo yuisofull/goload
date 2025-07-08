@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const createDownloadTask = `-- name: CreateDownloadTask :execresult
@@ -16,11 +17,11 @@ VALUES (?, ?, ?, ?, ?)
 `
 
 type CreateDownloadTaskParams struct {
-	OfAccountID    uint64 `json:"of_account_id"`
-	DownloadType   int16  `json:"download_type"`
-	Url            string `json:"url"`
-	DownloadStatus int16  `json:"download_status"`
-	Metadata       string `json:"metadata"`
+	OfAccountID    uint64          `json:"of_account_id"`
+	DownloadType   int16           `json:"download_type"`
+	Url            string          `json:"url"`
+	DownloadStatus int16           `json:"download_status"`
+	Metadata       json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) CreateDownloadTask(ctx context.Context, arg CreateDownloadTaskParams) (sql.Result, error) {
@@ -34,13 +35,55 @@ func (q *Queries) CreateDownloadTask(ctx context.Context, arg CreateDownloadTask
 }
 
 const deleteDownloadTask = `-- name: DeleteDownloadTask :exec
-DELETE FROM download_tasks
+DELETE
+FROM download_tasks
 WHERE id = ?
 `
 
 func (q *Queries) DeleteDownloadTask(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, deleteDownloadTask, id)
 	return err
+}
+
+const getDownloadTaskByID = `-- name: GetDownloadTaskByID :one
+SELECT id, of_account_id, download_type, url, download_status, metadata
+FROM download_tasks
+WHERE id = ?
+`
+
+func (q *Queries) GetDownloadTaskByID(ctx context.Context, id uint64) (DownloadTask, error) {
+	row := q.db.QueryRowContext(ctx, getDownloadTaskByID, id)
+	var i DownloadTask
+	err := row.Scan(
+		&i.ID,
+		&i.OfAccountID,
+		&i.DownloadType,
+		&i.Url,
+		&i.DownloadStatus,
+		&i.Metadata,
+	)
+	return i, err
+}
+
+const getDownloadTaskByIDWithLock = `-- name: GetDownloadTaskByIDWithLock :one
+SELECT id, of_account_id, download_type, url, download_status, metadata
+FROM download_tasks
+WHERE id = ? FOR
+UPDATE
+`
+
+func (q *Queries) GetDownloadTaskByIDWithLock(ctx context.Context, id uint64) (DownloadTask, error) {
+	row := q.db.QueryRowContext(ctx, getDownloadTaskByIDWithLock, id)
+	var i DownloadTask
+	err := row.Scan(
+		&i.ID,
+		&i.OfAccountID,
+		&i.DownloadType,
+		&i.Url,
+		&i.DownloadStatus,
+		&i.Metadata,
+	)
+	return i, err
 }
 
 const getDownloadTaskCountOfUser = `-- name: GetDownloadTaskCountOfUser :one
@@ -57,7 +100,7 @@ func (q *Queries) GetDownloadTaskCountOfUser(ctx context.Context, ofAccountID ui
 }
 
 const getDownloadTaskListOfUser = `-- name: GetDownloadTaskListOfUser :many
-SELECT id, of_account_id, download_type, url, download_status
+SELECT id, of_account_id, download_type, url, download_status, metadata
 FROM download_tasks
 WHERE of_account_id = ?
 ORDER BY id DESC
@@ -70,29 +113,22 @@ type GetDownloadTaskListOfUserParams struct {
 	Offset      int32  `json:"offset"`
 }
 
-type GetDownloadTaskListOfUserRow struct {
-	ID             uint64 `json:"id"`
-	OfAccountID    uint64 `json:"of_account_id"`
-	DownloadType   int16  `json:"download_type"`
-	Url            string `json:"url"`
-	DownloadStatus int16  `json:"download_status"`
-}
-
-func (q *Queries) GetDownloadTaskListOfUser(ctx context.Context, arg GetDownloadTaskListOfUserParams) ([]GetDownloadTaskListOfUserRow, error) {
+func (q *Queries) GetDownloadTaskListOfUser(ctx context.Context, arg GetDownloadTaskListOfUserParams) ([]DownloadTask, error) {
 	rows, err := q.db.QueryContext(ctx, getDownloadTaskListOfUser, arg.OfAccountID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetDownloadTaskListOfUserRow
+	var items []DownloadTask
 	for rows.Next() {
-		var i GetDownloadTaskListOfUserRow
+		var i DownloadTask
 		if err := rows.Scan(
 			&i.ID,
 			&i.OfAccountID,
 			&i.DownloadType,
 			&i.Url,
 			&i.DownloadStatus,
+			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
