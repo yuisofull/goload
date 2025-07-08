@@ -89,6 +89,7 @@ func (s *service) Create(ctx context.Context, req CreateParams) (CreateResult, e
 		DownloadType:   req.DownloadType,
 		Url:            req.Url,
 		DownloadStatus: DOWNLOAD_STATUS_PENDING,
+		Metadata:       "{}",
 	}
 
 	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {

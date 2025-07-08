@@ -18,14 +18,6 @@ func NewAccountStore(db *sql.DB) auth.AccountStore {
 	}
 }
 
-func getTxFrom(ctx context.Context) (*sql.Tx, bool) {
-	tx, ok := ctx.Value(txKey{}).(*sql.Tx)
-	if !ok {
-		return nil, false
-	}
-	return tx, true
-}
-
 func (a *accountStore) CreateAccount(ctx context.Context, account *auth.Account) (uint64, error) {
 	q := a.queries
 	if tx, ok := getTxFrom(ctx); ok {

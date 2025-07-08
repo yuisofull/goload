@@ -36,3 +36,11 @@ func (t *txManager) DoInTx(ctx context.Context, fn func(ctx context.Context) err
 
 	return tx.Commit()
 }
+
+func getTxFrom(ctx context.Context) (*sql.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(*sql.Tx)
+	if !ok {
+		return nil, false
+	}
+	return tx, true
+}

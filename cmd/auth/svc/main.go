@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"database/sql"
+	"fmt"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -57,20 +59,25 @@ func main() {
 		}
 	}
 
-	var store *authmysql.Store
+	var mysqlDB *sql.DB
 	{
-		store, err = authmysql.New(config.MySQL)
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+			config.MySQL.Username,
+			config.MySQL.Password,
+			config.MySQL.Host,
+			config.MySQL.Port,
+			config.MySQL.Database)
+		mysqlDB, err = sql.Open("mysql", dsn)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			os.Exit(1)
 		}
-		defer store.Close()
 	}
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, config.Auth.Token.JWTRS512.RSABits)
-	if err != nil {
-		level.Error(logger).Log("err", err)
-		os.Exit(1)
+	var store *authmysql.Store
+	{
+		store = authmysql.New(mysqlDB)
+		defer store.Close()
 	}
 
 	var (
@@ -91,6 +98,11 @@ func main() {
 			level.Error(logger).Log("err", err)
 		}
 		tokenStore = authcache.NewTokenPublicKeyStore(publicKeyCache, store, cacheErrorHandler)
+		privateKey, err := rsa.GenerateKey(rand.Reader, config.Auth.Token.JWTRS512.RSABits)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			os.Exit(1)
+		}
 		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, tokenStore)
 		if err != nil {
 			level.Error(logger).Log("err", err)

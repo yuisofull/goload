@@ -66,4 +66,6 @@ protoc \
 
 # Generate SQLC code
 print_info "Generating SQLC code..."
-sqlc generate -f configs/authsvc_sqlc.yaml
+sqlc generate -f configs/auth_svc_sqlc.yaml
+sqlc generate -f configs/download_task_svc_sqlc.yaml
+#sqlc generate -f configs/file_svc_sqlc.yaml

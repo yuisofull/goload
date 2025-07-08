@@ -150,9 +150,9 @@ func encodeCreateDownloadTaskResponse(_ context.Context, response interface{}) (
 		DownloadTask: &pb.DownloadTask{
 			Id:             resp.DownloadTask.Id,
 			OfAccountId:    resp.DownloadTask.OfAccountId,
-			DownloadType:   pb.DownloadType(resp.DownloadTask.DownloadType),
+			DownloadType:   resp.DownloadTask.DownloadType,
 			Url:            resp.DownloadTask.Url,
-			DownloadStatus: pb.DownloadStatus(resp.DownloadTask.DownloadStatus),
+			DownloadStatus: resp.DownloadTask.DownloadStatus,
 		},
 	}, nil
 }
@@ -173,9 +173,9 @@ func encodeGetDownloadTaskListResponse(_ context.Context, response interface{}) 
 		pbTasks[i] = &pb.DownloadTask{
 			Id:             task.Id,
 			OfAccountId:    task.OfAccountId,
-			DownloadType:   pb.DownloadType(task.DownloadType),
+			DownloadType:   task.DownloadType,
 			Url:            task.Url,
-			DownloadStatus: pb.DownloadStatus(task.DownloadStatus),
+			DownloadStatus: task.DownloadStatus,
 		}
 	}
 	return &pb.GetDownloadTaskListResponse{
@@ -209,8 +209,8 @@ func encodeUpdateDownloadTaskResponse(_ context.Context, response interface{}) (
 func decodeDeleteDownloadTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
 	req := grpcReq.(*pb.DeleteDownloadTaskRequest)
 	return &downloadtaskendpoint.DeleteDownloadTaskRequest{
-		Token:        req.Token,
-		DownloadTask: req.DownloadTask,
+		Token:          req.Token,
+		DownloadTaskId: req.DownloadTaskId,
 	}, nil
 }
 
@@ -222,7 +222,7 @@ func encodeCreateDownloadTaskRequest(_ context.Context, request interface{}) (in
 	req := request.(*downloadtaskendpoint.CreateDownloadTaskRequest)
 	return &pb.CreateDownloadTaskRequest{
 		Token:        req.Token,
-		DownloadType: pb.DownloadType(req.DownloadType),
+		DownloadType: req.DownloadType,
 		Url:          req.Url,
 	}, nil
 }
@@ -283,11 +283,8 @@ func decodeUpdateDownloadTaskResponse(_ context.Context, grpcResp interface{}) (
 func encodeDeleteDownloadTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
 	req := request.(*downloadtaskendpoint.DeleteDownloadTaskRequest)
 	return &pb.DeleteDownloadTaskRequest{
-		Token: req.Token,
-		DownloadTask: &pb.DownloadTask{
-			Id:          req.DownloadTask.Id,
-			OfAccountId: req.DownloadTask.OfAccountId,
-		},
+		Token:          req.Token,
+		DownloadTaskId: req.DownloadTaskId,
 	}, nil
 }
 

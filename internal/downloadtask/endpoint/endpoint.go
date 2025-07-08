@@ -122,8 +122,7 @@ func MakeDeleteDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 		params := downloadtask.DeleteParams{
 			Token: req.Token,
 			DownloadTask: &downloadtask.DownloadTask{
-				Id:          req.DownloadTask.Id,
-				OfAccountId: req.DownloadTask.OfAccountId,
+				Id: req.DownloadTaskId,
 			},
 		}
 
@@ -235,11 +234,8 @@ func (s *Set) Update(ctx context.Context, req downloadtask.UpdateParams) (downlo
 
 func (s *Set) Delete(ctx context.Context, req downloadtask.DeleteParams) error {
 	_, err := s.DeleteDownloadTaskEndpoint(ctx, &DeleteDownloadTaskRequest{
-		Token: req.Token,
-		DownloadTask: &pb.DownloadTask{
-			Id:          req.DownloadTask.Id,
-			OfAccountId: req.DownloadTask.OfAccountId,
-		},
+		Token:          req.Token,
+		DownloadTaskId: req.DownloadTask.Id,
 	})
 	return err
 }

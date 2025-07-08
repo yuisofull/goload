@@ -24,4 +24,5 @@ type DownloadTask struct {
 	DownloadType   DownloadType
 	DownloadStatus DownloadStatus
 	Url            string
+	Metadata       string
 }

@@ -4,21 +4,17 @@
 
 package sqlc
 
-import (
-	"database/sql"
-)
-
 type Account struct {
-	ID          sql.NullInt64 `json:"id"`
-	AccountName string        `json:"account_name"`
+	ID          uint64 `json:"id"`
+	AccountName string `json:"account_name"`
 }
 
 type AccountPassword struct {
-	OfAccountID    sql.NullInt64 `json:"of_account_id"`
-	HashedPassword string        `json:"hashed_password"`
+	OfAccountID    uint64 `json:"of_account_id"`
+	HashedPassword string `json:"hashed_password"`
 }
 
 type TokenPublicKey struct {
-	ID        sql.NullInt64 `json:"id"`
-	PublicKey string        `json:"public_key"`
+	ID        uint64 `json:"id"`
+	PublicKey string `json:"public_key"`
 }
