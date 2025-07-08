@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS download_tasks
     download_type   SMALLINT        NOT NULL,
     url             TEXT            NOT NULL,
     download_status SMALLINT        NOT NULL,
-    metadata        TEXT            NOT NULL,
+    metadata        JSON            NOT NULL,
     PRIMARY KEY (id)
 );
 
