@@ -7,7 +7,7 @@ import (
 )
 
 type CreateParams struct {
-	Token        string
+	UserID       uint64
 	DownloadType DownloadType
 	Url          string
 }
@@ -17,7 +17,7 @@ type CreateResult struct {
 }
 
 type ListParams struct {
-	Token  string
+	UserID uint64
 	Offset uint64
 	Limit  uint64
 }
@@ -28,7 +28,7 @@ type ListResult struct {
 }
 
 type UpdateParams struct {
-	Token          string
+	UserID         uint64
 	DownloadTaskId uint64
 	Url            string
 }
@@ -38,7 +38,7 @@ type UpdateResult struct {
 }
 
 type DeleteParams struct {
-	Token        string
+	UserID       uint64
 	DownloadTask *DownloadTask
 }
 
@@ -71,25 +71,23 @@ type Store interface {
 	DeleteTask(ctx context.Context, id uint64) error
 }
 
-type TokenManager interface {
-	GetAccountIDFrom(token string) (uint64, error)
+type service struct {
+	txManager TxManager
+	store     Store
+	producer  CreatedProducer
 }
 
-type service struct {
-	txManager    TxManager
-	store        Store
-	producer     CreatedProducer
-	tokenManager TokenManager
+func NewService(txManager TxManager, store Store, producer CreatedProducer) Service {
+	return &service{
+		txManager: txManager,
+		store:     store,
+		producer:  producer,
+	}
 }
 
 func (s *service) Create(ctx context.Context, req CreateParams) (CreateResult, error) {
-	accountID, err := s.tokenManager.GetAccountIDFrom(req.Token)
-	if err != nil {
-		return CreateResult{}, err
-	}
-
 	task := DownloadTask{
-		OfAccountId:    accountID,
+		OfAccountId:    req.UserID,
 		DownloadType:   req.DownloadType,
 		Url:            req.Url,
 		DownloadStatus: DOWNLOAD_STATUS_PENDING,
@@ -114,17 +112,12 @@ func (s *service) Create(ctx context.Context, req CreateParams) (CreateResult, e
 }
 
 func (s *service) List(ctx context.Context, req ListParams) (ListResult, error) {
-	accountID, err := s.tokenManager.GetAccountIDFrom(req.Token)
+	tasks, err := s.store.GetTaskListOfUser(ctx, req.UserID, req.Offset, req.Limit)
 	if err != nil {
 		return ListResult{}, err
 	}
 
-	tasks, err := s.store.GetTaskListOfUser(ctx, accountID, req.Offset, req.Limit)
-	if err != nil {
-		return ListResult{}, err
-	}
-
-	totalCount, err := s.store.GetTaskCountOfUser(ctx, accountID)
+	totalCount, err := s.store.GetTaskCountOfUser(ctx, req.UserID)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -134,18 +127,15 @@ func (s *service) List(ctx context.Context, req ListParams) (ListResult, error) 
 }
 
 func (s *service) Update(ctx context.Context, req UpdateParams) (UpdateResult, error) {
-	accountID, err := s.tokenManager.GetAccountIDFrom(req.Token)
-	if err != nil {
-		return UpdateResult{}, err
-	}
 	var task *DownloadTask
 
 	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
+		var err error
 		task, err = s.store.GetTaskByIDWithLock(ctx, req.DownloadTaskId)
 		if err != nil {
 			return err
 		}
-		if task.OfAccountId != accountID {
+		if task.OfAccountId != req.UserID {
 			return errors.NewServiceError(errors.ErrCodePermissionDenied, "trying to update other's task", nil)
 		}
 		task.Url = req.Url
@@ -161,17 +151,12 @@ func (s *service) Update(ctx context.Context, req UpdateParams) (UpdateResult, e
 }
 
 func (s *service) Delete(ctx context.Context, req DeleteParams) error {
-	accountID, err := s.tokenManager.GetAccountIDFrom(req.Token)
-	if err != nil {
-		return err
-	}
-
 	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
 		task, err := s.store.GetTaskByIDWithLock(ctx, req.DownloadTask.Id)
 		if err != nil {
 			return err
 		}
-		if task.OfAccountId != accountID {
+		if task.OfAccountId != req.UserID {
 			return errors.NewServiceError(errors.ErrCodePermissionDenied, "trying to delete other's task", nil)
 		}
 		if err := s.store.DeleteTask(ctx, req.DownloadTask.Id); err != nil {

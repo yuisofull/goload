@@ -35,7 +35,7 @@ func MakeCreateDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 		req := request.(*CreateDownloadTaskRequest)
 
 		params := downloadtask.CreateParams{
-			Token:        req.Token,
+			UserID:       req.UserId,
 			DownloadType: downloadtask.DownloadType(req.DownloadType),
 			Url:          req.Url,
 		}
@@ -62,7 +62,7 @@ func MakeGetDownloadTaskListEndpoint(svc downloadtask.Service) endpoint.Endpoint
 		req := request.(*GetDownloadTaskListRequest)
 
 		params := downloadtask.ListParams{
-			Token:  req.Token,
+			UserID: req.UserId,
 			Offset: req.Offset,
 			Limit:  req.Limit,
 		}
@@ -94,7 +94,7 @@ func MakeUpdateDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 		req := request.(*UpdateDownloadTaskRequest)
 
 		params := downloadtask.UpdateParams{
-			Token:          req.Token,
+			UserID:         req.UserId,
 			DownloadTaskId: req.DownloadTaskId,
 			Url:            req.Url,
 		}
@@ -120,7 +120,7 @@ func MakeDeleteDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 		req := request.(*DeleteDownloadTaskRequest)
 
 		params := downloadtask.DeleteParams{
-			Token: req.Token,
+			UserID: req.UserId,
 			DownloadTask: &downloadtask.DownloadTask{
 				Id: req.DownloadTaskId,
 			},
@@ -165,7 +165,7 @@ func New(svc downloadtask.Service) Set {
 
 func (s *Set) Create(ctx context.Context, req downloadtask.CreateParams) (downloadtask.CreateResult, error) {
 	resp, err := s.CreateDownloadTaskEndpoint(ctx, &CreateDownloadTaskRequest{
-		Token:        req.Token,
+		UserId:       req.UserID,
 		DownloadType: pb.DownloadType(req.DownloadType),
 		Url:          req.Url,
 	})
@@ -186,7 +186,7 @@ func (s *Set) Create(ctx context.Context, req downloadtask.CreateParams) (downlo
 
 func (s *Set) List(ctx context.Context, req downloadtask.ListParams) (downloadtask.ListResult, error) {
 	resp, err := s.GetDownloadTaskListEndpoint(ctx, &GetDownloadTaskListRequest{
-		Token:  req.Token,
+		UserId: req.UserID,
 		Offset: req.Offset,
 		Limit:  req.Limit,
 	})
@@ -213,7 +213,7 @@ func (s *Set) List(ctx context.Context, req downloadtask.ListParams) (downloadta
 
 func (s *Set) Update(ctx context.Context, req downloadtask.UpdateParams) (downloadtask.UpdateResult, error) {
 	resp, err := s.UpdateDownloadTaskEndpoint(ctx, &UpdateDownloadTaskRequest{
-		Token:          req.Token,
+		UserId:         req.UserID,
 		DownloadTaskId: req.DownloadTaskId,
 		Url:            req.Url,
 	})
@@ -234,7 +234,7 @@ func (s *Set) Update(ctx context.Context, req downloadtask.UpdateParams) (downlo
 
 func (s *Set) Delete(ctx context.Context, req downloadtask.DeleteParams) error {
 	_, err := s.DeleteDownloadTaskEndpoint(ctx, &DeleteDownloadTaskRequest{
-		Token:          req.Token,
+		UserId:         req.UserID,
 		DownloadTaskId: req.DownloadTask.Id,
 	})
 	return err

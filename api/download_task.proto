@@ -36,7 +36,7 @@ message DownloadTask {
 }
 
 message CreateDownloadTaskRequest {
-  string token = 1;
+  uint64 user_id = 1;
   DownloadType download_type = 2;
   string url = 3;
 }
@@ -46,7 +46,7 @@ message CreateDownloadTaskResponse {
 }
 
 message GetDownloadTaskListRequest {
-  string token = 1;
+  uint64 user_id = 1;
   uint64 offset = 2;
   uint64 limit = 3;
 }
@@ -57,7 +57,7 @@ message GetDownloadTaskListResponse {
 }
 
 message UpdateDownloadTaskRequest {
-  string token = 1;
+  uint64 user_id = 1;
   uint64 download_task_id = 2;
   string url = 3;
 }
@@ -67,7 +67,7 @@ message UpdateDownloadTaskResponse {
 }
 
 message DeleteDownloadTaskRequest {
-  string token = 1;
+  uint64 user_id = 1;
   uint64 download_task_id = 2;
 }
 

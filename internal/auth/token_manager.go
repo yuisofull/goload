@@ -15,6 +15,16 @@ type TokenPublicKeyStore interface {
 	GetTokenPublicKey(ctx context.Context, kid uint64) (TokenPublicKey, error)
 }
 
+type TokenManager interface {
+	Sign(accountID uint64) (string, error)
+	TokenValidator
+}
+
+type TokenValidator interface {
+	GetAccountIDFrom(token string) (uint64, error)
+	GetExpiryFrom(token string) (time.Time, error)
+}
+
 type jwtRS256TokenManager struct {
 	privateKey *rsa.PrivateKey
 	kid        uint64
@@ -48,6 +58,14 @@ func NewJWTRS512TokenManager(
 	}, nil
 }
 
+func NewJWTRS512TokenValidator(
+	store TokenPublicKeyStore,
+) (TokenValidator, error) {
+	return &jwtRS256TokenManager{
+		store: store,
+	}, nil
+}
+
 func (t *jwtRS256TokenManager) Sign(accountID uint64) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodRS512, jwt.MapClaims{
 		"sub":        accountID,
@@ -74,7 +92,15 @@ func (t *jwtRS256TokenManager) parseToken(tokenStr string) (*jwt.Token, error) {
 		if !ok {
 			return nil, errors.New("cannot get token's kid")
 		}
-		return t.store.GetTokenPublicKey(context.Background(), uint64(kid))
+		tokenPublicKey, err := t.store.GetTokenPublicKey(context.Background(), uint64(kid))
+		if err != nil {
+			return nil, err
+		}
+		publicKey, err := pkgrsa.DeserializePublicKey(tokenPublicKey.PublicKey)
+		if err != nil {
+			return nil, err
+		}
+		return publicKey, nil
 	})
 }
 

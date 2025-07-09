@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	error2 "github.com/yuisofull/goload/internal/errors"
-	"time"
 )
 
 var (
@@ -34,6 +33,7 @@ type CreateSessionOutput struct {
 type Service interface {
 	CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error)
 	CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error)
+	TokenManager
 }
 
 type AccountStore interface {
@@ -57,18 +57,12 @@ type PasswordHasher interface {
 	Verify(ctx context.Context, password, hashedPassword string) error
 }
 
-type TokenManager interface {
-	Sign(accountID uint64) (string, error)
-	GetAccountIDFrom(token string) (uint64, error)
-	GetExpiryFrom(token string) (time.Time, error)
-}
-
 type service struct {
 	accountStore         AccountStore
 	accountPasswordStore AccountPasswordStore
 	passwordHasher       PasswordHasher
 	txManager            TxManager
-	tokenManager         TokenManager
+	TokenManager
 }
 
 func NewService(
@@ -83,7 +77,7 @@ func NewService(
 		accountPasswordStore: accountPasswordStore,
 		passwordHasher:       hasher,
 		txManager:            txManager,
-		tokenManager:         tokenManager,
+		TokenManager:         tokenManager,
 	}
 }
 
@@ -148,7 +142,7 @@ func (s *service) CreateSession(ctx context.Context, params CreateSessionParams)
 		return CreateSessionOutput{}, error2.NewServiceError(ErrCodeInvalidPassword, "invalid password", err)
 	}
 
-	token, err := s.tokenManager.Sign(account.Id)
+	token, err := s.Sign(account.Id)
 	if err != nil {
 		return CreateSessionOutput{}, error2.NewServiceError(error2.ErrCodeInternal, "token signing failed", err)
 	}
