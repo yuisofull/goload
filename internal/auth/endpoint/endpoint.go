@@ -68,14 +68,14 @@ func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 	}
 }
 
-// MakeVerifyTokenEndpoint creates an endpoint for the VerifyToken service method
+// MakeVerifyTokenEndpoint creates an endpoint for the VerifySession service method
 func MakeVerifyTokenEndpoint(svc auth.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*VerifyTokenRequest)
-		params := auth.VerifyTokenParams{
+		params := auth.VerifySessionParams{
 			Token: req.Token,
 		}
-		output, err := svc.VerifyToken(ctx, params)
+		output, err := svc.VerifySession(ctx, params)
 		if err != nil {
 			return nil, err
 		}
@@ -148,15 +148,15 @@ func (e *Set) CreateSession(ctx context.Context, params auth.CreateSessionParams
 	}, nil
 }
 
-func (e *Set) VerifyToken(ctx context.Context, params auth.VerifyTokenParams) (auth.VerifyTokenOutput, error) {
+func (e *Set) VerifySession(ctx context.Context, params auth.VerifySessionParams) (auth.VerifySessionOutput, error) {
 	resp, err := e.VerifyTokenEndpoint(ctx, &VerifyTokenRequest{
 		Token: params.Token,
 	})
 	if err != nil {
-		return auth.VerifyTokenOutput{}, err
+		return auth.VerifySessionOutput{}, err
 	}
 	out := resp.(*VerifyTokenResponse)
-	return auth.VerifyTokenOutput{
+	return auth.VerifySessionOutput{
 		AccountID: out.AccountId,
 	}, nil
 }

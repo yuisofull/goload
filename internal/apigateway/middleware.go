@@ -19,11 +19,11 @@ const (
 
 // AuthMiddleware extracts and validates JWT tokens from HTTP requests
 type AuthMiddleware struct {
-	tokenValidator auth.TokenValidator
+	tokenValidator auth.SessionValidator
 }
 
 // NewAuthMiddleware creates a new authentication middleware
-func NewAuthMiddleware(tokenValidator auth.TokenValidator) endpoint.Middleware {
+func NewAuthMiddleware(tokenValidator auth.SessionValidator) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (interface{}, error) {
 			// Extract token from context (set by HTTP middleware)
@@ -32,7 +32,7 @@ func NewAuthMiddleware(tokenValidator auth.TokenValidator) endpoint.Middleware {
 				return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "missing or invalid token"}
 			}
 
-			out, err := tokenValidator.VerifyToken(ctx, auth.VerifyTokenParams{Token: token})
+			out, err := tokenValidator.VerifySession(ctx, auth.VerifySessionParams{Token: token})
 			if err != nil {
 				return nil, err
 			}

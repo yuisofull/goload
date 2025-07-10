@@ -27,22 +27,22 @@ type CreateSessionOutput struct {
 	Account *Account
 }
 
-type VerifyTokenParams struct {
+type VerifySessionParams struct {
 	Token string
 }
 
-type VerifyTokenOutput struct {
+type VerifySessionOutput struct {
 	AccountID uint64
 }
 
-type TokenValidator interface {
-	VerifyToken(ctx context.Context, params VerifyTokenParams) (VerifyTokenOutput, error)
+type SessionValidator interface {
+	VerifySession(ctx context.Context, params VerifySessionParams) (VerifySessionOutput, error)
 }
 
 type Service interface {
 	CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error)
 	CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error)
-	TokenValidator
+	SessionValidator
 }
 
 type AccountStore interface {
@@ -166,17 +166,17 @@ func (s *service) isAccountNameTaken(ctx context.Context, accountName string) bo
 	return true
 }
 
-func (s *service) VerifyToken(ctx context.Context, params VerifyTokenParams) (VerifyTokenOutput, error) {
+func (s *service) VerifySession(ctx context.Context, params VerifySessionParams) (VerifySessionOutput, error) {
 	accountID, err := s.tokenManager.GetAccountIDFrom(params.Token)
 	if err != nil {
-		return VerifyTokenOutput{}, err
+		return VerifySessionOutput{}, err
 	}
 	expiry, err := s.tokenManager.GetExpiryFrom(params.Token)
 	if err != nil {
-		return VerifyTokenOutput{}, err
+		return VerifySessionOutput{}, err
 	}
 	if expiry.Before(time.Now()) {
-		return VerifyTokenOutput{}, &errors.Error{Code: ErrCodeInvalidToken, Message: "token expired"}
+		return VerifySessionOutput{}, &errors.Error{Code: ErrCodeInvalidToken, Message: "token expired"}
 	}
-	return VerifyTokenOutput{AccountID: accountID}, nil
+	return VerifySessionOutput{AccountID: accountID}, nil
 }

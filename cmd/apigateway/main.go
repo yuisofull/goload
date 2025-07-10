@@ -65,7 +65,7 @@ func main() {
 	}
 
 	// Create token validator for authentication middleware
-	var tokenValidator auth.TokenValidator = authService
+	var tokenValidator auth.SessionValidator = authService
 
 	// Create authentication middleware
 	authMiddleware := apigateway.NewAuthMiddleware(tokenValidator)
