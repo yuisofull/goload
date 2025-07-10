@@ -2,7 +2,7 @@ package authcache
 
 import (
 	"context"
-	"errors"
+	stdErrors "errors"
 	"fmt"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/pkg/cache"
@@ -41,10 +41,10 @@ func (t *tokenPublicKeyStoreCache) GetTokenPublicKey(ctx context.Context, kid ui
 		return auth.TokenPublicKey{Id: kid, PublicKey: v}, nil
 	}
 
-	if !errors.Is(err, cache.Nil) {
+	if !stdErrors.Is(err, cache.Nil) {
 		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", err))
 	} else {
-		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", ErrCacheMiss))
+		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: cache miss"))
 	}
 
 	tokenPublicKey, err := t.next.GetTokenPublicKey(ctx, kid)

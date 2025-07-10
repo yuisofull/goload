@@ -42,7 +42,7 @@ func (s *grpcServer) CreateSession(ctx context.Context, req *pb.CreateSessionReq
 }
 
 func encodeError(_ context.Context, err error) error {
-	var svcErr *internalerrors.ServiceError
+	var svcErr *internalerrors.Error
 	if errors.As(err, &svcErr) {
 		switch svcErr.Code {
 		case auth.ErrCodeInvalidPassword:

@@ -14,7 +14,7 @@ type contextKey int
 // Context keys
 const (
 	tokenKey contextKey = iota
-	userIDKey
+	accountIDKey
 )
 
 // AuthMiddleware extracts and validates JWT tokens from HTTP requests
@@ -29,17 +29,16 @@ func NewAuthMiddleware(tokenValidator auth.TokenValidator) endpoint.Middleware {
 			// Extract token from context (set by HTTP middleware)
 			token, ok := ctx.Value(tokenKey).(string)
 			if !ok || token == "" {
-				return nil, errors.NewServiceError(errors.ErrCodeUnauthenticated, "missing or invalid token", nil)
+				return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "missing or invalid token"}
 			}
 
-			// Validate token and extract user ID
-			userID, err := tokenValidator.GetAccountIDFrom(token)
+			out, err := tokenValidator.VerifyToken(ctx, auth.VerifyTokenParams{Token: token})
 			if err != nil {
-				return nil, errors.NewServiceError(errors.ErrCodeUnauthenticated, "invalid token", err)
+				return nil, err
 			}
 
 			// Add user ID to context
-			ctx = context.WithValue(ctx, userIDKey, userID)
+			ctx = context.WithValue(ctx, accountIDKey, out.AccountID)
 
 			// Call the next endpoint
 			return next(ctx, request)
@@ -49,6 +48,6 @@ func NewAuthMiddleware(tokenValidator auth.TokenValidator) endpoint.Middleware {
 
 // UserIDFromContext extracts user ID from context
 func UserIDFromContext(ctx context.Context) (uint64, bool) {
-	userID, ok := ctx.Value(userIDKey).(uint64)
+	userID, ok := ctx.Value(accountIDKey).(uint64)
 	return userID, ok
 }

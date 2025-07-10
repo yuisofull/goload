@@ -8,6 +8,7 @@ option go_package = "github.com/yuisofull/goload/internal/auth/authpb;authpb";
 service AuthService {
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse) {}
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse) {}
+  rpc VerifySession(VerifySessionRequest) returns (VerifySessionResponse) {}
 }
 
 // ===== Auth Messages =====
@@ -33,4 +34,12 @@ message CreateSessionRequest {
 message CreateSessionResponse {
   string token = 1;
   Account account = 2;
+}
+
+message VerifySessionRequest {
+  string token = 1;
+}
+
+message VerifySessionResponse {
+  uint64 account_id = 1;
 }

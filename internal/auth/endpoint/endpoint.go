@@ -17,9 +17,13 @@ type CreateSessionRequest pb.CreateSessionRequest
 
 type CreateSessionResponse pb.CreateSessionResponse
 
+type VerifyTokenRequest pb.VerifySessionRequest
+type VerifyTokenResponse pb.VerifySessionResponse
+
 type Set struct {
 	CreateAccountEndpoint endpoint.Endpoint
 	CreateSessionEndpoint endpoint.Endpoint
+	VerifyTokenEndpoint   endpoint.Endpoint
 }
 
 // MakeCreateAccountEndpoint creates an endpoint for the CreateAccount service method
@@ -64,6 +68,23 @@ func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 	}
 }
 
+// MakeVerifyTokenEndpoint creates an endpoint for the VerifyToken service method
+func MakeVerifyTokenEndpoint(svc auth.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*VerifyTokenRequest)
+		params := auth.VerifyTokenParams{
+			Token: req.Token,
+		}
+		output, err := svc.VerifyToken(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return &VerifyTokenResponse{
+			AccountId: output.AccountID,
+		}, nil
+	}
+}
+
 // New creates a new EndpointSet with all endpoints initialized
 func New(svc auth.Service) Set {
 	var createAccountEndpoint endpoint.Endpoint
@@ -79,9 +100,16 @@ func New(svc auth.Service) Set {
 		createSessionEndpoint = ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Limit(1), 100))(createSessionEndpoint)
 	}
 
+	var verifyTokenEndpoint endpoint.Endpoint
+	{
+		verifyTokenEndpoint = MakeVerifyTokenEndpoint(svc)
+		verifyTokenEndpoint = ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Limit(1), 100))(verifyTokenEndpoint)
+	}
+
 	return Set{
 		CreateAccountEndpoint: createAccountEndpoint,
 		CreateSessionEndpoint: createSessionEndpoint,
+		VerifyTokenEndpoint:   verifyTokenEndpoint,
 	}
 }
 
@@ -117,5 +145,18 @@ func (e *Set) CreateSession(ctx context.Context, params auth.CreateSessionParams
 			Id:          out.Account.Id,
 			AccountName: out.Account.AccountName,
 		},
+	}, nil
+}
+
+func (e *Set) VerifyToken(ctx context.Context, params auth.VerifyTokenParams) (auth.VerifyTokenOutput, error) {
+	resp, err := e.VerifyTokenEndpoint(ctx, &VerifyTokenRequest{
+		Token: params.Token,
+	})
+	if err != nil {
+		return auth.VerifyTokenOutput{}, err
+	}
+	out := resp.(*VerifyTokenResponse)
+	return auth.VerifyTokenOutput{
+		AccountID: out.AccountId,
 	}, nil
 }

@@ -3,9 +3,11 @@ package authmysql
 import (
 	"context"
 	"database/sql"
+	stderrors "errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
+	"github.com/yuisofull/goload/internal/errors"
 )
 
 type accountStore struct {
@@ -25,11 +27,19 @@ func (a *accountStore) CreateAccount(ctx context.Context, account *auth.Account)
 	}
 	result, err := q.CreateAccount(ctx, account.AccountName)
 	if err != nil {
-		return 0, err
+		return 0, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to create account",
+			Cause:   err,
+		}
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		return 0, err
+		return 0, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to get last insert id",
+			Cause:   err,
+		}
 	}
 	return uint64(id), nil
 }
@@ -38,6 +48,9 @@ func (a *accountStore) GetAccountByID(ctx context.Context, id uint64) (*auth.Acc
 	q := a.queries
 	account, err := q.GetAccountByID(ctx, id)
 	if err != nil {
+		if stderrors.Is(err, sql.ErrNoRows) {
+			return nil, errors.ErrNotFound
+		}
 		return nil, err
 	}
 	return &auth.Account{
@@ -50,6 +63,9 @@ func (a *accountStore) GetAccountByAccountName(ctx context.Context, accountName 
 	q := a.queries
 	account, err := q.GetAccountByAccountName(ctx, accountName)
 	if err != nil {
+		if stderrors.Is(err, sql.ErrNoRows) {
+			return nil, errors.ErrNotFound
+		}
 		return nil, err
 	}
 	return &auth.Account{

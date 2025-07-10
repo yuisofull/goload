@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AuthService_CreateAccount_FullMethodName = "/auth.v1.AuthService/CreateAccount"
 	AuthService_CreateSession_FullMethodName = "/auth.v1.AuthService/CreateSession"
+	AuthService_VerifySession_FullMethodName = "/auth.v1.AuthService/VerifySession"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -31,6 +32,7 @@ const (
 type AuthServiceClient interface {
 	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
 	CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*CreateSessionResponse, error)
+	VerifySession(ctx context.Context, in *VerifySessionRequest, opts ...grpc.CallOption) (*VerifySessionResponse, error)
 }
 
 type authServiceClient struct {
@@ -61,6 +63,16 @@ func (c *authServiceClient) CreateSession(ctx context.Context, in *CreateSession
 	return out, nil
 }
 
+func (c *authServiceClient) VerifySession(ctx context.Context, in *VerifySessionRequest, opts ...grpc.CallOption) (*VerifySessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifySessionResponse)
+	err := c.cc.Invoke(ctx, AuthService_VerifySession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -69,6 +81,7 @@ func (c *authServiceClient) CreateSession(ctx context.Context, in *CreateSession
 type AuthServiceServer interface {
 	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
 	CreateSession(context.Context, *CreateSessionRequest) (*CreateSessionResponse, error)
+	VerifySession(context.Context, *VerifySessionRequest) (*VerifySessionResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -84,6 +97,9 @@ func (UnimplementedAuthServiceServer) CreateAccount(context.Context, *CreateAcco
 }
 func (UnimplementedAuthServiceServer) CreateSession(context.Context, *CreateSessionRequest) (*CreateSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSession not implemented")
+}
+func (UnimplementedAuthServiceServer) VerifySession(context.Context, *VerifySessionRequest) (*VerifySessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifySession not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -142,6 +158,24 @@ func _AuthService_CreateSession_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_VerifySession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifySessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).VerifySession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_VerifySession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).VerifySession(ctx, req.(*VerifySessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -156,6 +190,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateSession",
 			Handler:    _AuthService_CreateSession_Handler,
+		},
+		{
+			MethodName: "VerifySession",
+			Handler:    _AuthService_VerifySession_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

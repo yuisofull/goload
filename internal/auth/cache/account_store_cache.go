@@ -2,14 +2,10 @@ package authcache
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/yuisofull/goload/internal/auth"
+	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/pkg/cache"
-)
-
-var (
-	ErrCacheMiss = errors.New("cache miss")
 )
 
 type accountStoreCache struct {
@@ -22,8 +18,9 @@ type AccountNameTakenSetKey struct{}
 
 func NewAccountStore(nameCache cache.SetCache[AccountNameTakenSetKey, string], next auth.AccountStore, cacheErrorHandler CacheErrorHandler) auth.AccountStore {
 	return &accountStoreCache{
-		nameCache: nameCache,
-		next:      next,
+		nameCache:         nameCache,
+		next:              next,
+		cacheErrorHandler: cacheErrorHandler,
 	}
 }
 
@@ -31,7 +28,11 @@ func (a *accountStoreCache) CreateAccount(ctx context.Context, account *auth.Acc
 	var contain bool
 	var err error
 	if contain, err = a.isAccountNameTaken(ctx, account.AccountName); err == nil && contain {
-		return 0, auth.ErrAccountAlreadyExists
+		return 0, &errors.Error{
+			Code:    errors.ErrCodeAlreadyExists,
+			Message: "account already exists",
+			Cause:   nil,
+		}
 	}
 
 	a.cacheErrorHandler(ctx, err)

@@ -3,8 +3,10 @@ package authmysql
 import (
 	"context"
 	"database/sql"
+	stderrors "errors"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
+	"github.com/yuisofull/goload/internal/errors"
 )
 
 type accountPasswordStore struct {
@@ -46,6 +48,9 @@ func (a *accountPasswordStore) GetAccountPassword(ctx context.Context, ofAccount
 	}
 	accountPassword, err := q.GetAccountPassword(ctx, ofAccountID)
 	if err != nil {
+		if stderrors.Is(err, sql.ErrNoRows) {
+			return auth.AccountPassword{}, errors.ErrNotFound
+		}
 		return auth.AccountPassword{}, err
 	}
 	return auth.AccountPassword{

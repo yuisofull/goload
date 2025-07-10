@@ -3,9 +3,9 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
-	"errors"
+	errstderrors "errors"
 	"github.com/golang-jwt/jwt/v5"
-	internalerrors "github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/errors"
 	pkgrsa "github.com/yuisofull/goload/pkg/crypto/rsa"
 	"time"
 )
@@ -17,10 +17,6 @@ type TokenPublicKeyStore interface {
 
 type TokenManager interface {
 	Sign(accountID uint64) (string, error)
-	TokenValidator
-}
-
-type TokenValidator interface {
 	GetAccountIDFrom(token string) (uint64, error)
 	GetExpiryFrom(token string) (time.Time, error)
 }
@@ -58,14 +54,6 @@ func NewJWTRS512TokenManager(
 	}, nil
 }
 
-func NewJWTRS512TokenValidator(
-	store TokenPublicKeyStore,
-) (TokenValidator, error) {
-	return &jwtRS256TokenManager{
-		store: store,
-	}, nil
-}
-
 func (t *jwtRS256TokenManager) Sign(accountID uint64) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodRS512, jwt.MapClaims{
 		"sub":        accountID,
@@ -76,21 +64,30 @@ func (t *jwtRS256TokenManager) Sign(accountID uint64) (string, error) {
 		"kid":        t.kid,
 		"iss":        "authservice",
 	})
-	return token.SignedString(t.privateKey)
+
+	tokenStr, err := token.SignedString(t.privateKey)
+	if err != nil {
+		return "", &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to sign token",
+			Cause:   err,
+		}
+	}
+	return tokenStr, nil
 }
 
 func (t *jwtRS256TokenManager) parseToken(tokenStr string) (*jwt.Token, error) {
 	return jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok || token.Method.Alg() != jwt.SigningMethodRS512.Alg() {
-			return nil, errors.New("unexpected signing method")
+			return nil, errstderrors.New("unexpected signing method")
 		}
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			return nil, errors.New("cannot get token's claims")
+			return nil, errstderrors.New("cannot get token's claims")
 		}
 		kid, ok := claims["kid"].(float64)
 		if !ok {
-			return nil, errors.New("cannot get token's kid")
+			return nil, errstderrors.New("cannot get token's kid")
 		}
 		tokenPublicKey, err := t.store.GetTokenPublicKey(context.Background(), uint64(kid))
 		if err != nil {
@@ -108,21 +105,21 @@ func (t *jwtRS256TokenManager) GetAccountIDFrom(tokenStr string) (uint64, error)
 	parsedToken, err := t.parseToken(tokenStr)
 
 	if err != nil {
-		return 0, internalerrors.NewServiceError(ErrCodeInvalidToken, "cannot parse token", err)
+		return 0, errors.NewServiceError(ErrCodeInvalidToken, "cannot parse token", err)
 	}
 
 	if !parsedToken.Valid {
-		return 0, internalerrors.NewServiceError(ErrCodeInvalidToken, "invalid token", err)
+		return 0, errors.NewServiceError(ErrCodeInvalidToken, "invalid token", err)
 	}
 
 	claims, ok := parsedToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return 0, internalerrors.NewServiceError(ErrCodeInvalidToken, "cannot get token's claims", err)
+		return 0, errors.NewServiceError(ErrCodeInvalidToken, "cannot get token's claims", err)
 	}
 
 	accountID, ok := claims["account_id"].(float64)
 	if !ok {
-		return 0, internalerrors.NewServiceError(ErrCodeInvalidToken, "cannot get token's account id", err)
+		return 0, errors.NewServiceError(ErrCodeInvalidToken, "cannot get token's account id", err)
 	}
 
 	return uint64(accountID), nil
@@ -136,17 +133,17 @@ func (t *jwtRS256TokenManager) GetExpiryFrom(token string) (time.Time, error) {
 	}
 
 	if !parsedToken.Valid {
-		return time.Time{}, internalerrors.NewServiceError(ErrCodeInvalidToken, "invalid token", err)
+		return time.Time{}, errors.NewServiceError(ErrCodeInvalidToken, "invalid token", err)
 	}
 
 	claims, ok := parsedToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return time.Time{}, internalerrors.NewServiceError(ErrCodeInvalidToken, "cannot get token's claims", err)
+		return time.Time{}, errors.NewServiceError(ErrCodeInvalidToken, "cannot get token's claims", err)
 	}
 
 	exp, ok := claims["exp"].(float64)
 	if !ok {
-		return time.Time{}, internalerrors.NewServiceError(ErrCodeInvalidToken, "cannot get token's expiry", err)
+		return time.Time{}, errors.NewServiceError(ErrCodeInvalidToken, "cannot get token's expiry", err)
 	}
 
 	return time.Unix(int64(exp), 0), nil

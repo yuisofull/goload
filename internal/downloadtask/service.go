@@ -2,6 +2,7 @@ package downloadtask
 
 import (
 	"context"
+	stderrors "errors"
 	"github.com/samber/lo"
 	"github.com/yuisofull/goload/internal/errors"
 )
@@ -16,6 +17,14 @@ type CreateResult struct {
 	DownloadTask *DownloadTask
 }
 
+type GetParams struct {
+	UserID         uint64
+	DownloadTaskID uint64
+}
+
+type GetResult struct {
+	DownloadTask *DownloadTask
+}
 type ListParams struct {
 	UserID uint64
 	Offset uint64
@@ -44,6 +53,7 @@ type DeleteParams struct {
 
 type Service interface {
 	Create(ctx context.Context, req CreateParams) (CreateResult, error)
+	Get(ctx context.Context, req GetParams) (GetResult, error)
 	List(ctx context.Context, req ListParams) (ListResult, error)
 	Update(ctx context.Context, req UpdateParams) (UpdateResult, error)
 	Delete(ctx context.Context, req DeleteParams) error
@@ -111,10 +121,39 @@ func (s *service) Create(ctx context.Context, req CreateParams) (CreateResult, e
 	return CreateResult{DownloadTask: &task}, nil
 }
 
+func (s *service) Get(ctx context.Context, req GetParams) (GetResult, error) {
+	task, err := s.store.GetTaskByID(ctx, req.DownloadTaskID)
+	if err != nil {
+		if stderrors.Is(err, errors.ErrNotFound) {
+			return GetResult{}, &errors.Error{
+				Code:    errors.ErrCodeNotFound,
+				Message: "task not found",
+			}
+		}
+		return GetResult{}, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to get task",
+			Cause:   err,
+		}
+	}
+
+	if task.OfAccountId != req.UserID {
+		return GetResult{}, &errors.Error{
+			Code:    errors.ErrCodePermissionDenied,
+			Message: "trying to get other's task",
+		}
+	}
+	return GetResult{DownloadTask: task}, nil
+}
+
 func (s *service) List(ctx context.Context, req ListParams) (ListResult, error) {
 	tasks, err := s.store.GetTaskListOfUser(ctx, req.UserID, req.Offset, req.Limit)
 	if err != nil {
-		return ListResult{}, err
+		return ListResult{}, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to get task list",
+			Cause:   err,
+		}
 	}
 
 	totalCount, err := s.store.GetTaskCountOfUser(ctx, req.UserID)
@@ -133,14 +172,31 @@ func (s *service) Update(ctx context.Context, req UpdateParams) (UpdateResult, e
 		var err error
 		task, err = s.store.GetTaskByIDWithLock(ctx, req.DownloadTaskId)
 		if err != nil {
-			return err
+			if stderrors.Is(err, errors.ErrNotFound) {
+				return &errors.Error{
+					Code:    errors.ErrCodeNotFound,
+					Message: "task not found",
+				}
+			}
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to get task",
+				Cause:   err,
+			}
 		}
 		if task.OfAccountId != req.UserID {
-			return errors.NewServiceError(errors.ErrCodePermissionDenied, "trying to update other's task", nil)
+			return &errors.Error{
+				Code:    errors.ErrCodePermissionDenied,
+				Message: "trying to update other's task",
+			}
 		}
 		task.Url = req.Url
 		if err := s.store.Update(ctx, *task); err != nil {
-			return err
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to update task",
+				Cause:   err,
+			}
 		}
 		return nil
 	}); err != nil {
@@ -151,21 +207,34 @@ func (s *service) Update(ctx context.Context, req UpdateParams) (UpdateResult, e
 }
 
 func (s *service) Delete(ctx context.Context, req DeleteParams) error {
-	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
+	return s.txManager.DoInTx(ctx, func(ctx context.Context) error {
 		task, err := s.store.GetTaskByIDWithLock(ctx, req.DownloadTask.Id)
 		if err != nil {
-			return err
+			if stderrors.Is(err, errors.ErrNotFound) {
+				return &errors.Error{
+					Code:    errors.ErrCodeNotFound,
+					Message: "task not found",
+				}
+			}
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to get task",
+				Cause:   err,
+			}
 		}
 		if task.OfAccountId != req.UserID {
-			return errors.NewServiceError(errors.ErrCodePermissionDenied, "trying to delete other's task", nil)
+			return &errors.Error{
+				Code:    errors.ErrCodePermissionDenied,
+				Message: "trying to delete other's task",
+			}
 		}
 		if err := s.store.DeleteTask(ctx, req.DownloadTask.Id); err != nil {
-			return err
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to delete task",
+				Cause:   err,
+			}
 		}
 		return nil
-	}); err != nil {
-		return err
-	}
-
-	return nil
+	})
 }

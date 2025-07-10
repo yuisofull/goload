@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"github.com/yuisofull/goload/internal/downloadtask"
 	"github.com/yuisofull/goload/internal/downloadtask/mysql/sqlc"
+	"github.com/yuisofull/goload/internal/errors"
 )
 
 type store struct {
@@ -40,10 +42,8 @@ func (s *store) Create(ctx context.Context, task downloadtask.DownloadTask) (uin
 		return 0, err
 	}
 	id, err := result.LastInsertId()
-	if err != nil {
-		return 0, err
-	}
-	return uint64(id), nil
+
+	return uint64(id), err
 }
 
 func (s *store) GetTaskByID(ctx context.Context, id uint64) (*downloadtask.DownloadTask, error) {
@@ -53,10 +53,13 @@ func (s *store) GetTaskByID(ctx context.Context, id uint64) (*downloadtask.Downl
 	}
 	row, err := q.GetDownloadTaskByID(ctx, id)
 	if err != nil {
+		if stderrors.Is(err, sql.ErrNoRows) {
+			return nil, errors.ErrNotFound
+		}
 		return nil, err
 	}
 	metadata := make(map[string]any)
-	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+	if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 	return &downloadtask.DownloadTask{
@@ -76,10 +79,13 @@ func (s *store) GetTaskByIDWithLock(ctx context.Context, id uint64) (*downloadta
 	}
 	row, err := q.GetDownloadTaskByIDWithLock(ctx, id)
 	if err != nil {
+		if stderrors.Is(err, sql.ErrNoRows) {
+			return nil, errors.ErrNotFound
+		}
 		return nil, err
 	}
 	metadata := make(map[string]any)
-	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+	if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 	return &downloadtask.DownloadTask{
@@ -103,12 +109,16 @@ func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uin
 		Offset:      int32(offset),
 	})
 	if err != nil {
-		return nil, err
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to get download task list of user",
+			Cause:   err,
+		}
 	}
 	tasks := make([]downloadtask.DownloadTask, len(rows))
 	for i, row := range rows {
 		metadata := make(map[string]any)
-		if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
 		tasks[i] = downloadtask.DownloadTask{
@@ -129,10 +139,8 @@ func (s *store) GetTaskCountOfUser(ctx context.Context, userID uint64) (uint64, 
 		q = q.WithTx(tx)
 	}
 	count, err := q.GetDownloadTaskCountOfUser(ctx, userID)
-	if err != nil {
-		return 0, err
-	}
-	return uint64(count), nil
+
+	return uint64(count), err
 }
 
 func (s *store) Update(ctx context.Context, task downloadtask.DownloadTask) error {
