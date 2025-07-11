@@ -1,12 +1,13 @@
 syntax = "proto3";
 
-package downloadtask.v1;
+package task.v1;
 
-option go_package = "github.com/yuisofull/goload/internal/downloadtask/pb;pb";
+option go_package = "github.com/yuisofull/goload/internal/task/pb;pb";
 
 // ===== Download Task Service =====
 service DownloadTaskService {
   rpc CreateDownloadTask(CreateDownloadTaskRequest) returns (CreateDownloadTaskResponse) {}
+  rpc GetDownloadTask(GetDownloadTaskRequest) returns (GetDownloadTaskResponse) {}
   rpc GetDownloadTaskList(GetDownloadTaskListRequest) returns (GetDownloadTaskListResponse) {}
   rpc UpdateDownloadTask(UpdateDownloadTaskRequest) returns (UpdateDownloadTaskResponse) {}
   rpc DeleteDownloadTask(DeleteDownloadTaskRequest) returns (DeleteDownloadTaskResponse) {}
@@ -42,6 +43,15 @@ message CreateDownloadTaskRequest {
 }
 
 message CreateDownloadTaskResponse {
+  DownloadTask download_task = 1;
+}
+
+message GetDownloadTaskRequest {
+  uint64 user_id = 1;
+  uint64 download_task_id = 2;
+}
+
+message GetDownloadTaskResponse {
   DownloadTask download_task = 1;
 }
 

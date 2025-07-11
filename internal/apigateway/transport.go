@@ -11,12 +11,11 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
-	"github.com/yuisofull/goload/internal/downloadtask"
+	"github.com/yuisofull/goload/internal/task"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// HTTP request/response types for API Gateway
 type HTTPCreateDownloadTaskRequest struct {
 	DownloadType int    `json:"download_type"`
 	URL          string `json:"url"`
@@ -158,7 +157,7 @@ func decodeHTTPCreateDownloadTaskRequest(_ context.Context, r *http.Request) (in
 
 	return &CreateDownloadTaskRequest{
 		UserID:       userID,
-		DownloadType: downloadtask.DownloadType(req.DownloadType),
+		DownloadType: task.DownloadType(req.DownloadType),
 		URL:          req.URL,
 	}, nil
 }

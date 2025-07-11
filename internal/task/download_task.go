@@ -1,4 +1,4 @@
-package downloadtask
+package task
 
 type DownloadType int
 

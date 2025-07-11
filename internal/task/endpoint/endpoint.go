@@ -1,15 +1,19 @@
-package downloadtaskendpoint
+package taskendpoint
 
 import (
 	"context"
 	"github.com/go-kit/kit/endpoint"
-	"github.com/yuisofull/goload/internal/downloadtask"
-	"github.com/yuisofull/goload/internal/downloadtask/pb"
+	"github.com/yuisofull/goload/internal/task"
+	"github.com/yuisofull/goload/internal/task/pb"
 )
 
 type CreateDownloadTaskRequest pb.CreateDownloadTaskRequest
 
 type CreateDownloadTaskResponse pb.CreateDownloadTaskResponse
+
+type GetDownloadTaskRequest pb.GetDownloadTaskRequest
+
+type GetDownloadTaskResponse pb.GetDownloadTaskResponse
 
 type GetDownloadTaskListRequest pb.GetDownloadTaskListRequest
 
@@ -25,18 +29,19 @@ type DeleteDownloadTaskResponse pb.DeleteDownloadTaskResponse
 
 type Set struct {
 	CreateDownloadTaskEndpoint  endpoint.Endpoint
+	GetDownloadTaskEndpoint     endpoint.Endpoint
 	GetDownloadTaskListEndpoint endpoint.Endpoint
 	UpdateDownloadTaskEndpoint  endpoint.Endpoint
 	DeleteDownloadTaskEndpoint  endpoint.Endpoint
 }
 
-func MakeCreateDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint {
+func MakeCreateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*CreateDownloadTaskRequest)
 
-		params := downloadtask.CreateParams{
+		params := task.CreateParams{
 			UserID:       req.UserId,
-			DownloadType: downloadtask.DownloadType(req.DownloadType),
+			DownloadType: task.DownloadType(req.DownloadType),
 			Url:          req.Url,
 		}
 
@@ -57,11 +62,34 @@ func MakeCreateDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 	}
 }
 
-func MakeGetDownloadTaskListEndpoint(svc downloadtask.Service) endpoint.Endpoint {
+func MakeGetDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*GetDownloadTaskRequest)
+		params := task.GetParams{
+			UserID:         req.UserId,
+			DownloadTaskID: req.DownloadTaskId,
+		}
+		output, err := svc.Get(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return &GetDownloadTaskResponse{
+			DownloadTask: &pb.DownloadTask{
+				Id:             output.DownloadTask.Id,
+				OfAccountId:    output.DownloadTask.OfAccountId,
+				DownloadType:   pb.DownloadType(output.DownloadTask.DownloadType),
+				Url:            output.DownloadTask.Url,
+				DownloadStatus: pb.DownloadStatus(output.DownloadTask.DownloadStatus),
+			},
+		}, nil
+	}
+}
+
+func MakeGetDownloadTaskListEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*GetDownloadTaskListRequest)
 
-		params := downloadtask.ListParams{
+		params := task.ListParams{
 			UserID: req.UserId,
 			Offset: req.Offset,
 			Limit:  req.Limit,
@@ -72,13 +100,13 @@ func MakeGetDownloadTaskListEndpoint(svc downloadtask.Service) endpoint.Endpoint
 			return nil, err
 		}
 		pbTasks := make([]*pb.DownloadTask, len(output.DownloadTasks))
-		for i, task := range output.DownloadTasks {
+		for i, downloadTask := range output.DownloadTasks {
 			pbTasks[i] = &pb.DownloadTask{
-				Id:             task.Id,
-				OfAccountId:    task.OfAccountId,
-				DownloadType:   pb.DownloadType(task.DownloadType),
-				Url:            task.Url,
-				DownloadStatus: pb.DownloadStatus(task.DownloadStatus),
+				Id:             downloadTask.Id,
+				OfAccountId:    downloadTask.OfAccountId,
+				DownloadType:   pb.DownloadType(downloadTask.DownloadType),
+				Url:            downloadTask.Url,
+				DownloadStatus: pb.DownloadStatus(downloadTask.DownloadStatus),
 			}
 		}
 
@@ -89,11 +117,11 @@ func MakeGetDownloadTaskListEndpoint(svc downloadtask.Service) endpoint.Endpoint
 	}
 }
 
-func MakeUpdateDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint {
+func MakeUpdateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*UpdateDownloadTaskRequest)
 
-		params := downloadtask.UpdateParams{
+		params := task.UpdateParams{
 			UserID:         req.UserId,
 			DownloadTaskId: req.DownloadTaskId,
 			Url:            req.Url,
@@ -115,13 +143,13 @@ func MakeUpdateDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 	}
 }
 
-func MakeDeleteDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint {
+func MakeDeleteDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*DeleteDownloadTaskRequest)
 
-		params := downloadtask.DeleteParams{
+		params := task.DeleteParams{
 			UserID: req.UserId,
-			DownloadTask: &downloadtask.DownloadTask{
+			DownloadTask: &task.DownloadTask{
 				Id: req.DownloadTaskId,
 			},
 		}
@@ -134,7 +162,7 @@ func MakeDeleteDownloadTaskEndpoint(svc downloadtask.Service) endpoint.Endpoint 
 	}
 }
 
-func New(svc downloadtask.Service) Set {
+func New(svc task.Service) Set {
 	var createDownloadTaskEndpoint endpoint.Endpoint
 	{
 		createDownloadTaskEndpoint = MakeCreateDownloadTaskEndpoint(svc)
@@ -163,76 +191,95 @@ func New(svc downloadtask.Service) Set {
 	}
 }
 
-func (s *Set) Create(ctx context.Context, req downloadtask.CreateParams) (downloadtask.CreateResult, error) {
+func (s *Set) Create(ctx context.Context, req task.CreateParams) (task.CreateResult, error) {
 	resp, err := s.CreateDownloadTaskEndpoint(ctx, &CreateDownloadTaskRequest{
 		UserId:       req.UserID,
 		DownloadType: pb.DownloadType(req.DownloadType),
 		Url:          req.Url,
 	})
 	if err != nil {
-		return downloadtask.CreateResult{}, err
+		return task.CreateResult{}, err
 	}
 	out := resp.(*CreateDownloadTaskResponse)
-	return downloadtask.CreateResult{
-		DownloadTask: &downloadtask.DownloadTask{
+	return task.CreateResult{
+		DownloadTask: &task.DownloadTask{
 			Id:             out.DownloadTask.Id,
 			OfAccountId:    out.DownloadTask.OfAccountId,
-			DownloadType:   downloadtask.DownloadType(out.DownloadTask.DownloadType),
+			DownloadType:   task.DownloadType(out.DownloadTask.DownloadType),
 			Url:            out.DownloadTask.Url,
-			DownloadStatus: downloadtask.DownloadStatus(out.DownloadTask.DownloadStatus),
+			DownloadStatus: task.DownloadStatus(out.DownloadTask.DownloadStatus),
 		},
 	}, nil
 }
 
-func (s *Set) List(ctx context.Context, req downloadtask.ListParams) (downloadtask.ListResult, error) {
+func (s *Set) Get(ctx context.Context, req task.GetParams) (task.GetResult, error) {
+	resp, err := s.GetDownloadTaskEndpoint(ctx, &GetDownloadTaskRequest{
+		UserId:         req.UserID,
+		DownloadTaskId: req.DownloadTaskID,
+	})
+	if err != nil {
+		return task.GetResult{}, err
+	}
+	out := resp.(*GetDownloadTaskResponse)
+	return task.GetResult{
+		DownloadTask: &task.DownloadTask{
+			Id:             out.DownloadTask.Id,
+			OfAccountId:    out.DownloadTask.OfAccountId,
+			DownloadType:   task.DownloadType(out.DownloadTask.DownloadType),
+			Url:            out.DownloadTask.Url,
+			DownloadStatus: task.DownloadStatus(out.DownloadTask.DownloadStatus),
+		},
+	}, nil
+}
+func (s *Set) List(ctx context.Context, req task.ListParams) (task.ListResult, error) {
 	resp, err := s.GetDownloadTaskListEndpoint(ctx, &GetDownloadTaskListRequest{
 		UserId: req.UserID,
 		Offset: req.Offset,
 		Limit:  req.Limit,
 	})
 	if err != nil {
-		return downloadtask.ListResult{}, err
+		return task.ListResult{}, err
 	}
 	out := resp.(*GetDownloadTaskListResponse)
 	pbTasks := out.DownloadTasks
-	tasks := make([]*downloadtask.DownloadTask, len(pbTasks))
-	for i, task := range pbTasks {
-		tasks[i] = &downloadtask.DownloadTask{
-			Id:             task.Id,
-			OfAccountId:    task.OfAccountId,
-			DownloadType:   downloadtask.DownloadType(task.DownloadType),
-			Url:            task.Url,
-			DownloadStatus: downloadtask.DownloadStatus(task.DownloadStatus),
+	tasks := make([]*task.DownloadTask, len(pbTasks))
+	for i, downloadTask := range pbTasks {
+		tasks[i] = &task.DownloadTask{
+			Id:             downloadTask.Id,
+			OfAccountId:    downloadTask.OfAccountId,
+			DownloadType:   task.DownloadType(downloadTask.DownloadType),
+			Url:            downloadTask.Url,
+			DownloadStatus: task.DownloadStatus(downloadTask.DownloadStatus),
 		}
 	}
-	return downloadtask.ListResult{
+	return task.ListResult{
 		DownloadTasks: tasks,
 		TotalCount:    out.TotalCount,
 	}, nil
 }
 
-func (s *Set) Update(ctx context.Context, req downloadtask.UpdateParams) (downloadtask.UpdateResult, error) {
+func (s *Set) Update(ctx context.Context, req task.UpdateParams) (task.UpdateResult, error) {
 	resp, err := s.UpdateDownloadTaskEndpoint(ctx, &UpdateDownloadTaskRequest{
 		UserId:         req.UserID,
 		DownloadTaskId: req.DownloadTaskId,
 		Url:            req.Url,
 	})
 	if err != nil {
-		return downloadtask.UpdateResult{}, err
+		return task.UpdateResult{}, err
 	}
 	out := resp.(*UpdateDownloadTaskResponse)
-	return downloadtask.UpdateResult{
-		DownloadTask: &downloadtask.DownloadTask{
+	return task.UpdateResult{
+		DownloadTask: &task.DownloadTask{
 			Id:             out.DownloadTask.Id,
 			OfAccountId:    out.DownloadTask.OfAccountId,
-			DownloadType:   downloadtask.DownloadType(out.DownloadTask.DownloadType),
+			DownloadType:   task.DownloadType(out.DownloadTask.DownloadType),
 			Url:            out.DownloadTask.Url,
-			DownloadStatus: downloadtask.DownloadStatus(out.DownloadTask.DownloadStatus),
+			DownloadStatus: task.DownloadStatus(out.DownloadTask.DownloadStatus),
 		},
 	}, nil
 }
 
-func (s *Set) Delete(ctx context.Context, req downloadtask.DeleteParams) error {
+func (s *Set) Delete(ctx context.Context, req task.DeleteParams) error {
 	_, err := s.DeleteDownloadTaskEndpoint(ctx, &DeleteDownloadTaskRequest{
 		UserId:         req.UserID,
 		DownloadTaskId: req.DownloadTask.Id,

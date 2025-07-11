@@ -17,8 +17,8 @@ import (
 	"github.com/yuisofull/goload/internal/auth"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
 	"github.com/yuisofull/goload/internal/configs"
-	"github.com/yuisofull/goload/internal/downloadtask"
-	downloadtasktransport "github.com/yuisofull/goload/internal/downloadtask/transport"
+	"github.com/yuisofull/goload/internal/task"
+	downloadtasktransport "github.com/yuisofull/goload/internal/task/transport"
 )
 
 func main() {
@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Connect to Download Task Service via gRPC
-	var downloadTaskService downloadtask.Service
+	var downloadTaskService task.Service
 	{
 		conn, err := grpc.NewClient(config.DownloadTaskService.GRPC.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {

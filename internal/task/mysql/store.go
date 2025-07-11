@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
-	"github.com/yuisofull/goload/internal/downloadtask"
-	"github.com/yuisofull/goload/internal/downloadtask/mysql/sqlc"
 	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/task"
+	"github.com/yuisofull/goload/internal/task/mysql/sqlc"
 )
 
 type store struct {
@@ -21,7 +21,7 @@ func NewStore(db *sql.DB) *store {
 	}
 }
 
-func (s *store) Create(ctx context.Context, task downloadtask.DownloadTask) (uint64, error) {
+func (s *store) Create(ctx context.Context, task task.DownloadTask) (uint64, error) {
 	q := s.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)
@@ -46,7 +46,7 @@ func (s *store) Create(ctx context.Context, task downloadtask.DownloadTask) (uin
 	return uint64(id), err
 }
 
-func (s *store) GetTaskByID(ctx context.Context, id uint64) (*downloadtask.DownloadTask, error) {
+func (s *store) GetTaskByID(ctx context.Context, id uint64) (*task.DownloadTask, error) {
 	q := s.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)
@@ -62,17 +62,17 @@ func (s *store) GetTaskByID(ctx context.Context, id uint64) (*downloadtask.Downl
 	if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
-	return &downloadtask.DownloadTask{
+	return &task.DownloadTask{
 		Id:             row.ID,
 		OfAccountId:    row.OfAccountID,
-		DownloadType:   downloadtask.DownloadType(row.DownloadType),
+		DownloadType:   task.DownloadType(row.DownloadType),
 		Url:            row.Url,
-		DownloadStatus: downloadtask.DownloadStatus(row.DownloadStatus),
+		DownloadStatus: task.DownloadStatus(row.DownloadStatus),
 		Metadata:       metadata,
 	}, nil
 }
 
-func (s *store) GetTaskByIDWithLock(ctx context.Context, id uint64) (*downloadtask.DownloadTask, error) {
+func (s *store) GetTaskByIDWithLock(ctx context.Context, id uint64) (*task.DownloadTask, error) {
 	q := s.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)
@@ -88,17 +88,17 @@ func (s *store) GetTaskByIDWithLock(ctx context.Context, id uint64) (*downloadta
 	if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
-	return &downloadtask.DownloadTask{
+	return &task.DownloadTask{
 		Id:             row.ID,
 		OfAccountId:    row.OfAccountID,
-		DownloadType:   downloadtask.DownloadType(row.DownloadType),
+		DownloadType:   task.DownloadType(row.DownloadType),
 		Url:            row.Url,
-		DownloadStatus: downloadtask.DownloadStatus(row.DownloadStatus),
+		DownloadStatus: task.DownloadStatus(row.DownloadStatus),
 		Metadata:       metadata,
 	}, nil
 }
 
-func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uint64) ([]downloadtask.DownloadTask, error) {
+func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uint64) ([]task.DownloadTask, error) {
 	q := s.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)
@@ -115,18 +115,18 @@ func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uin
 			Cause:   err,
 		}
 	}
-	tasks := make([]downloadtask.DownloadTask, len(rows))
+	tasks := make([]task.DownloadTask, len(rows))
 	for i, row := range rows {
 		metadata := make(map[string]any)
 		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
-		tasks[i] = downloadtask.DownloadTask{
+		tasks[i] = task.DownloadTask{
 			Id:             row.ID,
 			OfAccountId:    row.OfAccountID,
-			DownloadType:   downloadtask.DownloadType(row.DownloadType),
+			DownloadType:   task.DownloadType(row.DownloadType),
 			Url:            row.Url,
-			DownloadStatus: downloadtask.DownloadStatus(row.DownloadStatus),
+			DownloadStatus: task.DownloadStatus(row.DownloadStatus),
 			Metadata:       metadata,
 		}
 	}
@@ -143,7 +143,7 @@ func (s *store) GetTaskCountOfUser(ctx context.Context, userID uint64) (uint64, 
 	return uint64(count), err
 }
 
-func (s *store) Update(ctx context.Context, task downloadtask.DownloadTask) error {
+func (s *store) Update(ctx context.Context, task task.DownloadTask) error {
 	q := s.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)

@@ -1,11 +1,11 @@
 version: "2"
 sql:
   - engine: "mysql"
-    schema: "../internal/downloadtask/mysql/sqlc/schema.sql"
-    queries: "../internal/downloadtask/mysql/sqlc/query.sql"
+    schema: "../internal/task/mysql/sqlc/schema.sql"
+    queries: "../internal/task/mysql/sqlc/query.sql"
     gen:
       go:
         package: "sqlc"
-        out: "../internal/downloadtask/mysql/sqlc"
+        out: "../internal/task/mysql/sqlc"
         emit_interface: false
         emit_json_tags: true

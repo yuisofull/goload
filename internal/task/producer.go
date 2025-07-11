@@ -1,4 +1,4 @@
-package downloadtask
+package task
 
 import (
 	"context"

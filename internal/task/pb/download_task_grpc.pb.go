@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DownloadTaskService_CreateDownloadTask_FullMethodName  = "/downloadtask.v1.DownloadTaskService/CreateDownloadTask"
-	DownloadTaskService_GetDownloadTaskList_FullMethodName = "/downloadtask.v1.DownloadTaskService/GetDownloadTaskList"
-	DownloadTaskService_UpdateDownloadTask_FullMethodName  = "/downloadtask.v1.DownloadTaskService/UpdateDownloadTask"
-	DownloadTaskService_DeleteDownloadTask_FullMethodName  = "/downloadtask.v1.DownloadTaskService/DeleteDownloadTask"
+	DownloadTaskService_CreateDownloadTask_FullMethodName  = "/task.v1.DownloadTaskService/CreateDownloadTask"
+	DownloadTaskService_GetDownloadTask_FullMethodName     = "/task.v1.DownloadTaskService/GetDownloadTask"
+	DownloadTaskService_GetDownloadTaskList_FullMethodName = "/task.v1.DownloadTaskService/GetDownloadTaskList"
+	DownloadTaskService_UpdateDownloadTask_FullMethodName  = "/task.v1.DownloadTaskService/UpdateDownloadTask"
+	DownloadTaskService_DeleteDownloadTask_FullMethodName  = "/task.v1.DownloadTaskService/DeleteDownloadTask"
 )
 
 // DownloadTaskServiceClient is the client API for DownloadTaskService service.
@@ -32,6 +33,7 @@ const (
 // ===== Download Task Service =====
 type DownloadTaskServiceClient interface {
 	CreateDownloadTask(ctx context.Context, in *CreateDownloadTaskRequest, opts ...grpc.CallOption) (*CreateDownloadTaskResponse, error)
+	GetDownloadTask(ctx context.Context, in *GetDownloadTaskRequest, opts ...grpc.CallOption) (*GetDownloadTaskResponse, error)
 	GetDownloadTaskList(ctx context.Context, in *GetDownloadTaskListRequest, opts ...grpc.CallOption) (*GetDownloadTaskListResponse, error)
 	UpdateDownloadTask(ctx context.Context, in *UpdateDownloadTaskRequest, opts ...grpc.CallOption) (*UpdateDownloadTaskResponse, error)
 	DeleteDownloadTask(ctx context.Context, in *DeleteDownloadTaskRequest, opts ...grpc.CallOption) (*DeleteDownloadTaskResponse, error)
@@ -49,6 +51,16 @@ func (c *downloadTaskServiceClient) CreateDownloadTask(ctx context.Context, in *
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateDownloadTaskResponse)
 	err := c.cc.Invoke(ctx, DownloadTaskService_CreateDownloadTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *downloadTaskServiceClient) GetDownloadTask(ctx context.Context, in *GetDownloadTaskRequest, opts ...grpc.CallOption) (*GetDownloadTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDownloadTaskResponse)
+	err := c.cc.Invoke(ctx, DownloadTaskService_GetDownloadTask_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +104,7 @@ func (c *downloadTaskServiceClient) DeleteDownloadTask(ctx context.Context, in *
 // ===== Download Task Service =====
 type DownloadTaskServiceServer interface {
 	CreateDownloadTask(context.Context, *CreateDownloadTaskRequest) (*CreateDownloadTaskResponse, error)
+	GetDownloadTask(context.Context, *GetDownloadTaskRequest) (*GetDownloadTaskResponse, error)
 	GetDownloadTaskList(context.Context, *GetDownloadTaskListRequest) (*GetDownloadTaskListResponse, error)
 	UpdateDownloadTask(context.Context, *UpdateDownloadTaskRequest) (*UpdateDownloadTaskResponse, error)
 	DeleteDownloadTask(context.Context, *DeleteDownloadTaskRequest) (*DeleteDownloadTaskResponse, error)
@@ -107,6 +120,9 @@ type UnimplementedDownloadTaskServiceServer struct{}
 
 func (UnimplementedDownloadTaskServiceServer) CreateDownloadTask(context.Context, *CreateDownloadTaskRequest) (*CreateDownloadTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateDownloadTask not implemented")
+}
+func (UnimplementedDownloadTaskServiceServer) GetDownloadTask(context.Context, *GetDownloadTaskRequest) (*GetDownloadTaskResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDownloadTask not implemented")
 }
 func (UnimplementedDownloadTaskServiceServer) GetDownloadTaskList(context.Context, *GetDownloadTaskListRequest) (*GetDownloadTaskListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDownloadTaskList not implemented")
@@ -152,6 +168,24 @@ func _DownloadTaskService_CreateDownloadTask_Handler(srv interface{}, ctx contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DownloadTaskServiceServer).CreateDownloadTask(ctx, req.(*CreateDownloadTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DownloadTaskService_GetDownloadTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDownloadTaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DownloadTaskServiceServer).GetDownloadTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DownloadTaskService_GetDownloadTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DownloadTaskServiceServer).GetDownloadTask(ctx, req.(*GetDownloadTaskRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -214,12 +248,16 @@ func _DownloadTaskService_DeleteDownloadTask_Handler(srv interface{}, ctx contex
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var DownloadTaskService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "downloadtask.v1.DownloadTaskService",
+	ServiceName: "task.v1.DownloadTaskService",
 	HandlerType: (*DownloadTaskServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "CreateDownloadTask",
 			Handler:    _DownloadTaskService_CreateDownloadTask_Handler,
+		},
+		{
+			MethodName: "GetDownloadTask",
+			Handler:    _DownloadTaskService_GetDownloadTask_Handler,
 		},
 		{
 			MethodName: "GetDownloadTaskList",

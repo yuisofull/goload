@@ -6,10 +6,10 @@ import (
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	"github.com/yuisofull/goload/internal/downloadtask"
-	downloadtaskendpoint "github.com/yuisofull/goload/internal/downloadtask/endpoint"
-	"github.com/yuisofull/goload/internal/downloadtask/pb"
 	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/task"
+	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
+	"github.com/yuisofull/goload/internal/task/pb"
 	"google.golang.org/grpc"
 )
 
@@ -21,7 +21,7 @@ type gRPCServer struct {
 	deleteDownloadTask  grpctransport.Handler
 }
 
-func NewGRPCServer(endpoints downloadtaskendpoint.Set, logger log.Logger) pb.DownloadTaskServiceServer {
+func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger) pb.DownloadTaskServiceServer {
 	options := []grpctransport.ServerOption{
 		grpctransport.ServerErrorHandler(transport.NewLogErrorHandler(level.Error(logger))),
 	}
@@ -54,12 +54,12 @@ func NewGRPCServer(endpoints downloadtaskendpoint.Set, logger log.Logger) pb.Dow
 	}
 }
 
-func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) downloadtask.Service {
+func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {
 	options := []grpctransport.ClientOption{
 		grpctransport.ClientBefore(NewLogRequestFunc(logger)),
 		grpctransport.ClientAfter(NewLogResponseFunc(logger)),
 	}
-	return &downloadtaskendpoint.Set{
+	return &taskendpoint.Set{
 		CreateDownloadTaskEndpoint: grpctransport.NewClient(
 			conn,
 			"pb.DownloadTaskService",
@@ -137,15 +137,15 @@ func (s *gRPCServer) DeleteDownloadTask(ctx context.Context, req *pb.DeleteDownl
 
 func decodeCreateDownloadTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
 	req := grpcReq.(*pb.CreateDownloadTaskRequest)
-	return &downloadtaskendpoint.CreateDownloadTaskRequest{
-		Token:        req.Token,
+	return &taskendpoint.CreateDownloadTaskRequest{
+		UserId:       req.UserId,
 		DownloadType: req.DownloadType,
 		Url:          req.Url,
 	}, nil
 }
 
 func encodeCreateDownloadTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
-	resp := response.(*downloadtaskendpoint.CreateDownloadTaskResponse)
+	resp := response.(*taskendpoint.CreateDownloadTaskResponse)
 	return &pb.CreateDownloadTaskResponse{
 		DownloadTask: &pb.DownloadTask{
 			Id:             resp.DownloadTask.Id,
@@ -159,23 +159,23 @@ func encodeCreateDownloadTaskResponse(_ context.Context, response interface{}) (
 
 func decodeGetDownloadTaskListRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
 	req := grpcReq.(*pb.GetDownloadTaskListRequest)
-	return &downloadtaskendpoint.GetDownloadTaskListRequest{
-		Token:  req.Token,
+	return &taskendpoint.GetDownloadTaskListRequest{
+		UserId: req.UserId,
 		Offset: req.Offset,
 		Limit:  req.Limit,
 	}, nil
 }
 
 func encodeGetDownloadTaskListResponse(_ context.Context, response interface{}) (interface{}, error) {
-	resp := response.(*downloadtaskendpoint.GetDownloadTaskListResponse)
+	resp := response.(*taskendpoint.GetDownloadTaskListResponse)
 	pbTasks := make([]*pb.DownloadTask, len(resp.DownloadTasks))
-	for i, task := range resp.DownloadTasks {
+	for i, downloadTask := range resp.DownloadTasks {
 		pbTasks[i] = &pb.DownloadTask{
-			Id:             task.Id,
-			OfAccountId:    task.OfAccountId,
-			DownloadType:   task.DownloadType,
-			Url:            task.Url,
-			DownloadStatus: task.DownloadStatus,
+			Id:             downloadTask.Id,
+			OfAccountId:    downloadTask.OfAccountId,
+			DownloadType:   downloadTask.DownloadType,
+			Url:            downloadTask.Url,
+			DownloadStatus: downloadTask.DownloadStatus,
 		}
 	}
 	return &pb.GetDownloadTaskListResponse{
@@ -186,15 +186,15 @@ func encodeGetDownloadTaskListResponse(_ context.Context, response interface{}) 
 
 func decodeUpdateDownloadTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
 	req := grpcReq.(*pb.UpdateDownloadTaskRequest)
-	return &downloadtaskendpoint.UpdateDownloadTaskRequest{
-		Token:          req.Token,
+	return &taskendpoint.UpdateDownloadTaskRequest{
+		UserId:         req.UserId,
 		DownloadTaskId: req.DownloadTaskId,
 		Url:            req.Url,
 	}, nil
 }
 
 func encodeUpdateDownloadTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
-	resp := response.(*downloadtaskendpoint.UpdateDownloadTaskResponse)
+	resp := response.(*taskendpoint.UpdateDownloadTaskResponse)
 	return &pb.UpdateDownloadTaskResponse{
 		DownloadTask: &pb.DownloadTask{
 			Id:             resp.DownloadTask.Id,
@@ -208,8 +208,8 @@ func encodeUpdateDownloadTaskResponse(_ context.Context, response interface{}) (
 
 func decodeDeleteDownloadTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
 	req := grpcReq.(*pb.DeleteDownloadTaskRequest)
-	return &downloadtaskendpoint.DeleteDownloadTaskRequest{
-		Token:          req.Token,
+	return &taskendpoint.DeleteDownloadTaskRequest{
+		UserId:         req.UserId,
 		DownloadTaskId: req.DownloadTaskId,
 	}, nil
 }
@@ -219,9 +219,9 @@ func encodeDeleteDownloadTaskResponse(_ context.Context, response interface{}) (
 }
 
 func encodeCreateDownloadTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
-	req := request.(*downloadtaskendpoint.CreateDownloadTaskRequest)
+	req := request.(*taskendpoint.CreateDownloadTaskRequest)
 	return &pb.CreateDownloadTaskRequest{
-		Token:        req.Token,
+		UserId:       req.UserId,
 		DownloadType: req.DownloadType,
 		Url:          req.Url,
 	}, nil
@@ -229,7 +229,7 @@ func encodeCreateDownloadTaskRequest(_ context.Context, request interface{}) (in
 
 func decodeCreateDownloadTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
 	resp := grpcResp.(*pb.CreateDownloadTaskResponse)
-	return &downloadtaskendpoint.CreateDownloadTaskResponse{
+	return &taskendpoint.CreateDownloadTaskResponse{
 		DownloadTask: &pb.DownloadTask{
 			Id:             resp.DownloadTask.Id,
 			OfAccountId:    resp.DownloadTask.OfAccountId,
@@ -241,9 +241,9 @@ func decodeCreateDownloadTaskResponse(_ context.Context, grpcResp interface{}) (
 }
 
 func encodeGetDownloadTaskListRequest(_ context.Context, request interface{}) (interface{}, error) {
-	req := request.(*downloadtaskendpoint.GetDownloadTaskListRequest)
+	req := request.(*taskendpoint.GetDownloadTaskListRequest)
 	return &pb.GetDownloadTaskListRequest{
-		Token:  req.Token,
+		UserId: req.UserId,
 		Offset: req.Offset,
 		Limit:  req.Limit,
 	}, nil
@@ -252,16 +252,16 @@ func encodeGetDownloadTaskListRequest(_ context.Context, request interface{}) (i
 func decodeGetDownloadTaskListResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
 	resp := grpcResp.(*pb.GetDownloadTaskListResponse)
 	pbTasks := resp.GetDownloadTasks()
-	return &downloadtaskendpoint.GetDownloadTaskListResponse{
+	return &taskendpoint.GetDownloadTaskListResponse{
 		DownloadTasks: pbTasks,
 		TotalCount:    resp.GetTotalCount(),
 	}, nil
 }
 
 func encodeUpdateDownloadTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
-	req := request.(*downloadtaskendpoint.UpdateDownloadTaskRequest)
+	req := request.(*taskendpoint.UpdateDownloadTaskRequest)
 	return &pb.UpdateDownloadTaskRequest{
-		Token:          req.Token,
+		UserId:         req.UserId,
 		DownloadTaskId: req.DownloadTaskId,
 		Url:            req.Url,
 	}, nil
@@ -269,7 +269,7 @@ func encodeUpdateDownloadTaskRequest(_ context.Context, request interface{}) (in
 
 func decodeUpdateDownloadTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
 	resp := grpcResp.(*pb.UpdateDownloadTaskResponse)
-	return &downloadtaskendpoint.UpdateDownloadTaskResponse{
+	return &taskendpoint.UpdateDownloadTaskResponse{
 		DownloadTask: &pb.DownloadTask{
 			Id:             resp.DownloadTask.Id,
 			OfAccountId:    resp.DownloadTask.OfAccountId,
@@ -281,13 +281,13 @@ func decodeUpdateDownloadTaskResponse(_ context.Context, grpcResp interface{}) (
 }
 
 func encodeDeleteDownloadTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
-	req := request.(*downloadtaskendpoint.DeleteDownloadTaskRequest)
+	req := request.(*taskendpoint.DeleteDownloadTaskRequest)
 	return &pb.DeleteDownloadTaskRequest{
-		Token:          req.Token,
+		UserId:         req.UserId,
 		DownloadTaskId: req.DownloadTaskId,
 	}, nil
 }
 
 func decodeDeleteDownloadTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
-	return &downloadtaskendpoint.DeleteDownloadTaskResponse{}, nil
+	return &taskendpoint.DeleteDownloadTaskResponse{}, nil
 }
