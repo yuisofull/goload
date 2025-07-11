@@ -28,7 +28,7 @@ PROJECT_ROOT="$(pwd)"
 # Create pb directories if they don't exist
 print_info "Creating pb directories..."
 mkdir -p internal/auth/pb
-mkdir -p internal/downloadtask/pb
+mkdir -p internal/task/pb
 mkdir -p internal/file/pb
 
 # Generate protobuf files
@@ -47,9 +47,9 @@ protoc \
 # Generate download_task.proto
 print_info "Generating download_task.proto..."
 protoc \
-    --go_out=internal/downloadtask/pb \
+    --go_out=internal/task/pb \
     --go_opt=paths=source_relative \
-    --go-grpc_out=internal/downloadtask/pb \
+    --go-grpc_out=internal/task/pb \
     --go-grpc_opt=paths=source_relative \
     --proto_path=api \
     api/download_task.proto
