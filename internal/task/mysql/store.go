@@ -7,6 +7,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/file"
 	"github.com/yuisofull/goload/internal/task"
 	"github.com/yuisofull/goload/internal/task/mysql/sqlc"
 )
@@ -65,9 +66,9 @@ func (s *store) GetTaskByID(ctx context.Context, id uint64) (*task.DownloadTask,
 	return &task.DownloadTask{
 		Id:             row.ID,
 		OfAccountId:    row.OfAccountID,
-		DownloadType:   task.DownloadType(row.DownloadType),
+		DownloadType:   file.DownloadType(row.DownloadType),
 		Url:            row.Url,
-		DownloadStatus: task.DownloadStatus(row.DownloadStatus),
+		DownloadStatus: file.DownloadStatus(row.DownloadStatus),
 		Metadata:       metadata,
 	}, nil
 }
@@ -91,9 +92,9 @@ func (s *store) GetTaskByIDWithLock(ctx context.Context, id uint64) (*task.Downl
 	return &task.DownloadTask{
 		Id:             row.ID,
 		OfAccountId:    row.OfAccountID,
-		DownloadType:   task.DownloadType(row.DownloadType),
+		DownloadType:   file.DownloadType(row.DownloadType),
 		Url:            row.Url,
-		DownloadStatus: task.DownloadStatus(row.DownloadStatus),
+		DownloadStatus: file.DownloadStatus(row.DownloadStatus),
 		Metadata:       metadata,
 	}, nil
 }
@@ -124,9 +125,9 @@ func (s *store) GetTaskListOfUser(ctx context.Context, userID, offset, limit uin
 		tasks[i] = task.DownloadTask{
 			Id:             row.ID,
 			OfAccountId:    row.OfAccountID,
-			DownloadType:   task.DownloadType(row.DownloadType),
+			DownloadType:   file.DownloadType(row.DownloadType),
 			Url:            row.Url,
-			DownloadStatus: task.DownloadStatus(row.DownloadStatus),
+			DownloadStatus: file.DownloadStatus(row.DownloadStatus),
 			Metadata:       metadata,
 		}
 	}

@@ -3,12 +3,13 @@ package apigateway
 import (
 	"context"
 	"github.com/go-kit/kit/endpoint"
+	"github.com/yuisofull/goload/internal/file"
 	"github.com/yuisofull/goload/internal/task"
 )
 
 type CreateDownloadTaskRequest struct {
 	UserID       uint64
-	DownloadType task.DownloadType
+	DownloadType file.DownloadType
 	URL          string
 }
 

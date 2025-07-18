@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"github.com/go-kit/kit/transport"
 	"github.com/go-kit/log/level"
+	"github.com/yuisofull/goload/internal/file"
 	"net/http"
 	"strconv"
 	"strings"
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
-	"github.com/yuisofull/goload/internal/task"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -157,7 +157,7 @@ func decodeHTTPCreateDownloadTaskRequest(_ context.Context, r *http.Request) (in
 
 	return &CreateDownloadTaskRequest{
 		UserID:       userID,
-		DownloadType: task.DownloadType(req.DownloadType),
+		DownloadType: file.DownloadType(req.DownloadType),
 		URL:          req.URL,
 	}, nil
 }

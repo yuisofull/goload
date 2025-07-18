@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: "mysql"
+    schema: "../internal/taskv2/mysql/sqlc/schema.sql"
+    queries: "../internal/taskv2/mysql/sqlc/query.sql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "../internal/taskv2/mysql/sqlc"
+        emit_interface: false
+        emit_json_tags: true

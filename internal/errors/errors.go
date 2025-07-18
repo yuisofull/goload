@@ -23,6 +23,7 @@ const (
 	ErrCodeUnknown          Code = "UNKNOWN"
 	ErrCodeUnauthenticated  Code = "UNAUTHENTICATED"
 	ErrCodePermissionDenied Code = "PERMISSION_DENIED"
+	ErrCodeInvalidInput     Code = "INVALID_INPUT"
 )
 
 type Error struct {
@@ -56,14 +57,6 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error {
 	return e.Cause
-}
-
-func NewServiceError(code Code, msg string, cause error) *Error {
-	return &Error{
-		Code:    code,
-		Message: msg,
-		Cause:   cause,
-	}
 }
 
 func EncodeGRPCError(err error) error {

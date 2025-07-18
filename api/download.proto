@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package download;
+
+import "task.proto";
+
+option go_package = "github.com/yuisofull/goload/internal/download/pb;pb";
+
+// The service responsible for downloading and storing files.
+service DownloadService {
+  // Downloads a file from a source and stores it in a specified backend.
+  // This is a server-streaming RPC to provide progress updates.
+  rpc DownloadAndStore(DownloadAndStoreRequest) returns (stream DownloadAndStoreResponse);
+
+  // Streams a stored file to the client.
+  rpc StreamFile(StreamFileRequest) returns (stream StreamFileResponse);
+
+  // Retrieves metadata for a stored file.
+  rpc GetFileInfo(GetFileInfoRequest) returns (GetFileInfoResponse);
+
+  // Deletes a stored file.
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+}
+
+// Request to download and store a file.
+message DownloadAndStoreRequest {
+  uint64 task_id = 1;
+  string source_url = 2;
+  task.SourceType source_type = 3;
+  task.StorageType storage_type = 4;
+  string storage_key = 5;
+  task.DownloadOptions options = 6;
+}
+
+// Response stream for the download and store process.
+message DownloadAndStoreResponse {
+  oneof response {
+    task.DownloadProgress progress = 1;
+    task.FileInfo file_info = 2;
+  }
+}
+
+// Request to stream a file.
+message StreamFileRequest {
+  string storage_key = 1;
+  Range range = 2;
+}
+
+// A range for partial file requests.
+message Range {
+  int64 start = 1;
+  int64 end = 2;
+}
+
+// Response stream for file streaming.
+message StreamFileResponse {
+  bytes chunk = 1;
+}
+
+// Request to get file info.
+message GetFileInfoRequest {
+  string storage_key = 1;
+}
+
+// Response for file info.
+message GetFileInfoResponse {
+  task.FileInfo file_info = 1;
+}
+
+// Request to delete a file.
+message DeleteFileRequest {
+  string storage_key = 1;
+}
+
+// Response for a delete operation.
+message DeleteFileResponse {
+  string message = 1;
+}

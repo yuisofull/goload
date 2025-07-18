@@ -30,6 +30,9 @@ print_info "Creating pb directories..."
 mkdir -p internal/auth/pb
 mkdir -p internal/task/pb
 mkdir -p internal/file/pb
+mkdir -p internal/taskv2/pb
+mkdir -p internal/download/pb
+
 
 # Generate protobuf files
 print_info "Generating protobuf files..."
@@ -64,8 +67,29 @@ protoc \
     --proto_path=api \
     api/file.proto
 
+# Generate task.proto
+print_info "Generating task.proto..."
+protoc \
+    --go_out=internal/taskv2/pb \
+    --go_opt=paths=source_relative \
+    --go-grpc_out=internal/taskv2/pb \
+    --go-grpc_opt=paths=source_relative \
+    --proto_path=api \
+    api/task.proto
+
+# Generate task.proto
+print_info "Generating download.proto..."
+protoc \
+    --go_out=internal/download/pb \
+    --go_opt=paths=source_relative \
+    --go-grpc_out=internal/download/pb \
+    --go-grpc_opt=paths=source_relative \
+    --proto_path=api \
+    api/download.proto
+
 # Generate SQLC code
 print_info "Generating SQLC code..."
 sqlc generate -f configs/auth_svc_sqlc.yaml
 sqlc generate -f configs/download_task_svc_sqlc.yaml
+sqlc generate -f configs/task_svc_sqlc.yaml
 #sqlc generate -f configs/file_svc_sqlc.yaml

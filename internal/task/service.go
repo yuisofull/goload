@@ -5,11 +5,12 @@ import (
 	stderrors "errors"
 	"github.com/samber/lo"
 	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/file"
 )
 
 type CreateParams struct {
 	UserID       uint64
-	DownloadType DownloadType
+	DownloadType file.DownloadType
 	Url          string
 }
 

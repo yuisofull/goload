@@ -3,6 +3,7 @@ package taskendpoint
 import (
 	"context"
 	"github.com/go-kit/kit/endpoint"
+	"github.com/yuisofull/goload/internal/file"
 	"github.com/yuisofull/goload/internal/task"
 	"github.com/yuisofull/goload/internal/task/pb"
 )
@@ -41,7 +42,7 @@ func MakeCreateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 
 		params := task.CreateParams{
 			UserID:       req.UserId,
-			DownloadType: task.DownloadType(req.DownloadType),
+			DownloadType: file.DownloadType(req.DownloadType),
 			Url:          req.Url,
 		}
 
@@ -183,11 +184,17 @@ func New(svc task.Service) Set {
 		deleteDownloadTaskEndpoint = MakeDeleteDownloadTaskEndpoint(svc)
 	}
 
+	var getDownloadTaskEndpoint endpoint.Endpoint
+	{
+		getDownloadTaskEndpoint = MakeGetDownloadTaskEndpoint(svc)
+	}
+
 	return Set{
 		CreateDownloadTaskEndpoint:  createDownloadTaskEndpoint,
 		GetDownloadTaskListEndpoint: getDownloadTaskListEndpoint,
 		UpdateDownloadTaskEndpoint:  updateDownloadTaskEndpoint,
 		DeleteDownloadTaskEndpoint:  deleteDownloadTaskEndpoint,
+		GetDownloadTaskEndpoint:     getDownloadTaskEndpoint,
 	}
 }
 
@@ -205,9 +212,9 @@ func (s *Set) Create(ctx context.Context, req task.CreateParams) (task.CreateRes
 		DownloadTask: &task.DownloadTask{
 			Id:             out.DownloadTask.Id,
 			OfAccountId:    out.DownloadTask.OfAccountId,
-			DownloadType:   task.DownloadType(out.DownloadTask.DownloadType),
+			DownloadType:   file.DownloadType(out.DownloadTask.DownloadType),
 			Url:            out.DownloadTask.Url,
-			DownloadStatus: task.DownloadStatus(out.DownloadTask.DownloadStatus),
+			DownloadStatus: file.DownloadStatus(out.DownloadTask.DownloadStatus),
 		},
 	}, nil
 }
@@ -225,9 +232,9 @@ func (s *Set) Get(ctx context.Context, req task.GetParams) (task.GetResult, erro
 		DownloadTask: &task.DownloadTask{
 			Id:             out.DownloadTask.Id,
 			OfAccountId:    out.DownloadTask.OfAccountId,
-			DownloadType:   task.DownloadType(out.DownloadTask.DownloadType),
+			DownloadType:   file.DownloadType(out.DownloadTask.DownloadType),
 			Url:            out.DownloadTask.Url,
-			DownloadStatus: task.DownloadStatus(out.DownloadTask.DownloadStatus),
+			DownloadStatus: file.DownloadStatus(out.DownloadTask.DownloadStatus),
 		},
 	}, nil
 }
@@ -247,9 +254,9 @@ func (s *Set) List(ctx context.Context, req task.ListParams) (task.ListResult, e
 		tasks[i] = &task.DownloadTask{
 			Id:             downloadTask.Id,
 			OfAccountId:    downloadTask.OfAccountId,
-			DownloadType:   task.DownloadType(downloadTask.DownloadType),
+			DownloadType:   file.DownloadType(downloadTask.DownloadType),
 			Url:            downloadTask.Url,
-			DownloadStatus: task.DownloadStatus(downloadTask.DownloadStatus),
+			DownloadStatus: file.DownloadStatus(downloadTask.DownloadStatus),
 		}
 	}
 	return task.ListResult{
@@ -272,9 +279,9 @@ func (s *Set) Update(ctx context.Context, req task.UpdateParams) (task.UpdateRes
 		DownloadTask: &task.DownloadTask{
 			Id:             out.DownloadTask.Id,
 			OfAccountId:    out.DownloadTask.OfAccountId,
-			DownloadType:   task.DownloadType(out.DownloadTask.DownloadType),
+			DownloadType:   file.DownloadType(out.DownloadTask.DownloadType),
 			Url:            out.DownloadTask.Url,
-			DownloadStatus: task.DownloadStatus(out.DownloadTask.DownloadStatus),
+			DownloadStatus: file.DownloadStatus(out.DownloadTask.DownloadStatus),
 		},
 	}, nil
 }
