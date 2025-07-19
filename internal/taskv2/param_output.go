@@ -68,7 +68,7 @@ const (
 	// TaskStatus
 	StatusPending     TaskStatus = "PENDING"
 	StatusDownloading TaskStatus = "DOWNLOADING"
-	StatusUploading   TaskStatus = "UPLOADING"
+	StatusStoring     TaskStatus = "STORING"
 	StatusCompleted   TaskStatus = "COMPLETED"
 	StatusFailed      TaskStatus = "FAILED"
 	StatusCancelled   TaskStatus = "CANCELLED"

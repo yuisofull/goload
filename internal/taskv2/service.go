@@ -20,6 +20,7 @@ type Service interface {
 	RetryTask(ctx context.Context, taskID uint64) error
 
 	// Task updates (called by workers)
+	UpdateTaskStoragePath(ctx context.Context, id uint64, storagePath string) error
 	UpdateTaskStatus(ctx context.Context, id uint64, status TaskStatus) error
 	UpdateTaskProgress(ctx context.Context, id uint64, progress DownloadProgress) error
 	UpdateTaskError(ctx context.Context, id uint64, err error) error
@@ -341,6 +342,21 @@ func (s *service) RetryTask(ctx context.Context, taskID uint64) error {
 		}
 	}
 
+	return nil
+}
+
+func (s *service) UpdateTaskStoragePath(ctx context.Context, id uint64, storagePath string) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:          id,
+		StoragePath: storagePath,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task storage path failed",
+			Cause:   err,
+		}
+	}
 	return nil
 }
 

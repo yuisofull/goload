@@ -32,16 +32,14 @@ type StorageBackend interface {
 // Service handles file download operations as a worker
 type Service interface {
 	ExecuteTask(ctx context.Context, taskID uint64) error
-
 	PauseTask(ctx context.Context, taskID uint64) error
 	ResumeTask(ctx context.Context, taskID uint64) error
 	CancelTask(ctx context.Context, taskID uint64) error
-
 	StreamFile(ctx context.Context, req FileStreamRequest) (*FileStreamResponse, error)
-
 	GetActiveTaskCount(ctx context.Context) int
 }
 
+// TaskServiceClient defines the contract for interacting with the task service.
 type TaskServiceClient interface {
 	GetTask(ctx context.Context, id uint64) (*task.Task, error)
 	UpdateTaskStatus(ctx context.Context, id uint64, status task.TaskStatus) error
@@ -50,13 +48,14 @@ type TaskServiceClient interface {
 	CompleteTask(ctx context.Context, id uint64, fileInfo *task.FileInfo) error
 }
 
+// taskExecution holds the state of a running download task.
 type taskExecution struct {
 	task       *task.Task
 	ctx        context.Context
 	cancelFunc context.CancelFunc
-	pauseChan  chan struct{}
-	resumeChan chan struct{}
 	progress   *task.DownloadProgress
+	// The reader is now part of the execution state to allow control from other methods.
+	progressReader *PausableProgressReader
 }
 
 type service struct {
@@ -72,7 +71,6 @@ type service struct {
 }
 
 type Option func(s *service)
-
 type ErrorHandler func(ctx context.Context, err error)
 
 func WithMaxConcurrent(maxConcurrent int) Option {
@@ -119,15 +117,14 @@ func (s *service) RegisterDownloader(sourceType task.SourceType, downloader Down
 	s.downloaders[sourceType] = downloader
 }
 
+// ExecuteTask starts a download task. It is non-blocking.
 func (s *service) ExecuteTask(ctx context.Context, taskID uint64) error {
 	select {
 	case s.sem <- struct{}{}:
 	default:
 		return &errors.Error{Code: errors.ErrCodeTooManyRequests, Message: "max concurrent download reached"}
 	}
-	defer func() {
-		<-s.sem
-	}()
+	defer func() { <-s.sem }()
 
 	getTask, err := s.taskClient.GetTask(ctx, taskID)
 	if err != nil {
@@ -135,15 +132,14 @@ func (s *service) ExecuteTask(ctx context.Context, taskID uint64) error {
 	}
 
 	s.mu.Lock()
-
 	if _, ok := s.activeTasks[getTask.ID]; ok {
 		s.mu.Unlock()
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "task already started"}
+		return &errors.Error{Code: errors.ErrCodeConflict, Message: "task already running"}
 	}
 
 	if _, exists := s.downloaders[getTask.SourceType]; !exists {
 		s.mu.Unlock()
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: fmt.Sprintf("unsupported source type: %s", getTask.SourceType)}
+		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: fmt.Sprintf("unsupported source type: %s", getTask.SourceType)}
 	}
 
 	taskCtx, cancel := context.WithTimeout(ctx, s.taskTimeOut)
@@ -151,8 +147,6 @@ func (s *service) ExecuteTask(ctx context.Context, taskID uint64) error {
 		task:       getTask,
 		ctx:        taskCtx,
 		cancelFunc: cancel,
-		pauseChan:  make(chan struct{}),
-		resumeChan: make(chan struct{}),
 		progress:   &task.DownloadProgress{},
 	}
 
@@ -163,12 +157,9 @@ func (s *service) ExecuteTask(ctx context.Context, taskID uint64) error {
 		s.mu.Lock()
 		delete(s.activeTasks, getTask.ID)
 		s.mu.Unlock()
-		close(execution.pauseChan)
-		close(execution.resumeChan)
 	}()
 
 	return s.executeDownload(execution)
-
 }
 
 // executeDownload performs the actual download and storage
@@ -176,26 +167,18 @@ func (s *service) executeDownload(execution *taskExecution) error {
 	t := execution.task
 	ctx := execution.ctx
 
-	// Update task status to downloading
 	if err := s.taskClient.UpdateTaskStatus(ctx, t.ID, task.StatusDownloading); err != nil {
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
 	}
 
-	// Get downloader
-	downloader, exists := s.downloaders[t.SourceType]
-	if !exists {
-		s.markTaskFailed(ctx, t, fmt.Errorf("downloader not found for type: %s", t.SourceType))
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "downloader not found"}
-	}
+	downloader := s.downloaders[t.SourceType]
 
-	// Get file metadata
 	metadata, err := downloader.GetFileInfo(ctx, t.SourceURL, t.SourceAuth)
 	if err != nil {
 		s.markTaskFailed(ctx, t, fmt.Errorf("failed to get file info: %w", err))
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
 
-	// Start download
 	reader, totalSize, err := downloader.Download(ctx, t.SourceURL, t.SourceAuth, *t.Options)
 	if err != nil {
 		s.markTaskFailed(ctx, t, fmt.Errorf("failed to start download: %w", err))
@@ -203,74 +186,50 @@ func (s *service) executeDownload(execution *taskExecution) error {
 	}
 	defer reader.Close()
 
-	// Initialize progress
 	execution.progress.TotalBytes = totalSize
 	s.updateProgress(ctx, t.ID, *execution.progress)
 
-	// Create progress tracking reader with pause/resume support
-	progressReader := &PausableProgressReader{
-		reader: reader,
-		onProgress: func(bytesRead int64) {
-			execution.progress.BytesDownloaded = bytesRead
-			if totalSize > 0 {
-				execution.progress.Percentage = float64(bytesRead) / float64(totalSize) * 100
-			}
-			s.updateProgress(ctx, t.ID, *execution.progress)
-		},
-	}
-	progressReader.resumeCond = sync.NewCond(&progressReader.mu)
+	progressReader := NewPausableProgressReader(reader, func(bytesRead int64) {
+		execution.progress.BytesDownloaded = bytesRead
+		if totalSize > 0 {
+			execution.progress.Percentage = float64(bytesRead) / float64(totalSize) * 100
+		}
+		s.updateProgress(ctx, t.ID, *execution.progress)
+	})
 
-	// Update task status to uploading
-	if err := s.taskClient.UpdateTaskStatus(ctx, t.ID, task.StatusUploading); err != nil {
-		s.errorHandler(ctx, fmt.Errorf("failed to update task status: %w", err))
+	execution.progressReader = progressReader
+
+	if err := s.taskClient.UpdateTaskStatus(ctx, t.ID, task.StatusStoring); err != nil {
+		s.errorHandler(ctx, fmt.Errorf("failed to update task status to storing: %w", err))
 	}
 
-	// Store file
-	storageKey := s.generateStorageKey(t)
-	err = s.storage.Store(ctx, storageKey, progressReader, metadata)
-	if err != nil {
-		s.markTaskFailed(ctx, t, fmt.Errorf("failed to store file: %w", err))
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
-	}
-
-	// Calculate MD5 hash
 	hash := md5.New()
-
-	// Create a reader that writes to both the hash and the progress reader
-	// The data flows: downloader -> hash -> progressReader -> storage
 	teeReader := io.TeeReader(progressReader, hash)
 
-	// Store file using the teeReader
-	err = s.storage.Store(ctx, storageKey, teeReader, metadata)
-	if err != nil {
-		// Note: if Store fails, the hash will be incomplete.
+	storageKey := s.generateStorageKey(t)
+	if err := s.storage.Store(ctx, storageKey, teeReader, metadata); err != nil {
 		s.markTaskFailed(ctx, t, fmt.Errorf("failed to store file: %w", err))
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
 
-	// Get the final MD5 hash
 	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
 
-	// Create file info
 	fileInfo := &task.FileInfo{
 		FileName:    metadata.FileName,
-		FileSize:    metadata.FileSize,
+		FileSize:    totalSize,
 		ContentType: metadata.ContentType,
 		MD5Hash:     md5Hash,
 		StorageKey:  storageKey,
 		StoredAt:    time.Now(),
 	}
 
-	// Complete task
 	if err := s.taskClient.CompleteTask(ctx, t.ID, fileInfo); err != nil {
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to complete task", Cause: err}
 	}
 
-	// Final progress update
 	execution.progress.BytesDownloaded = totalSize
 	execution.progress.Percentage = 100.0
 	s.updateProgress(ctx, t.ID, *execution.progress)
-
 	return nil
 }
 
@@ -284,17 +243,18 @@ func (s *service) PauseTask(ctx context.Context, taskID uint64) error {
 		return &errors.Error{Code: errors.ErrCodeNotFound, Message: "task not found in active tasks"}
 	}
 
-	// Send pause signal
-	select {
-	case execution.pauseChan <- struct{}{}:
-		err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusPaused)
-		if err != nil {
-			return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
-		}
-		return nil
-	default:
-		return nil
+	if execution.progressReader == nil {
+		return &errors.Error{Code: errors.ErrCodeConflict, Message: "task download has not started yet, cannot pause"}
 	}
+
+	execution.progressReader.Pause()
+
+	if err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusPaused); err != nil {
+		execution.progressReader.Resume()
+		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
+	}
+
+	return nil
 }
 
 // ResumeTask resumes a paused task
@@ -307,17 +267,17 @@ func (s *service) ResumeTask(ctx context.Context, taskID uint64) error {
 		return &errors.Error{Code: errors.ErrCodeNotFound, Message: "task not found in active tasks"}
 	}
 
-	// Send resume signal
-	select {
-	case execution.resumeChan <- struct{}{}:
-		err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusDownloading)
-		if err != nil {
-			return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
-		}
-		return nil
-	default:
-		return nil
+	if execution.progressReader == nil {
+		return &errors.Error{Code: errors.ErrCodeConflict, Message: "task is not in a state that can be resumed"}
 	}
+
+	execution.progressReader.Resume()
+
+	if err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusDownloading); err != nil {
+		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
+	}
+
+	return nil
 }
 
 // CancelTask cancels a running task
@@ -330,21 +290,13 @@ func (s *service) CancelTask(ctx context.Context, taskID uint64) error {
 		return &errors.Error{Code: errors.ErrCodeNotFound, Message: "task not found in active tasks"}
 	}
 
-	// Cancel the task context
 	execution.cancelFunc()
 
-	// Update task status
-	err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusCancelled)
-	if err != nil {
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
-	}
-
-	return nil
+	return s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusCancelled)
 }
 
 // StreamFile streams a file to the client
 func (s *service) StreamFile(ctx context.Context, req FileStreamRequest) (*FileStreamResponse, error) {
-	// Get task info from task service
 	getTask, err := s.taskClient.GetTask(ctx, req.TaskID)
 	if err != nil {
 		return nil, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get task", Cause: err}
@@ -354,12 +306,10 @@ func (s *service) StreamFile(ctx context.Context, req FileStreamRequest) (*FileS
 		return nil, &errors.Error{Code: errors.ErrCodeNotFound, Message: "file not available for streaming"}
 	}
 
-	// Get file from storage
 	var reader io.ReadCloser
-	var statusCode int = 200
+	var statusCode = 200
 
 	if req.Range != nil {
-		// Handle range requests
 		reader, err = s.storage.GetWithRange(ctx, getTask.FileInfo.StorageKey, req.Range.Start, req.Range.End)
 		statusCode = 206 // Partial Content
 	} else {
@@ -370,7 +320,6 @@ func (s *service) StreamFile(ctx context.Context, req FileStreamRequest) (*FileS
 		return nil, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file from storage", Cause: err}
 	}
 
-	// Prepare response headers
 	headers := make(map[string]string)
 	headers["Content-Type"] = getTask.FileInfo.ContentType
 	headers["Content-Length"] = fmt.Sprintf("%d", getTask.FileInfo.FileSize)
@@ -398,9 +347,12 @@ func (s *service) GetActiveTaskCount(ctx context.Context) int {
 }
 
 // Helper methods
-func (s *service) markTaskFailed(ctx context.Context, task *task.Task, err error) {
-	if updateErr := s.taskClient.UpdateTaskError(ctx, task.ID, err); updateErr != nil {
-		s.errorHandler(ctx, fmt.Errorf("failed to update task error: %w", updateErr))
+func (s *service) markTaskFailed(ctx context.Context, t *task.Task, err error) {
+	// The context passed to UpdateTaskError should probably not be the task's context,
+	// as it might be cancelled.
+	bgCtx := context.Background()
+	if updateErr := s.taskClient.UpdateTaskError(bgCtx, t.ID, err); updateErr != nil {
+		s.errorHandler(ctx, fmt.Errorf("failed to update task error state: %w (original error: %v)", updateErr, err))
 	}
 }
 
@@ -410,29 +362,35 @@ func (s *service) updateProgress(ctx context.Context, taskID uint64, progress ta
 	}
 }
 
-func (s *service) generateStorageKey(task *task.Task) string {
-	return fmt.Sprintf("%d/%s", task.ID, filepath.Base(task.SourceURL))
+func (s *service) generateStorageKey(t *task.Task) string {
+	return fmt.Sprintf("%d/%s", t.ID, filepath.Base(t.SourceURL))
 }
 
-func (s *service) calculateMD5(data string) string {
-	hash := md5.Sum([]byte(data))
-	return fmt.Sprintf("%x", hash)
-}
-
-// PausableProgressReader wraps a reader to support pause/resume and progress tracking
+// PausableProgressReader wraps a reader to support pause/resume and progress tracking.
+// It is safe for concurrent use.
 type PausableProgressReader struct {
 	reader     io.Reader
 	onProgress func(int64)
 	totalRead  int64
 
-	resumeCond *sync.Cond
 	mu         sync.Mutex
 	isPaused   bool
+	resumeCond *sync.Cond
 }
 
+// NewPausableProgressReader creates a new reader that can be paused and resumed.
+func NewPausableProgressReader(reader io.Reader, onProgress func(int64)) *PausableProgressReader {
+	pr := &PausableProgressReader{
+		reader:     reader,
+		onProgress: onProgress,
+	}
+	pr.resumeCond = sync.NewCond(&pr.mu)
+	return pr
+}
+
+// Read implements the io.Reader interface. It blocks if the reader is paused.
 func (pr *PausableProgressReader) Read(p []byte) (n int, err error) {
 	pr.mu.Lock()
-
 	for pr.isPaused {
 		pr.resumeCond.Wait()
 	}
@@ -440,20 +398,24 @@ func (pr *PausableProgressReader) Read(p []byte) (n int, err error) {
 
 	n, err = pr.reader.Read(p)
 	if n > 0 {
+		pr.mu.Lock()
 		pr.totalRead += int64(n)
 		if pr.onProgress != nil {
 			pr.onProgress(pr.totalRead)
 		}
+		pr.mu.Unlock()
 	}
 	return n, err
 }
 
+// Pause sets the reader to a paused state. Subsequent calls to Read will block.
 func (pr *PausableProgressReader) Pause() {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	pr.isPaused = true
 }
 
+// Resume allows a paused reader to continue. It signals one waiting Read call to proceed.
 func (pr *PausableProgressReader) Resume() {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
