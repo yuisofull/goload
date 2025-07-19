@@ -31,8 +31,6 @@ type Service interface {
 
 	// Utility
 	GetTaskProgress(ctx context.Context, taskID uint64) (*DownloadProgress, error)
-	GetStorageStats(ctx context.Context) (*StorageStats, error)
-	CleanupExpiredTasks(ctx context.Context, maxAge time.Duration) error
 }
 
 type Repository interface {
@@ -456,17 +454,11 @@ func (s *service) CheckFileExists(ctx context.Context, taskID uint64) (bool, err
 func (s *service) GetTaskProgress(ctx context.Context, id uint64) (*DownloadProgress, error) {
 	task, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "get task progress failed",
+			Cause:   err,
+		}
 	}
 	return task.Progress, nil
-}
-
-func (s *service) GetStorageStats(ctx context.Context) (*StorageStats, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *service) CleanupExpiredTasks(ctx context.Context, maxAge time.Duration) error {
-	//TODO implement me
-	panic("implement me")
 }

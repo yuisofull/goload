@@ -24,6 +24,7 @@ const (
 	ErrCodeUnauthenticated  Code = "UNAUTHENTICATED"
 	ErrCodePermissionDenied Code = "PERMISSION_DENIED"
 	ErrCodeInvalidInput     Code = "INVALID_INPUT"
+	ErrCodeTooManyRequests  Code = "TOO_MANY_REQUESTS"
 )
 
 type Error struct {
