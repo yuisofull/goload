@@ -102,8 +102,12 @@ func (e *Set) CreateTask(ctx context.Context, param *task.CreateTaskParam) (*tas
 		Name:        param.Name,
 		Description: param.Description,
 		SourceUrl:   param.SourceURL,
+		SourceType:  pb.SourceType(pb.SourceType_value[string(param.SourceType)]),
+		SourceAuth:  toPBAuthConfig(param.SourceAuth),
+		Options:     toPBDownloadOptions(param.Options),
 		MaxRetries:  param.MaxRetries,
 		Tags:        param.Tags,
+		Metadata:    toPBStruct(param.Metadata),
 	})
 	if err != nil {
 		return nil, err
