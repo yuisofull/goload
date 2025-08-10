@@ -7,9 +7,9 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/yuisofull/goload/internal/errors"
-	"github.com/yuisofull/goload/internal/task"
-	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
-	"github.com/yuisofull/goload/internal/task/pb"
+	"github.com/yuisofull/goload/internal/task_v2"
+	taskendpoint "github.com/yuisofull/goload/internal/task_v2/endpoint"
+	"github.com/yuisofull/goload/internal/task_v2/pb"
 	"google.golang.org/grpc"
 )
 
@@ -54,7 +54,7 @@ func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger) pb.DownloadTas
 	}
 }
 
-func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {
+func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task_v2.Service {
 	options := []grpctransport.ClientOption{
 		grpctransport.ClientBefore(NewLogRequestFunc(logger)),
 		grpctransport.ClientAfter(NewLogResponseFunc(logger)),

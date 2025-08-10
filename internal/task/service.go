@@ -3,239 +3,478 @@ package task
 import (
 	"context"
 	stderrors "errors"
-	"github.com/samber/lo"
 	"github.com/yuisofull/goload/internal/errors"
-	"github.com/yuisofull/goload/internal/file"
+	"time"
 )
 
-type CreateParams struct {
-	UserID       uint64
-	DownloadType file.DownloadType
-	Url          string
-}
-
-type CreateResult struct {
-	DownloadTask *DownloadTask
-}
-
-type GetParams struct {
-	UserID         uint64
-	DownloadTaskID uint64
-}
-
-type GetResult struct {
-	DownloadTask *DownloadTask
-}
-type ListParams struct {
-	UserID uint64
-	Offset uint64
-	Limit  uint64
-}
-
-type ListResult struct {
-	DownloadTasks []*DownloadTask
-	TotalCount    uint64
-}
-
-type UpdateParams struct {
-	UserID         uint64
-	DownloadTaskId uint64
-	Url            string
-}
-
-type UpdateResult struct {
-	DownloadTask *DownloadTask
-}
-
-type DeleteParams struct {
-	UserID       uint64
-	DownloadTask *DownloadTask
-}
-
 type Service interface {
-	Create(ctx context.Context, req CreateParams) (CreateResult, error)
-	Get(ctx context.Context, req GetParams) (GetResult, error)
-	List(ctx context.Context, req ListParams) (ListResult, error)
-	Update(ctx context.Context, req UpdateParams) (UpdateResult, error)
-	Delete(ctx context.Context, req DeleteParams) error
+	CreateTask(ctx context.Context, param *CreateTaskParam) (*Task, error)
+	GetTask(ctx context.Context, id uint64) (*Task, error)
+	ListTasks(ctx context.Context, param *ListTasksParam) (*ListTasksOutput, error)
+	DeleteTask(ctx context.Context, id uint64) error
+
+	StartTask(ctx context.Context, taskID uint64) error
+	PauseTask(ctx context.Context, taskID uint64) error
+	ResumeTask(ctx context.Context, taskID uint64) error
+	CancelTask(ctx context.Context, taskID uint64) error
+	RetryTask(ctx context.Context, taskID uint64) error
+
+	// Task updates (called by workers)
+	UpdateTaskStoragePath(ctx context.Context, id uint64, storagePath string) error
+	UpdateTaskStatus(ctx context.Context, id uint64, status TaskStatus) error
+	UpdateTaskProgress(ctx context.Context, id uint64, progress DownloadProgress) error
+	UpdateTaskError(ctx context.Context, id uint64, err error) error
+	CompleteTask(ctx context.Context, id uint64, fileInfo *FileInfo) error
+
+	// File info and streaming
+	GetFileInfo(ctx context.Context, taskID uint64) (*FileInfo, error)
+	CheckFileExists(ctx context.Context, taskID uint64) (bool, error)
+
+	// Utility
+	GetTaskProgress(ctx context.Context, taskID uint64) (*DownloadProgress, error)
+}
+
+type Repository interface {
+	Create(ctx context.Context, task *Task) (*Task, error)
+	GetByID(ctx context.Context, id uint64) (*Task, error)
+	Update(ctx context.Context, task *Task) (*Task, error)
+	ListByAccountID(ctx context.Context, filter TaskFilter, limit, offset uint32) ([]*Task, error)
+	GetTaskCountOfAccount(ctx context.Context, ofAccountID uint64) (uint64, error)
+	Delete(ctx context.Context, id uint64) error
 }
 
 type TxManager interface {
 	DoInTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-type CreatedEvent struct {
-	DownloadTask DownloadTask
+type Publisher interface {
+	PublishTaskCreated(ctx context.Context, task *Task) error
 }
-
-type CreatedProducer interface {
-	Produce(ctx context.Context, event CreatedEvent) error
-}
-
-type Store interface {
-	Create(ctx context.Context, task DownloadTask) (uint64, error)
-	GetTaskByID(ctx context.Context, id uint64) (*DownloadTask, error)
-	GetTaskByIDWithLock(ctx context.Context, id uint64) (*DownloadTask, error)
-	GetTaskListOfUser(ctx context.Context, userID, offset, limit uint64) ([]DownloadTask, error)
-	GetTaskCountOfUser(ctx context.Context, userID uint64) (uint64, error)
-	Update(ctx context.Context, task DownloadTask) error
-	DeleteTask(ctx context.Context, id uint64) error
-}
-
 type service struct {
-	txManager TxManager
-	store     Store
-	producer  CreatedProducer
+	repo Repository
+	pub  Publisher
+	tx   TxManager
 }
 
-func NewService(txManager TxManager, store Store, producer CreatedProducer) Service {
+func NewService(repo Repository, pub Publisher, tx TxManager) Service {
 	return &service{
-		txManager: txManager,
-		store:     store,
-		producer:  producer,
+		repo: repo,
+		pub:  pub,
+		tx:   tx,
 	}
 }
 
-func (s *service) Create(ctx context.Context, req CreateParams) (CreateResult, error) {
-	task := DownloadTask{
-		OfAccountId:    req.UserID,
-		DownloadType:   req.DownloadType,
-		Url:            req.Url,
-		DownloadStatus: DOWNLOAD_STATUS_PENDING,
-		Metadata:       make(map[string]any),
+func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task, error) {
+	if param.Name == "" || param.SourceURL == "" {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Name and SourceURL are required",
+			Cause:   nil,
+		}
 	}
 
-	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
-		id, err := s.store.Create(ctx, task)
+	task := &Task{
+		Name:        param.Name,
+		OfAccountID: param.OfAccountID,
+		Description: param.Description,
+		SourceURL:   param.SourceURL,
+		SourceType:  param.SourceType,
+		SourceAuth:  param.SourceAuth,
+		Options:     param.Options,
+		MaxRetries:  param.MaxRetries,
+		Tags:        param.Tags,
+		Metadata:    param.Metadata,
+		Status:      StatusPending,
+	}
+
+	var createdTask *Task
+	if err := s.tx.DoInTx(ctx, func(ctx context.Context) error {
+		var err error
+		createdTask, err = s.repo.Create(ctx, task)
 		if err != nil {
-			return err
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "Failed to create task",
+				Cause:   err,
+			}
 		}
-		task.Id = id
-		if err := s.producer.Produce(ctx, CreatedEvent{DownloadTask: task}); err != nil {
-			return err
+
+		if err := s.pub.PublishTaskCreated(ctx, createdTask); err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "Failed to publish task created event",
+				Cause:   err,
+			}
 		}
+
 		return nil
 	}); err != nil {
-		return CreateResult{}, err
+		return nil, err
 	}
 
-	return CreateResult{DownloadTask: &task}, nil
+	return createdTask, nil
 }
 
-func (s *service) Get(ctx context.Context, req GetParams) (GetResult, error) {
-	task, err := s.store.GetTaskByID(ctx, req.DownloadTaskID)
+func (s *service) GetTask(ctx context.Context, id uint64) (*Task, error) {
+	task, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	return task, nil
+}
+
+func (s *service) updateTask(ctx context.Context, param *UpdateTaskParam) (*TaskOutput, error) {
+	task, err := s.repo.GetByID(ctx, param.TaskID)
+	if err != nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	if param.Status != "" {
+		task.Status = param.Status
+	}
+	if param.Progress != nil {
+		task.Progress = param.Progress
+	}
+	if param.FileInfo != nil {
+		task.FileInfo = param.FileInfo
+	}
+	if param.Error != "" {
+		task.Error = param.Error
+	}
+
+	updatedTask, err := s.repo.Update(ctx, task)
+	if err != nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to update task",
+			Cause:   err,
+		}
+	}
+
+	return &TaskOutput{Task: updatedTask}, nil
+}
+
+func (s *service) ListTasks(ctx context.Context, param *ListTasksParam) (*ListTasksOutput, error) {
+	tasks, err := s.repo.ListByAccountID(ctx, *param.Filter, uint32(param.Limit), uint32(param.Offset))
+	if err != nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to list tasks",
+			Cause:   err,
+		}
+	}
+
+	return &ListTasksOutput{Tasks: tasks, Total: int32(len(tasks))}, nil
+}
+
+func (s *service) DeleteTask(ctx context.Context, id uint64) error {
+	err := s.repo.Delete(ctx, id)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to delete task",
+			Cause:   err,
+		}
+	}
+
+	return nil
+}
+
+func (s *service) StartTask(ctx context.Context, taskID uint64) error {
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	if task.Status != StatusPending && task.Status != StatusPaused {
+		return &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Task cannot be started in current status",
+			Cause:   nil,
+		}
+	}
+
+	task.Status = StatusDownloading
+	_, err = s.repo.Update(ctx, task)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to start task",
+			Cause:   err,
+		}
+	}
+
+	return nil
+}
+
+func (s *service) PauseTask(ctx context.Context, taskID uint64) error {
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	if task.Status != StatusDownloading {
+		return &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Only downloading tasks can be paused",
+			Cause:   nil,
+		}
+	}
+
+	task.Status = StatusPaused
+	_, err = s.repo.Update(ctx, task)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to pause task",
+			Cause:   err,
+		}
+	}
+
+	return nil
+}
+
+func (s *service) ResumeTask(ctx context.Context, taskID uint64) error {
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	if task.Status != StatusPaused {
+		return &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Only paused tasks can be resumed",
+			Cause:   nil,
+		}
+	}
+
+	task.Status = StatusDownloading
+	_, err = s.repo.Update(ctx, task)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to resume task",
+			Cause:   err,
+		}
+	}
+
+	return nil
+}
+
+func (s *service) CancelTask(ctx context.Context, taskID uint64) error {
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	if task.Status == StatusCompleted || task.Status == StatusCancelled {
+		return &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Completed or cancelled tasks cannot be cancelled",
+			Cause:   nil,
+		}
+	}
+
+	task.Status = StatusCancelled
+	_, err = s.repo.Update(ctx, task)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to cancel task",
+			Cause:   err,
+		}
+	}
+
+	return nil
+}
+
+func (s *service) RetryTask(ctx context.Context, taskID uint64) error {
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	if task.Status != StatusFailed {
+		return &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Only failed tasks can be retried",
+			Cause:   nil,
+		}
+	}
+
+	task.Status = StatusPending
+	task.RetryCount++
+	_, err = s.repo.Update(ctx, task)
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "Failed to retry task",
+			Cause:   err,
+		}
+	}
+
+	return nil
+}
+
+func (s *service) UpdateTaskStoragePath(ctx context.Context, id uint64, storagePath string) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:          id,
+		StoragePath: storagePath,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task storage path failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) UpdateTaskStatus(ctx context.Context, id uint64, status TaskStatus) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:     id,
+		Status: status,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task status failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) UpdateTaskProgress(ctx context.Context, id uint64, progress DownloadProgress) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:       id,
+		Progress: &progress,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task progress failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) UpdateTaskError(ctx context.Context, id uint64, err error) error {
+	_, err = s.repo.Update(ctx, &Task{
+		ID:     id,
+		Error:  err.Error(),
+		Status: StatusFailed,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task error failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) CompleteTask(ctx context.Context, id uint64, fileInfo *FileInfo) error {
+	completedAt := time.Now()
+
+	_, err := s.repo.Update(ctx, &Task{
+		ID:          id,
+		Status:      StatusCompleted,
+		FileInfo:    fileInfo,
+		CompletedAt: &completedAt,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "complete task failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) GetFileInfo(ctx context.Context, taskID uint64) (*FileInfo, error) {
+	task, err := s.repo.GetByID(ctx, taskID)
 	if err != nil {
 		if stderrors.Is(err, errors.ErrNotFound) {
-			return GetResult{}, &errors.Error{
+			return nil, &errors.Error{
 				Code:    errors.ErrCodeNotFound,
 				Message: "task not found",
+				Cause:   err,
 			}
 		}
-		return GetResult{}, &errors.Error{
+		return nil, &errors.Error{
 			Code:    errors.ErrCodeInternal,
-			Message: "failed to get task",
+			Message: "get file info failed",
+			Cause:   err,
+		}
+	}
+	return task.FileInfo, nil
+}
+
+func (s *service) CheckFileExists(ctx context.Context, taskID uint64) (bool, error) {
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		if stderrors.Is(err, errors.ErrNotFound) {
+			return false, &errors.Error{
+				Code:    errors.ErrCodeNotFound,
+				Message: "task not found",
+				Cause:   err,
+			}
+		}
+		return false, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "check file exists failed",
 			Cause:   err,
 		}
 	}
 
-	if task.OfAccountId != req.UserID {
-		return GetResult{}, &errors.Error{
-			Code:    errors.ErrCodePermissionDenied,
-			Message: "trying to get other's task",
-		}
+	if task.Status != StatusCompleted {
+		return false, nil
 	}
-	return GetResult{DownloadTask: task}, nil
+	return task.FileInfo != nil, nil
 }
 
-func (s *service) List(ctx context.Context, req ListParams) (ListResult, error) {
-	tasks, err := s.store.GetTaskListOfUser(ctx, req.UserID, req.Offset, req.Limit)
+func (s *service) GetTaskProgress(ctx context.Context, id uint64) (*DownloadProgress, error) {
+	task, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return ListResult{}, &errors.Error{
+		return nil, &errors.Error{
 			Code:    errors.ErrCodeInternal,
-			Message: "failed to get task list",
+			Message: "get task progress failed",
 			Cause:   err,
 		}
 	}
-
-	totalCount, err := s.store.GetTaskCountOfUser(ctx, req.UserID)
-	if err != nil {
-		return ListResult{}, err
-	}
-
-	return ListResult{DownloadTasks: lo.Map(tasks, func(task DownloadTask, _ int) *DownloadTask { return &task }),
-		TotalCount: totalCount}, nil
-}
-
-func (s *service) Update(ctx context.Context, req UpdateParams) (UpdateResult, error) {
-	var task *DownloadTask
-
-	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
-		var err error
-		task, err = s.store.GetTaskByIDWithLock(ctx, req.DownloadTaskId)
-		if err != nil {
-			if stderrors.Is(err, errors.ErrNotFound) {
-				return &errors.Error{
-					Code:    errors.ErrCodeNotFound,
-					Message: "task not found",
-				}
-			}
-			return &errors.Error{
-				Code:    errors.ErrCodeInternal,
-				Message: "failed to get task",
-				Cause:   err,
-			}
-		}
-		if task.OfAccountId != req.UserID {
-			return &errors.Error{
-				Code:    errors.ErrCodePermissionDenied,
-				Message: "trying to update other's task",
-			}
-		}
-		task.Url = req.Url
-		if err := s.store.Update(ctx, *task); err != nil {
-			return &errors.Error{
-				Code:    errors.ErrCodeInternal,
-				Message: "failed to update task",
-				Cause:   err,
-			}
-		}
-		return nil
-	}); err != nil {
-		return UpdateResult{}, err
-	}
-
-	return UpdateResult{DownloadTask: task}, nil
-}
-
-func (s *service) Delete(ctx context.Context, req DeleteParams) error {
-	return s.txManager.DoInTx(ctx, func(ctx context.Context) error {
-		task, err := s.store.GetTaskByIDWithLock(ctx, req.DownloadTask.Id)
-		if err != nil {
-			if stderrors.Is(err, errors.ErrNotFound) {
-				return &errors.Error{
-					Code:    errors.ErrCodeNotFound,
-					Message: "task not found",
-				}
-			}
-			return &errors.Error{
-				Code:    errors.ErrCodeInternal,
-				Message: "failed to get task",
-				Cause:   err,
-			}
-		}
-		if task.OfAccountId != req.UserID {
-			return &errors.Error{
-				Code:    errors.ErrCodePermissionDenied,
-				Message: "trying to delete other's task",
-			}
-		}
-		if err := s.store.DeleteTask(ctx, req.DownloadTask.Id); err != nil {
-			return &errors.Error{
-				Code:    errors.ErrCodeInternal,
-				Message: "failed to delete task",
-				Cause:   err,
-			}
-		}
-		return nil
-	})
+	return task.Progress, nil
 }

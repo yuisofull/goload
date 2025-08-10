@@ -2,12 +2,12 @@ package downloadtaskmysql
 
 import (
 	"database/sql"
-	"github.com/yuisofull/goload/internal/task"
+	"github.com/yuisofull/goload/internal/task_v2"
 )
 
 type Store struct {
-	task.Store
-	task.TxManager
+	task_v2.Store
+	task_v2.TxManager
 	*sql.DB
 }
 

@@ -2,35 +2,51 @@ syntax = "proto3";
 
 package task;
 
-option go_package = "github.com/yuisofull/goload/internal/taskv2/pb;pb";
+option go_package = "github.com/yuisofull/goload/internal/task/pb;pb";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
 
-
-// The main service for managing file download tasks.
 service TaskService {
   // Creates a new file download task.
   rpc CreateTask(CreateTaskRequest) returns (TaskResponse);
+
   // Retrieves a task by its ID.
   rpc GetTask(GetTaskRequest) returns (TaskResponse);
-  // Called by the storage worker to report progress and status changes.
-  rpc UpdateTask(UpdateTaskRequest) returns (TaskResponse);
+
   // Lists all tasks based on a filter.
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+
   // Deletes a task by its ID.
   rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+
   // Starts a previously created task.
   rpc StartTask(StartTaskRequest) returns (StartTaskResponse);
+
   // Pauses a running task.
   rpc PauseTask(PauseTaskRequest) returns (PauseTaskResponse);
+
   // Resumes a paused task.
   rpc ResumeTask(ResumeTaskRequest) returns (ResumeTaskResponse);
+
   // Cancels a task.
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+
   // Retries a failed task.
   rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
+
+  rpc UpdateTaskStoragePath(UpdateTaskStoragePathRequest) returns (TaskResponse);
+  rpc UpdateTaskStatus(UpdateTaskStatusRequest) returns (TaskResponse);
+  rpc UpdateTaskProgress(UpdateTaskProgressRequest) returns (TaskResponse);
+  rpc UpdateTaskError(UpdateTaskErrorRequest) returns (TaskResponse);
+  rpc CompleteTask(CompleteTaskRequest) returns (TaskResponse);
+
+  rpc GetFileInfo(GetFileInfoRequest) returns (GetFileInfoResponse);
+  rpc CheckFileExists(CheckFileExistsRequest) returns (CheckFileExistsResponse);
+
+  rpc GetTaskProgress(GetTaskProgressRequest) returns (GetTaskProgressResponse);
 }
+
 
 message Task {
   uint64 id = 1;
@@ -65,7 +81,6 @@ message FileInfo {
   google.protobuf.Timestamp stored_at = 6;
 }
 
-// Enum for the source of the file.
 enum SourceType {
   HTTP = 0;
   HTTPS = 1;
@@ -74,34 +89,30 @@ enum SourceType {
   BITTORRENT = 4;
 }
 
-// Enum for the storage backend.
 enum StorageType {
   LOCAL = 0;
   MINIO = 1;
   S3 = 2;
 }
 
-// Enum for the status of a task.
 enum TaskStatus {
   PENDING = 0;
   DOWNLOADING = 1;
-  UPLOADING = 2;
+  STORING = 2;
   COMPLETED = 3;
   FAILED = 4;
   CANCELLED = 5;
   PAUSED = 6;
 }
 
-// Progress of a download.
 message DownloadProgress {
   int64 bytes_downloaded = 1;
   int64 total_bytes = 2;
-  int64 speed_bps = 3; // Bytes per second
+  int64 speed_bps = 3;
   int64 eta_seconds = 4;
   double percentage = 5;
 }
 
-// Options for a download.
 message DownloadOptions {
   int64 chunk_size = 1;
   int32 max_retries = 2;
@@ -117,137 +128,147 @@ message AuthConfig {
   map<string, string> headers = 4;
 }
 
-
 message CreateTaskRequest {
-  string name = 1;
-  string description = 2;
-  string source_url = 3;
-  SourceType source_type = 4;
-  AuthConfig source_auth = 5;
-  StorageType storage_type = 6;
-  string storage_path = 7;
-  DownloadOptions options = 8;
-  int32 max_retries = 9;
-  repeated string tags = 10;
-  google.protobuf.Struct metadata = 11;
-  uint64 of_account_id = 12;
+  uint64 of_account_id = 1;
+  string name = 2;
+  string description = 3;
+  string source_url = 4;
+  SourceType source_type = 5;
+  AuthConfig source_auth = 6;
+  DownloadOptions options = 7;
+  int32 max_retries = 8;
+  repeated string tags = 9;
+  google.protobuf.Struct metadata = 10;
 }
 
-// Response for a single task.
 message TaskResponse {
   Task task = 1;
 }
 
-message UpdateTaskRequest {
-  uint64 task_id = 1;
-  TaskStatus status = 2;
-  DownloadProgress progress = 3;
-  FileInfo file_info = 4;
-  string error_message = 5;
-  uint64 of_account_id = 6;
-  int32 retry_count = 7;
-}
-
-
-// Request to get a task.
 message GetTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Request to list tasks with a filter.
 message ListTasksRequest {
   TaskFilter filter = 1;
   int32 offset = 2;
   int32 limit = 3;
   string sort_by = 4;
   bool sort_asc = 5;
-  uint64 of_account_id = 6;
 }
 
-// Response for a list of tasks.
 message ListTasksResponse {
   repeated Task tasks = 1;
   int32 total = 2;
 }
 
 message TaskFilter {
-  repeated TaskStatus status = 1;
-  repeated string tags = 2;
-  repeated SourceType source_type = 3;
-  TimeRange created_at = 4;
-  string search = 5;
-  uint64 of_account_id = 6;
+  uint64 of_account_id = 1;
+  repeated TaskStatus status = 2;
+  repeated string tags = 3;
+  repeated SourceType source_type = 4;
+  TimeRange created_at = 5;
+  string search = 6;
 }
 
-// A time range for filtering.
 message TimeRange {
   google.protobuf.Timestamp from = 1;
   google.protobuf.Timestamp to = 2;
 }
 
-// Request to delete a task.
 message DeleteTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Response for a delete operation.
 message DeleteTaskResponse {
   string message = 1;
 }
 
-// Request to start a task.
 message StartTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Response for starting a task.
 message StartTaskResponse {
   string message = 1;
 }
 
-// Request to pause a task.
 message PauseTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Response for pausing a task.
 message PauseTaskResponse {
   string message = 1;
 }
 
-// Request to resume a task.
 message ResumeTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Response for resuming a task.
 message ResumeTaskResponse {
   string message = 1;
 }
 
-// Request to cancel a task.
 message CancelTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Response for canceling a task.
 message CancelTaskResponse {
   string message = 1;
 }
 
-// Request to retry a task.
 message RetryTaskRequest {
   uint64 id = 1;
-  uint64 of_account_id = 2;
 }
 
-// Response for retrying a task.
 message RetryTaskResponse {
   string message = 1;
+}
+
+message UpdateTaskStoragePathRequest {
+  uint64 id = 1;
+  string storage_path = 2;
+}
+
+message UpdateTaskStatusRequest {
+  uint64 id = 1;
+  TaskStatus status = 2;
+}
+
+message UpdateTaskProgressRequest {
+  uint64 id = 1;
+  DownloadProgress progress = 2;
+}
+
+message UpdateTaskErrorRequest {
+  uint64 id = 1;
+  string error = 2;
+}
+
+message CompleteTaskRequest {
+  uint64 id = 1;
+  FileInfo file_info = 2;
+}
+
+message GetFileInfoRequest {
+  uint64 task_id = 1;
+}
+
+message GetFileInfoResponse {
+  FileInfo file_info = 1;
+}
+
+message CheckFileExistsRequest {
+  uint64 task_id = 1;
+}
+
+message CheckFileExistsResponse {
+  bool exists = 1;
+}
+
+message GetTaskProgressRequest {
+  uint64 task_id = 1;
+}
+
+message GetTaskProgressResponse {
+  DownloadProgress progress = 1;
 }

@@ -2,6 +2,7 @@ package authendpoint
 
 import (
 	"context"
+
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/ratelimit"
 	"github.com/yuisofull/goload/internal/auth"

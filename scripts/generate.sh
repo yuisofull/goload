@@ -30,7 +30,6 @@ print_info "Creating pb directories..."
 mkdir -p internal/auth/pb
 mkdir -p internal/task/pb
 mkdir -p internal/file/pb
-mkdir -p internal/taskv2/pb
 mkdir -p internal/download/pb
 
 
@@ -48,14 +47,14 @@ protoc \
     api/auth.proto
 
 # Generate download_task.proto
-print_info "Generating download_task.proto..."
-protoc \
-    --go_out=internal/task/pb \
-    --go_opt=paths=source_relative \
-    --go-grpc_out=internal/task/pb \
-    --go-grpc_opt=paths=source_relative \
-    --proto_path=api \
-    api/download_task.proto
+#print_info "Generating download_task.proto..."
+#protoc \
+#    --go_out=internal/task/pb \
+#    --go_opt=paths=source_relative \
+#    --go-grpc_out=internal/task/pb \
+#    --go-grpc_opt=paths=source_relative \
+#    --proto_path=api \
+#    api/download_task.proto
 
 # Generate file.proto
 print_info "Generating file.proto..."
@@ -70,9 +69,9 @@ protoc \
 # Generate task.proto
 print_info "Generating task.proto..."
 protoc \
-    --go_out=internal/taskv2/pb \
+    --go_out=internal/task/pb \
     --go_opt=paths=source_relative \
-    --go-grpc_out=internal/taskv2/pb \
+    --go-grpc_out=internal/task/pb \
     --go-grpc_opt=paths=source_relative \
     --proto_path=api \
     api/task.proto

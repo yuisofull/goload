@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	stderrors "errors"
 	"fmt"
-	"github.com/yuisofull/goload/internal/errors"
-	task "github.com/yuisofull/goload/internal/taskv2"
-	"github.com/yuisofull/goload/internal/taskv2/mysql/sqlc"
 	"time"
+
+	"github.com/yuisofull/goload/internal/errors"
+	task "github.com/yuisofull/goload/internal/task"
+	"github.com/yuisofull/goload/internal/task/mysql/sqlc"
 )
 
 type taskRepo struct {

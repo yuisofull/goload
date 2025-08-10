@@ -1,36 +1,58 @@
--- name: CreateDownloadTask :execresult
-INSERT INTO download_tasks (of_account_id, download_type, url, download_status, metadata)
-VALUES (?, ?, ?, ?, ?);
+-- name: CreateTask :execresult
+INSERT INTO tasks (of_account_id, name, description, source_url, source_type, source_auth,
+                   storage_type, storage_path, status, file_info, progress, options,
+                   max_retries,
+                   tags, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
--- name: GetDownloadTaskByID :one
+-- name: GetTaskById :one
 SELECT *
-FROM download_tasks
+FROM tasks
 WHERE id = ?;
 
--- name: GetDownloadTaskByIDWithLock :one
-SELECT *
-FROM download_tasks
-WHERE id = ? FOR
-UPDATE;
+-- name: UpdateTaskFileInfo :exec
+UPDATE tasks
+SET file_info = ?
+WHERE id = ?;
 
--- name: GetDownloadTaskListOfUser :many
+-- name: UpdateTaskProgress :exec
+UPDATE tasks
+SET progress = ?
+WHERE id = ?;
+
+-- name: UpdateTaskStatus :exec
+UPDATE tasks
+SET status = ?
+WHERE id = ?;
+
+-- name: UpdateTaskCompletedAt :exec
+UPDATE tasks
+SET completed_at = ?
+WHERE id = ?;
+
+-- name: UpdateTaskError :exec
+UPDATE tasks
+SET error = ?
+WHERE id = ?;
+
+-- name: UpdateTaskRetryCount :exec
+UPDATE tasks
+SET retry_count = ?
+WHERE id = ?;
+
+-- name: ListTasks :many
 SELECT *
-FROM download_tasks
+FROM tasks
 WHERE of_account_id = ?
-ORDER BY id DESC
+ORDER BY created_at DESC
 LIMIT ? OFFSET ?;
 
--- name: GetDownloadTaskCountOfUser :one
-SELECT COUNT(*) AS count
-FROM download_tasks
+-- name: GetTaskCountByAccountId :one
+SELECT COUNT(*)
+FROM tasks
 WHERE of_account_id = ?;
 
--- name: UpdateDownloadTask :exec
-UPDATE download_tasks
-SET url = ?
-WHERE id = ?;
-
--- name: DeleteDownloadTask :exec
+-- name: DeleteTask :exec
 DELETE
-FROM download_tasks
+FROM tasks
 WHERE id = ?;

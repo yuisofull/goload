@@ -1,4 +1,4 @@
-package downloadtaskmysql
+package mysql
 
 import (
 	"context"
