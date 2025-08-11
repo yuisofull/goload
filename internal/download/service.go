@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
+	"github.com/yuisofull/goload/internal/storage"
 	"io"
 	"path/filepath"
 	"strings"
@@ -18,18 +19,8 @@ import (
 // Downloader interface for different download sources
 type Downloader interface {
 	Download(ctx context.Context, url string, sourceAuth *task.AuthConfig, opts task.DownloadOptions) (io.ReadCloser, int64, error)
-	GetFileInfo(ctx context.Context, url string, sourceAuth *task.AuthConfig) (*FileMetadata, error)
+	GetFileInfo(ctx context.Context, url string, sourceAuth *task.AuthConfig) (*storage.FileMetadata, error)
 	SupportsResume() bool
-}
-
-// StorageBackend interface for different storage systems
-type StorageBackend interface {
-	Store(ctx context.Context, key string, reader io.Reader, metadata *FileMetadata) error
-	Get(ctx context.Context, key string) (io.ReadCloser, error)
-	GetWithRange(ctx context.Context, key string, start, end int64) (io.ReadCloser, error)
-	GetInfo(ctx context.Context, key string) (*task.FileInfo, error)
-	Delete(ctx context.Context, key string) error
-	Exists(ctx context.Context, key string) (bool, error)
 }
 
 // Service handles file download operations as a worker
@@ -63,7 +54,7 @@ type taskExecution struct {
 
 type service struct {
 	downloaders        map[task.SourceType]Downloader
-	storage            StorageBackend
+	storage            storage.Backend
 	taskClient         TaskServiceClient
 	mu                 sync.RWMutex
 	activeTasks        map[uint64]*taskExecution
@@ -96,7 +87,7 @@ func WithErrorHandler(errorHandler ErrorHandler) Option {
 	}
 }
 
-func NewService(storage StorageBackend, taskClient task.Service, opts ...Option) Service {
+func NewService(storage storage.Backend, taskClient task.Service, opts ...Option) Service {
 	s := &service{
 		downloaders:        make(map[task.SourceType]Downloader),
 		storage:            storage,

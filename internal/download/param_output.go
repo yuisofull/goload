@@ -2,7 +2,6 @@ package download
 
 import (
 	"io"
-	"time"
 )
 
 // FileStreamRequest for streaming files to clients
@@ -34,13 +33,4 @@ type FileStreamResponse struct {
 	FileName    string            `json:"file_name"`
 	Headers     map[string]string `json:"headers"`
 	StatusCode  int               `json:"status_code"`
-}
-
-// FileMetadata contains file metadata from source
-type FileMetadata struct {
-	FileName     string            `json:"file_name"`
-	FileSize     int64             `json:"file_size"`
-	ContentType  string            `json:"content_type"`
-	LastModified time.Time         `json:"last_modified"`
-	Headers      map[string]string `json:"headers"`
 }
