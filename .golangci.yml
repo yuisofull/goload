@@ -1,0 +1,22 @@
+linters:
+  enable-all: true
+  disable:
+    - depguard
+    - lll
+    - nlreturn
+    - wsl
+    - mnd
+    - tenv
+    - gochecknoinits
+    - err113
+    - exhaustruct
+    - forbidigo
+    - gochecknoglobals
+    - varnamelen
+    - funlen
+    - cyclop
+  enable:
+    - errcheck
+linters-settings:
+  cyclop:
+    max-complexity: 15

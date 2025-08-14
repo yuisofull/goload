@@ -1,23 +1,13 @@
 -- name: CreateTask :execresult
-INSERT INTO tasks (of_account_id, name, description, source_url, source_type, source_auth,
-                   storage_type, storage_path, status, file_info, progress, options,
-                   max_retries,
-                   tags, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
+                   storage_type, storage_path, status,
+                   checksum_type, checksum_value,
+                   concurrency, max_speed, max_retries, timeout, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTaskById :one
 SELECT *
 FROM tasks
-WHERE id = ?;
-
--- name: UpdateTaskFileInfo :exec
-UPDATE tasks
-SET file_info = ?
-WHERE id = ?;
-
--- name: UpdateTaskProgress :exec
-UPDATE tasks
-SET progress = ?
 WHERE id = ?;
 
 -- name: UpdateTaskStatus :exec
@@ -32,12 +22,32 @@ WHERE id = ?;
 
 -- name: UpdateTaskError :exec
 UPDATE tasks
-SET error = ?
+SET error_message = ?
 WHERE id = ?;
 
--- name: UpdateTaskRetryCount :exec
+-- name: UpdateTaskDownloadedBytes :exec
 UPDATE tasks
-SET retry_count = ?
+SET downloaded_bytes = ?
+WHERE id = ?;
+
+-- name: UpdateTaskTotalBytes :exec
+UPDATE tasks
+SET total_bytes = ?
+WHERE id = ?;
+
+-- name: UpdateTaskMetadata :exec
+UPDATE tasks
+SET metadata = ?
+WHERE id = ?;
+
+-- name: UpdateTaskProgress :exec
+UPDATE tasks
+SET progress = ?
+WHERE id = ?;
+
+-- name: UpdateFileChecksum :exec
+UPDATE tasks
+SET checksum_type = ?, checksum_value = ?
 WHERE id = ?;
 
 -- name: ListTasks :many

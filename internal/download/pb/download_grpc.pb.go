@@ -21,7 +21,6 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	DownloadService_DownloadAndStore_FullMethodName = "/download.DownloadService/DownloadAndStore"
 	DownloadService_StreamFile_FullMethodName       = "/download.DownloadService/StreamFile"
-	DownloadService_GetFileInfo_FullMethodName      = "/download.DownloadService/GetFileInfo"
 	DownloadService_DeleteFile_FullMethodName       = "/download.DownloadService/DeleteFile"
 )
 
@@ -36,8 +35,6 @@ type DownloadServiceClient interface {
 	DownloadAndStore(ctx context.Context, in *DownloadAndStoreRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadAndStoreResponse], error)
 	// Streams a stored file to the client.
 	StreamFile(ctx context.Context, in *StreamFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamFileResponse], error)
-	// Retrieves metadata for a stored file.
-	GetFileInfo(ctx context.Context, in *GetFileInfoRequest, opts ...grpc.CallOption) (*GetFileInfoResponse, error)
 	// Deletes a stored file.
 	DeleteFile(ctx context.Context, in *DeleteFileRequest, opts ...grpc.CallOption) (*DeleteFileResponse, error)
 }
@@ -88,16 +85,6 @@ func (c *downloadServiceClient) StreamFile(ctx context.Context, in *StreamFileRe
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DownloadService_StreamFileClient = grpc.ServerStreamingClient[StreamFileResponse]
 
-func (c *downloadServiceClient) GetFileInfo(ctx context.Context, in *GetFileInfoRequest, opts ...grpc.CallOption) (*GetFileInfoResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetFileInfoResponse)
-	err := c.cc.Invoke(ctx, DownloadService_GetFileInfo_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *downloadServiceClient) DeleteFile(ctx context.Context, in *DeleteFileRequest, opts ...grpc.CallOption) (*DeleteFileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteFileResponse)
@@ -119,8 +106,6 @@ type DownloadServiceServer interface {
 	DownloadAndStore(*DownloadAndStoreRequest, grpc.ServerStreamingServer[DownloadAndStoreResponse]) error
 	// Streams a stored file to the client.
 	StreamFile(*StreamFileRequest, grpc.ServerStreamingServer[StreamFileResponse]) error
-	// Retrieves metadata for a stored file.
-	GetFileInfo(context.Context, *GetFileInfoRequest) (*GetFileInfoResponse, error)
 	// Deletes a stored file.
 	DeleteFile(context.Context, *DeleteFileRequest) (*DeleteFileResponse, error)
 	mustEmbedUnimplementedDownloadServiceServer()
@@ -138,9 +123,6 @@ func (UnimplementedDownloadServiceServer) DownloadAndStore(*DownloadAndStoreRequ
 }
 func (UnimplementedDownloadServiceServer) StreamFile(*StreamFileRequest, grpc.ServerStreamingServer[StreamFileResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamFile not implemented")
-}
-func (UnimplementedDownloadServiceServer) GetFileInfo(context.Context, *GetFileInfoRequest) (*GetFileInfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetFileInfo not implemented")
 }
 func (UnimplementedDownloadServiceServer) DeleteFile(context.Context, *DeleteFileRequest) (*DeleteFileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteFile not implemented")
@@ -188,24 +170,6 @@ func _DownloadService_StreamFile_Handler(srv interface{}, stream grpc.ServerStre
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DownloadService_StreamFileServer = grpc.ServerStreamingServer[StreamFileResponse]
 
-func _DownloadService_GetFileInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetFileInfoRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DownloadServiceServer).GetFileInfo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DownloadService_GetFileInfo_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DownloadServiceServer).GetFileInfo(ctx, req.(*GetFileInfoRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _DownloadService_DeleteFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteFileRequest)
 	if err := dec(in); err != nil {
@@ -231,10 +195,6 @@ var DownloadService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "download.DownloadService",
 	HandlerType: (*DownloadServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "GetFileInfo",
-			Handler:    _DownloadService_GetFileInfo_Handler,
-		},
 		{
 			MethodName: "DeleteFile",
 			Handler:    _DownloadService_DeleteFile_Handler,

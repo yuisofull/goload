@@ -3,8 +3,11 @@ package task
 import (
 	"context"
 	stderrors "errors"
-	"github.com/yuisofull/goload/internal/errors"
+	"net/url"
 	"time"
+
+	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/events"
 )
 
 type Service interface {
@@ -13,7 +16,6 @@ type Service interface {
 	ListTasks(ctx context.Context, param *ListTasksParam) (*ListTasksOutput, error)
 	DeleteTask(ctx context.Context, id uint64) error
 
-	StartTask(ctx context.Context, taskID uint64) error
 	PauseTask(ctx context.Context, taskID uint64) error
 	ResumeTask(ctx context.Context, taskID uint64) error
 	CancelTask(ctx context.Context, taskID uint64) error
@@ -24,10 +26,11 @@ type Service interface {
 	UpdateTaskStatus(ctx context.Context, id uint64, status TaskStatus) error
 	UpdateTaskProgress(ctx context.Context, id uint64, progress DownloadProgress) error
 	UpdateTaskError(ctx context.Context, id uint64, err error) error
-	CompleteTask(ctx context.Context, id uint64, fileInfo *FileInfo) error
+	CompleteTask(ctx context.Context, id uint64) error
+	UpdateTaskChecksum(ctx context.Context, id uint64, checksum *ChecksumInfo) error
+	UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]interface{}) error
 
 	// File info and streaming
-	GetFileInfo(ctx context.Context, taskID uint64) (*FileInfo, error)
 	CheckFileExists(ctx context.Context, taskID uint64) (bool, error)
 
 	// Utility
@@ -48,8 +51,9 @@ type TxManager interface {
 }
 
 type Publisher interface {
-	PublishTaskCreated(ctx context.Context, task *Task) error
+	PublishTaskCreated(ctx context.Context, event events.TaskCreatedEvent) error
 }
+
 type service struct {
 	repo Repository
 	pub  Publisher
@@ -65,26 +69,40 @@ func NewService(repo Repository, pub Publisher, tx TxManager) Service {
 }
 
 func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task, error) {
-	if param.Name == "" || param.SourceURL == "" {
+	if param.SourceURL == "" {
 		return nil, &errors.Error{
 			Code:    errors.ErrCodeInvalidInput,
-			Message: "Name and SourceURL are required",
+			Message: "SourceURL is required",
 			Cause:   nil,
 		}
 	}
 
+	parseUrl, err := url.Parse(param.SourceURL)
+	if err != nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "Invalid SourceURL",
+			Cause:   err,
+		}
+	}
+
+	if param.FileName == "" {
+		param.FileName = parseUrl.Path
+	}
+	if param.SourceType == "" {
+		param.SourceType = ToSourceType(parseUrl.Scheme)
+	}
+
 	task := &Task{
-		Name:        param.Name,
-		OfAccountID: param.OfAccountID,
-		Description: param.Description,
-		SourceURL:   param.SourceURL,
-		SourceType:  param.SourceType,
-		SourceAuth:  param.SourceAuth,
-		Options:     param.Options,
-		MaxRetries:  param.MaxRetries,
-		Tags:        param.Tags,
-		Metadata:    param.Metadata,
-		Status:      StatusPending,
+		FileName:        param.FileName,
+		OfAccountID:     param.OfAccountID,
+		SourceURL:       param.SourceURL,
+		SourceType:      param.SourceType,
+		SourceAuth:      param.SourceAuth,
+		Checksum:        param.Checksum,
+		DownloadOptions: param.DownloadOptions,
+		Metadata:        param.Metadata,
+		Status:          StatusPending,
 	}
 
 	var createdTask *Task
@@ -99,7 +117,33 @@ func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task
 			}
 		}
 
-		if err := s.pub.PublishTaskCreated(ctx, createdTask); err != nil {
+		if err := s.pub.PublishTaskCreated(ctx, events.TaskCreatedEvent{
+			SourceURL: task.SourceURL,
+			SourceAuth: func() *events.AuthConfig {
+				if task.SourceAuth == nil {
+					return nil
+				}
+				return &events.AuthConfig{
+					Type:     task.SourceAuth.Type,
+					Username: task.SourceAuth.Username,
+					Password: task.SourceAuth.Password,
+					Token:    task.SourceAuth.Token,
+					Headers:  task.SourceAuth.Headers,
+				}
+			}(),
+			TaskID:   task.ID,
+			FileName: task.FileName,
+			Metadata: task.Metadata,
+			Checksum: func() *events.ChecksumInfo {
+				if task.Checksum == nil {
+					return nil
+				}
+				return &events.ChecksumInfo{
+					ChecksumType:  task.Checksum.ChecksumType,
+					ChecksumValue: task.Checksum.ChecksumValue,
+				}
+			}(),
+		}); err != nil {
 			return &errors.Error{
 				Code:    errors.ErrCodeInternal,
 				Message: "Failed to publish task created event",
@@ -128,41 +172,6 @@ func (s *service) GetTask(ctx context.Context, id uint64) (*Task, error) {
 	return task, nil
 }
 
-func (s *service) updateTask(ctx context.Context, param *UpdateTaskParam) (*TaskOutput, error) {
-	task, err := s.repo.GetByID(ctx, param.TaskID)
-	if err != nil {
-		return nil, &errors.Error{
-			Code:    errors.ErrCodeNotFound,
-			Message: "Task not found",
-			Cause:   err,
-		}
-	}
-
-	if param.Status != "" {
-		task.Status = param.Status
-	}
-	if param.Progress != nil {
-		task.Progress = param.Progress
-	}
-	if param.FileInfo != nil {
-		task.FileInfo = param.FileInfo
-	}
-	if param.Error != "" {
-		task.Error = param.Error
-	}
-
-	updatedTask, err := s.repo.Update(ctx, task)
-	if err != nil {
-		return nil, &errors.Error{
-			Code:    errors.ErrCodeInternal,
-			Message: "Failed to update task",
-			Cause:   err,
-		}
-	}
-
-	return &TaskOutput{Task: updatedTask}, nil
-}
-
 func (s *service) ListTasks(ctx context.Context, param *ListTasksParam) (*ListTasksOutput, error) {
 	tasks, err := s.repo.ListByAccountID(ctx, *param.Filter, uint32(param.Limit), uint32(param.Offset))
 	if err != nil {
@@ -182,37 +191,6 @@ func (s *service) DeleteTask(ctx context.Context, id uint64) error {
 		return &errors.Error{
 			Code:    errors.ErrCodeInternal,
 			Message: "Failed to delete task",
-			Cause:   err,
-		}
-	}
-
-	return nil
-}
-
-func (s *service) StartTask(ctx context.Context, taskID uint64) error {
-	task, err := s.repo.GetByID(ctx, taskID)
-	if err != nil {
-		return &errors.Error{
-			Code:    errors.ErrCodeNotFound,
-			Message: "Task not found",
-			Cause:   err,
-		}
-	}
-
-	if task.Status != StatusPending && task.Status != StatusPaused {
-		return &errors.Error{
-			Code:    errors.ErrCodeInvalidInput,
-			Message: "Task cannot be started in current status",
-			Cause:   nil,
-		}
-	}
-
-	task.Status = StatusDownloading
-	_, err = s.repo.Update(ctx, task)
-	if err != nil {
-		return &errors.Error{
-			Code:    errors.ErrCodeInternal,
-			Message: "Failed to start task",
 			Cause:   err,
 		}
 	}
@@ -332,7 +310,6 @@ func (s *service) RetryTask(ctx context.Context, taskID uint64) error {
 	}
 
 	task.Status = StatusPending
-	task.RetryCount++
 	_, err = s.repo.Update(ctx, task)
 	if err != nil {
 		return &errors.Error{
@@ -391,28 +368,26 @@ func (s *service) UpdateTaskProgress(ctx context.Context, id uint64, progress Do
 }
 
 func (s *service) UpdateTaskError(ctx context.Context, id uint64, err error) error {
-	_, err = s.repo.Update(ctx, &Task{
+	_, updateErr := s.repo.Update(ctx, &Task{
 		ID:     id,
-		Error:  err.Error(),
 		Status: StatusFailed,
 	})
-	if err != nil {
+	if updateErr != nil {
 		return &errors.Error{
 			Code:    errors.ErrCodeInternal,
 			Message: "update task error failed",
-			Cause:   err,
+			Cause:   updateErr,
 		}
 	}
 	return nil
 }
 
-func (s *service) CompleteTask(ctx context.Context, id uint64, fileInfo *FileInfo) error {
+func (s *service) CompleteTask(ctx context.Context, id uint64) error {
 	completedAt := time.Now()
 
 	_, err := s.repo.Update(ctx, &Task{
 		ID:          id,
 		Status:      StatusCompleted,
-		FileInfo:    fileInfo,
 		CompletedAt: &completedAt,
 	})
 	if err != nil {
@@ -425,23 +400,34 @@ func (s *service) CompleteTask(ctx context.Context, id uint64, fileInfo *FileInf
 	return nil
 }
 
-func (s *service) GetFileInfo(ctx context.Context, taskID uint64) (*FileInfo, error) {
-	task, err := s.repo.GetByID(ctx, taskID)
+func (s *service) UpdateTaskChecksum(ctx context.Context, id uint64, checksum *ChecksumInfo) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:       id,
+		Checksum: checksum,
+	})
 	if err != nil {
-		if stderrors.Is(err, errors.ErrNotFound) {
-			return nil, &errors.Error{
-				Code:    errors.ErrCodeNotFound,
-				Message: "task not found",
-				Cause:   err,
-			}
-		}
-		return nil, &errors.Error{
+		return &errors.Error{
 			Code:    errors.ErrCodeInternal,
-			Message: "get file info failed",
+			Message: "update task checksum failed",
 			Cause:   err,
 		}
 	}
-	return task.FileInfo, nil
+	return nil
+}
+
+func (s *service) UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]interface{}) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:       id,
+		Metadata: metadata,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task metadata failed",
+			Cause:   err,
+		}
+	}
+	return nil
 }
 
 func (s *service) CheckFileExists(ctx context.Context, taskID uint64) (bool, error) {
@@ -464,7 +450,7 @@ func (s *service) CheckFileExists(ctx context.Context, taskID uint64) (bool, err
 	if task.Status != StatusCompleted {
 		return false, nil
 	}
-	return task.FileInfo != nil, nil
+	return true, nil
 }
 
 func (s *service) GetTaskProgress(ctx context.Context, id uint64) (*DownloadProgress, error) {

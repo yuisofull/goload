@@ -34,3 +34,12 @@ type FileStreamResponse struct {
 	Headers     map[string]string `json:"headers"`
 	StatusCode  int               `json:"status_code"`
 }
+
+type FileMetadata struct {
+	FileName    string
+	FileSize    int64
+	ContentType string
+	MD5Hash     string
+	LocalPath   string
+	Headers     map[string]string
+}

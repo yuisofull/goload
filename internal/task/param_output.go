@@ -1,29 +1,28 @@
 package task
 
 import (
+	"strings"
 	"time"
 )
 
 type CreateTaskParam struct {
-	OfAccountID uint64                 `json:"of_account_id"`
-	Name        string                 `json:"name" validate:"required"`
-	Description string                 `json:"description"`
-	SourceURL   string                 `json:"source_url" validate:"required"`
-	SourceType  SourceType             `json:"source_type" validate:"required"`
-	SourceAuth  *AuthConfig            `json:"source_auth,omitempty"`
-	Options     *DownloadOptions       `json:"options"`
-	MaxRetries  int32                  `json:"max_retries"`
-	Tags        []string               `json:"tags"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID              uint64           `json:"id"`
+	OfAccountID     uint64           `json:"of_account_id"`
+	FileName        string           `json:"file_name"`
+	SourceURL       string           `json:"source_url"`
+	SourceType      SourceType       `json:"source_type"`
+	SourceAuth      *AuthConfig      `json:"source_auth,omitempty"`
+	Checksum        *ChecksumInfo    `json:"checksum,omitempty"`
+	DownloadOptions *DownloadOptions `json:"download_options,omitempty"`
+	Metadata        map[string]any   `json:"metadata,omitempty"`
 }
 
 type UpdateTaskParam struct {
-	TaskID     uint64
-	Status     TaskStatus
-	Progress   *DownloadProgress
-	FileInfo   *FileInfo
-	Error      string
-	RetryCount int32
+	TaskID   uint64
+	Status   TaskStatus
+	Progress *DownloadProgress
+	Error    string
+	Checksum *ChecksumInfo
 }
 
 type ListTasksParam struct {
@@ -48,9 +47,11 @@ type ListTasksOutput struct {
 	Total int32
 }
 
-type SourceType string
-type StorageType string
-type TaskStatus string
+type (
+	SourceType  string
+	StorageType string
+	TaskStatus  string
+)
 
 const (
 	// SourceType
@@ -75,65 +76,73 @@ const (
 	StatusPaused      TaskStatus = "PAUSED"
 )
 
-// Task represents a file download and storage task
-type Task struct {
-	ID          uint64                 `json:"id"`
-	OfAccountID uint64                 `json:"of_account_id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	SourceURL   string                 `json:"source_url"`
-	SourceType  SourceType             `json:"source_type"`
-	SourceAuth  *AuthConfig            `json:"source_auth,omitempty"`
-	StorageType StorageType            `json:"storage_type"`
-	StoragePath string                 `json:"storage_path"`
-	Status      TaskStatus             `json:"status"`
-	FileInfo    *FileInfo              `json:"file_info,omitempty"`
-	Progress    *DownloadProgress      `json:"progress,omitempty"`
-	Options     *DownloadOptions       `json:"options"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-	CompletedAt *time.Time             `json:"completed_at,omitempty"`
-	Error       string                 `json:"error,omitempty"`
-	RetryCount  int32                  `json:"retry_count"`
-	MaxRetries  int32                  `json:"max_retries"`
-	Tags        []string               `json:"tags"`
-	Metadata    map[string]interface{} `json:"metadata"`
+func ToSourceType(src string) SourceType {
+	src = strings.ToUpper(src)
+	switch src {
+	case "HTTP":
+		return SourceHTTP
+	case "HTTPS":
+		return SourceHTTPS
+	case "FTP":
+		return SourceFTP
+	case "SFTP":
+		return SourceSFTP
+	case "BITTORRENT":
+		return SourceBitTorrent
+	default:
+		return SourceHTTP
+	}
 }
 
-// FileInfo contains information about the stored file
-type FileInfo struct {
-	FileName    string    `json:"file_name"`
-	FileSize    int64     `json:"file_size"`
-	ContentType string    `json:"content_type"`
-	MD5Hash     string    `json:"md5_hash"`
-	StorageKey  string    `json:"storage_key"`
-	StoredAt    time.Time `json:"stored_at"`
+// Task represents a file download and storage task
+type Task struct {
+	ID          uint64 `json:"id"`
+	OfAccountID uint64 `json:"of_account_id"`
+	FileName    string `json:"file_name"`
+
+	SourceURL  string      `json:"source_url"`
+	SourceType SourceType  `json:"source_type"`
+	SourceAuth *AuthConfig `json:"source_auth,omitempty"`
+
+	StorageType StorageType `json:"storage_type"`
+	StoragePath string      `json:"storage_path"`
+
+	Checksum        *ChecksumInfo    `json:"checksum,omitempty"`
+	DownloadOptions *DownloadOptions `json:"download_options,omitempty"`
+
+	Status       TaskStatus        `json:"status"`
+	Progress     *DownloadProgress `json:"progress,omitempty"`
+	ErrorMessage *string           `json:"error_message,omitempty"`
+
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 // DownloadProgress tracks download progress
 type DownloadProgress struct {
-	BytesDownloaded int64         `json:"bytes_downloaded"`
-	TotalBytes      int64         `json:"total_bytes"`
-	Speed           int64         `json:"speed"` // bytes per second
-	ETA             time.Duration `json:"eta"`
-	Percentage      float64       `json:"percentage"`
+	Progress        float64 `json:"progress"`
+	DownloadedBytes int64   `json:"downloaded_bytes"`
+	TotalBytes      int64   `json:"total_bytes"`
 }
 
 // DownloadOptions configures download behavior
 type DownloadOptions struct {
-	ChunkSize    int64         `json:"chunk_size"`
-	MaxRetries   int           `json:"max_retries"`
-	Timeout      time.Duration `json:"timeout"`
-	Resume       bool          `json:"resume"`
-	ChecksumType string        `json:"checksum_type"`
+	Concurrency int    `json:"concurrency" db:"concurrency"`
+	MaxSpeed    *int64 `json:"max_speed,omitempty" db:"max_speed"`
+	MaxRetries  int    `json:"max_retries" db:"max_retries"`
+	Timeout     *int   `json:"timeout,omitempty" db:"timeout"`
 }
 
 // AuthConfig for authenticated sources
 type AuthConfig struct {
-	Username string            `json:"username"`
-	Password string            `json:"password"`
-	Token    string            `json:"token"`
-	Headers  map[string]string `json:"headers"`
+	Type     string            `json:"type"`
+	Username string            `json:"username,omitempty"`
+	Password string            `json:"password,omitempty"`
+	Token    string            `json:"token,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 // TaskFilter TaskFilter for querying tasks
@@ -152,40 +161,7 @@ type TimeRange struct {
 	To   *time.Time `json:"to"`
 }
 
-// StorageStats contains storage statistics
-type StorageStats struct {
-	TotalFiles int64 `json:"total_files"`
-	TotalSize  int64 `json:"total_size"`
-	UsedSpace  int64 `json:"used_space"`
+type ChecksumInfo struct {
+	ChecksumType  string `json:"checksum_type"`
+	ChecksumValue string `json:"checksum_value"`
 }
-
-// StorageConfig contains storage configuration
-type StorageConfig struct {
-	BasePath      string `json:"base_path"`
-	BucketName    string `json:"bucket_name"`
-	MaxFileSize   int64  `json:"max_file_size"`
-	RetentionDays int    `json:"retention_days"`
-}
-
-// TaskEvent represents events published by the task service
-type Event struct {
-	Type      EventType              `json:"type"`
-	TaskID    string                 `json:"task_id"`
-	Task      *Task                  `json:"task,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// EventType enum for task events
-type EventType string
-
-const (
-	EventTaskCreated   EventType = "task_created"
-	EventTaskStarted   EventType = "task_started"
-	EventTaskPaused    EventType = "task_paused"
-	EventTaskResumed   EventType = "task_resumed"
-	EventTaskCancelled EventType = "task_cancelled"
-	EventTaskRetried   EventType = "task_retried"
-	EventTaskCompleted EventType = "task_completed"
-	EventTaskFailed    EventType = "task_failed"
-)

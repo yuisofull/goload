@@ -12,47 +12,49 @@ import (
 )
 
 const createTask = `-- name: CreateTask :execresult
-INSERT INTO tasks (of_account_id, name, description, source_url, source_type, source_auth,
-                   storage_type, storage_path, status, file_info, progress, options,
-                   max_retries,
-                   tags, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
+                   storage_type, storage_path, status,
+                   checksum_type, checksum_value,
+                   concurrency, max_speed, max_retries, timeout, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTaskParams struct {
-	OfAccountID uint64          `json:"of_account_id"`
-	Name        string          `json:"name"`
-	Description sql.NullString  `json:"description"`
-	SourceUrl   string          `json:"source_url"`
-	SourceType  string          `json:"source_type"`
-	SourceAuth  json.RawMessage `json:"source_auth"`
-	StorageType string          `json:"storage_type"`
-	StoragePath string          `json:"storage_path"`
-	Status      string          `json:"status"`
-	FileInfo    json.RawMessage `json:"file_info"`
-	Progress    json.RawMessage `json:"progress"`
-	Options     json.RawMessage `json:"options"`
-	MaxRetries  int32           `json:"max_retries"`
-	Tags        json.RawMessage `json:"tags"`
-	Metadata    json.RawMessage `json:"metadata"`
+	OfAccountID   uint64          `json:"of_account_id"`
+	FileName      string          `json:"file_name"`
+	SourceUrl     string          `json:"source_url"`
+	SourceType    string          `json:"source_type"`
+	SourceAuth    json.RawMessage `json:"source_auth"`
+	Headers       json.RawMessage `json:"headers"`
+	StorageType   string          `json:"storage_type"`
+	StoragePath   string          `json:"storage_path"`
+	Status        string          `json:"status"`
+	ChecksumType  sql.NullString  `json:"checksum_type"`
+	ChecksumValue sql.NullString  `json:"checksum_value"`
+	Concurrency   sql.NullInt32   `json:"concurrency"`
+	MaxSpeed      sql.NullInt64   `json:"max_speed"`
+	MaxRetries    int32           `json:"max_retries"`
+	Timeout       sql.NullInt32   `json:"timeout"`
+	Metadata      json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, createTask,
 		arg.OfAccountID,
-		arg.Name,
-		arg.Description,
+		arg.FileName,
 		arg.SourceUrl,
 		arg.SourceType,
 		arg.SourceAuth,
+		arg.Headers,
 		arg.StorageType,
 		arg.StoragePath,
 		arg.Status,
-		arg.FileInfo,
-		arg.Progress,
-		arg.Options,
+		arg.ChecksumType,
+		arg.ChecksumValue,
+		arg.Concurrency,
+		arg.MaxSpeed,
 		arg.MaxRetries,
-		arg.Tags,
+		arg.Timeout,
 		arg.Metadata,
 	)
 }
@@ -69,7 +71,7 @@ func (q *Queries) DeleteTask(ctx context.Context, id uint64) error {
 }
 
 const getTaskById = `-- name: GetTaskById :one
-SELECT id, of_account_id, name, description, source_url, source_type, source_auth, storage_type, storage_path, status, file_info, progress, options, created_at, updated_at, completed_at, error, retry_count, max_retries, tags, metadata
+SELECT id, of_account_id, file_name, source_url, source_type, headers, source_auth, storage_type, storage_path, checksum_type, checksum_value, concurrency, max_speed, max_retries, timeout, status, progress, downloaded_bytes, total_bytes, error_message, metadata, created_at, updated_at, completed_at
 FROM tasks
 WHERE id = ?
 `
@@ -80,25 +82,28 @@ func (q *Queries) GetTaskById(ctx context.Context, id uint64) (Task, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.OfAccountID,
-		&i.Name,
-		&i.Description,
+		&i.FileName,
 		&i.SourceUrl,
 		&i.SourceType,
+		&i.Headers,
 		&i.SourceAuth,
 		&i.StorageType,
 		&i.StoragePath,
+		&i.ChecksumType,
+		&i.ChecksumValue,
+		&i.Concurrency,
+		&i.MaxSpeed,
+		&i.MaxRetries,
+		&i.Timeout,
 		&i.Status,
-		&i.FileInfo,
 		&i.Progress,
-		&i.Options,
+		&i.DownloadedBytes,
+		&i.TotalBytes,
+		&i.ErrorMessage,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
-		&i.Error,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.Tags,
-		&i.Metadata,
 	)
 	return i, err
 }
@@ -117,7 +122,7 @@ func (q *Queries) GetTaskCountByAccountId(ctx context.Context, ofAccountID uint6
 }
 
 const listTasks = `-- name: ListTasks :many
-SELECT id, of_account_id, name, description, source_url, source_type, source_auth, storage_type, storage_path, status, file_info, progress, options, created_at, updated_at, completed_at, error, retry_count, max_retries, tags, metadata
+SELECT id, of_account_id, file_name, source_url, source_type, headers, source_auth, storage_type, storage_path, checksum_type, checksum_value, concurrency, max_speed, max_retries, timeout, status, progress, downloaded_bytes, total_bytes, error_message, metadata, created_at, updated_at, completed_at
 FROM tasks
 WHERE of_account_id = ?
 ORDER BY created_at DESC
@@ -142,25 +147,28 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 		if err := rows.Scan(
 			&i.ID,
 			&i.OfAccountID,
-			&i.Name,
-			&i.Description,
+			&i.FileName,
 			&i.SourceUrl,
 			&i.SourceType,
+			&i.Headers,
 			&i.SourceAuth,
 			&i.StorageType,
 			&i.StoragePath,
+			&i.ChecksumType,
+			&i.ChecksumValue,
+			&i.Concurrency,
+			&i.MaxSpeed,
+			&i.MaxRetries,
+			&i.Timeout,
 			&i.Status,
-			&i.FileInfo,
 			&i.Progress,
-			&i.Options,
+			&i.DownloadedBytes,
+			&i.TotalBytes,
+			&i.ErrorMessage,
+			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,
-			&i.Error,
-			&i.RetryCount,
-			&i.MaxRetries,
-			&i.Tags,
-			&i.Metadata,
 		); err != nil {
 			return nil, err
 		}
@@ -173,6 +181,23 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateFileChecksum = `-- name: UpdateFileChecksum :exec
+UPDATE tasks
+SET checksum_type = ?, checksum_value = ?
+WHERE id = ?
+`
+
+type UpdateFileChecksumParams struct {
+	ChecksumType  sql.NullString `json:"checksum_type"`
+	ChecksumValue sql.NullString `json:"checksum_value"`
+	ID            uint64         `json:"id"`
+}
+
+func (q *Queries) UpdateFileChecksum(ctx context.Context, arg UpdateFileChecksumParams) error {
+	_, err := q.db.ExecContext(ctx, updateFileChecksum, arg.ChecksumType, arg.ChecksumValue, arg.ID)
+	return err
 }
 
 const updateTaskCompletedAt = `-- name: UpdateTaskCompletedAt :exec
@@ -191,35 +216,51 @@ func (q *Queries) UpdateTaskCompletedAt(ctx context.Context, arg UpdateTaskCompl
 	return err
 }
 
+const updateTaskDownloadedBytes = `-- name: UpdateTaskDownloadedBytes :exec
+UPDATE tasks
+SET downloaded_bytes = ?
+WHERE id = ?
+`
+
+type UpdateTaskDownloadedBytesParams struct {
+	DownloadedBytes sql.NullInt64 `json:"downloaded_bytes"`
+	ID              uint64        `json:"id"`
+}
+
+func (q *Queries) UpdateTaskDownloadedBytes(ctx context.Context, arg UpdateTaskDownloadedBytesParams) error {
+	_, err := q.db.ExecContext(ctx, updateTaskDownloadedBytes, arg.DownloadedBytes, arg.ID)
+	return err
+}
+
 const updateTaskError = `-- name: UpdateTaskError :exec
 UPDATE tasks
-SET error = ?
+SET error_message = ?
 WHERE id = ?
 `
 
 type UpdateTaskErrorParams struct {
-	Error sql.NullString `json:"error"`
-	ID    uint64         `json:"id"`
+	ErrorMessage sql.NullString `json:"error_message"`
+	ID           uint64         `json:"id"`
 }
 
 func (q *Queries) UpdateTaskError(ctx context.Context, arg UpdateTaskErrorParams) error {
-	_, err := q.db.ExecContext(ctx, updateTaskError, arg.Error, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateTaskError, arg.ErrorMessage, arg.ID)
 	return err
 }
 
-const updateTaskFileInfo = `-- name: UpdateTaskFileInfo :exec
+const updateTaskMetadata = `-- name: UpdateTaskMetadata :exec
 UPDATE tasks
-SET file_info = ?
+SET metadata = ?
 WHERE id = ?
 `
 
-type UpdateTaskFileInfoParams struct {
-	FileInfo json.RawMessage `json:"file_info"`
+type UpdateTaskMetadataParams struct {
+	Metadata json.RawMessage `json:"metadata"`
 	ID       uint64          `json:"id"`
 }
 
-func (q *Queries) UpdateTaskFileInfo(ctx context.Context, arg UpdateTaskFileInfoParams) error {
-	_, err := q.db.ExecContext(ctx, updateTaskFileInfo, arg.FileInfo, arg.ID)
+func (q *Queries) UpdateTaskMetadata(ctx context.Context, arg UpdateTaskMetadataParams) error {
+	_, err := q.db.ExecContext(ctx, updateTaskMetadata, arg.Metadata, arg.ID)
 	return err
 }
 
@@ -230,28 +271,12 @@ WHERE id = ?
 `
 
 type UpdateTaskProgressParams struct {
-	Progress json.RawMessage `json:"progress"`
+	Progress sql.NullFloat64 `json:"progress"`
 	ID       uint64          `json:"id"`
 }
 
 func (q *Queries) UpdateTaskProgress(ctx context.Context, arg UpdateTaskProgressParams) error {
 	_, err := q.db.ExecContext(ctx, updateTaskProgress, arg.Progress, arg.ID)
-	return err
-}
-
-const updateTaskRetryCount = `-- name: UpdateTaskRetryCount :exec
-UPDATE tasks
-SET retry_count = ?
-WHERE id = ?
-`
-
-type UpdateTaskRetryCountParams struct {
-	RetryCount int32  `json:"retry_count"`
-	ID         uint64 `json:"id"`
-}
-
-func (q *Queries) UpdateTaskRetryCount(ctx context.Context, arg UpdateTaskRetryCountParams) error {
-	_, err := q.db.ExecContext(ctx, updateTaskRetryCount, arg.RetryCount, arg.ID)
 	return err
 }
 
@@ -268,5 +293,21 @@ type UpdateTaskStatusParams struct {
 
 func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) error {
 	_, err := q.db.ExecContext(ctx, updateTaskStatus, arg.Status, arg.ID)
+	return err
+}
+
+const updateTaskTotalBytes = `-- name: UpdateTaskTotalBytes :exec
+UPDATE tasks
+SET total_bytes = ?
+WHERE id = ?
+`
+
+type UpdateTaskTotalBytesParams struct {
+	TotalBytes sql.NullInt64 `json:"total_bytes"`
+	ID         uint64        `json:"id"`
+}
+
+func (q *Queries) UpdateTaskTotalBytes(ctx context.Context, arg UpdateTaskTotalBytesParams) error {
+	_, err := q.db.ExecContext(ctx, updateTaskTotalBytes, arg.TotalBytes, arg.ID)
 	return err
 }

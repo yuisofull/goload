@@ -3,9 +3,10 @@ package taskendpoint
 import (
 	"context"
 	stderrors "errors"
+	"time"
+
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/ratelimit"
@@ -40,10 +41,6 @@ type DeleteTaskRequest pb.DeleteTaskRequest
 
 type DeleteTaskResponse pb.DeleteTaskResponse
 
-type StartTaskRequest pb.StartTaskRequest
-
-type StartTaskResponse pb.StartTaskResponse
-
 type PauseTaskRequest pb.PauseTaskRequest
 
 type PauseTaskResponse pb.PauseTaskResponse
@@ -60,10 +57,6 @@ type RetryTaskRequest pb.RetryTaskRequest
 
 type RetryTaskResponse pb.RetryTaskResponse
 
-type GetFileInfoRequest pb.GetFileInfoRequest
-
-type GetFileInfoResponse pb.GetFileInfoResponse
-
 type CheckFileExistsRequest pb.CheckFileExistsRequest
 
 type CheckFileExistsResponse pb.CheckFileExistsResponse
@@ -72,26 +65,40 @@ type GetTaskProgressRequest pb.GetTaskProgressRequest
 
 type GetTaskProgressResponse pb.GetTaskProgressResponse
 
+type UpdateTaskChecksumRequest struct {
+	TaskId   uint64
+	Checksum *pb.ChecksumInfo
+}
+
+type UpdateTaskMetadataRequest struct {
+	TaskId   uint64
+	Metadata *structpb.Struct
+}
+
 // Set contains all endpoints for the Task Service
 
 type Set struct {
-	CreateTaskEndpoint            endpoint.Endpoint
-	GetTaskEndpoint               endpoint.Endpoint
-	ListTasksEndpoint             endpoint.Endpoint
-	DeleteTaskEndpoint            endpoint.Endpoint
-	StartTaskEndpoint             endpoint.Endpoint
-	PauseTaskEndpoint             endpoint.Endpoint
-	ResumeTaskEndpoint            endpoint.Endpoint
-	CancelTaskEndpoint            endpoint.Endpoint
-	RetryTaskEndpoint             endpoint.Endpoint
+	CreateTaskEndpoint endpoint.Endpoint
+	GetTaskEndpoint    endpoint.Endpoint
+	ListTasksEndpoint  endpoint.Endpoint
+	DeleteTaskEndpoint endpoint.Endpoint
+
+	PauseTaskEndpoint  endpoint.Endpoint
+	ResumeTaskEndpoint endpoint.Endpoint
+	CancelTaskEndpoint endpoint.Endpoint
+	RetryTaskEndpoint  endpoint.Endpoint
+
 	UpdateTaskStoragePathEndpoint endpoint.Endpoint
 	UpdateTaskStatusEndpoint      endpoint.Endpoint
 	UpdateTaskProgressEndpoint    endpoint.Endpoint
 	UpdateTaskErrorEndpoint       endpoint.Endpoint
 	CompleteTaskEndpoint          endpoint.Endpoint
-	GetFileInfoEndpoint           endpoint.Endpoint
-	CheckFileExistsEndpoint       endpoint.Endpoint
-	GetTaskProgressEndpoint       endpoint.Endpoint
+
+	UpdateTaskChecksumEndpoint endpoint.Endpoint
+	UpdateTaskMetadataEndpoint endpoint.Endpoint
+
+	CheckFileExistsEndpoint endpoint.Endpoint
+	GetTaskProgressEndpoint endpoint.Endpoint
 }
 
 // Implement task.Service on the Set for GRPC client usage
@@ -99,15 +106,15 @@ type Set struct {
 func (e *Set) CreateTask(ctx context.Context, param *task.CreateTaskParam) (*task.Task, error) {
 	resp, err := e.CreateTaskEndpoint(ctx, &CreateTaskRequest{
 		OfAccountId: param.OfAccountID,
-		Name:        param.Name,
-		Description: param.Description,
+		FileName:    param.FileName,
 		SourceUrl:   param.SourceURL,
 		SourceType:  pb.SourceType(pb.SourceType_value[string(param.SourceType)]),
 		SourceAuth:  toPBAuthConfig(param.SourceAuth),
-		Options:     toPBDownloadOptions(param.Options),
-		MaxRetries:  param.MaxRetries,
-		Tags:        param.Tags,
-		Metadata:    toPBStruct(param.Metadata),
+		Checksum: &pb.ChecksumInfo{
+			ChecksumType:  param.Checksum.ChecksumType,
+			ChecksumValue: param.Checksum.ChecksumValue,
+		},
+		Metadata: toPBStruct(param.Metadata),
 	})
 	if err != nil {
 		return nil, err
@@ -149,97 +156,6 @@ func (e *Set) DeleteTask(ctx context.Context, id uint64) error {
 	return err
 }
 
-// fromPBTask converts a protobuf Task to domain Task
-func fromPBTask(pbTask *pb.Task) *task.Task {
-	if pbTask == nil {
-		return nil
-	}
-
-	return &task.Task{
-		ID:          pbTask.Id,
-		OfAccountID: pbTask.OfAccountId,
-		Name:        pbTask.Name,
-		Description: pbTask.Description,
-		SourceURL:   pbTask.SourceUrl,
-		SourceType:  task.SourceType(pbTask.SourceType),
-		SourceAuth:  fromPBAuthConfig(pbTask.SourceAuth),
-		StorageType: task.StorageType(pbTask.StorageType),
-		StoragePath: pbTask.StoragePath,
-		Status:      task.TaskStatus(pbTask.Status),
-		FileInfo:    fromPBFileInfo(pbTask.FileInfo),
-		Progress:    fromPBDownloadProgress(pbTask.Progress),
-		Options:     fromPBDownloadOptions(pbTask.Options),
-		CreatedAt:   pbTask.CreatedAt.AsTime(),
-		UpdatedAt:   pbTask.UpdatedAt.AsTime(),
-		CompletedAt: func() *time.Time {
-			if pbTask.CompletedAt != nil {
-				t := pbTask.CompletedAt.AsTime()
-				return &t
-			}
-			return nil
-		}(),
-		Error:      pbTask.Error,
-		RetryCount: pbTask.RetryCount,
-		MaxRetries: pbTask.MaxRetries,
-		Tags:       pbTask.Tags,
-		Metadata:   pbTask.Metadata.AsMap(),
-	}
-}
-
-func fromPBAuthConfig(pbAuth *pb.AuthConfig) *task.AuthConfig {
-	if pbAuth == nil {
-		return nil
-	}
-	return &task.AuthConfig{
-		Username: pbAuth.Username,
-		Password: pbAuth.Password,
-		Token:    pbAuth.Token,
-		Headers:  pbAuth.Headers,
-	}
-}
-func fromPBFileInfo(pbFileInfo *pb.FileInfo) *task.FileInfo {
-	if pbFileInfo == nil {
-		return nil
-	}
-	return &task.FileInfo{
-		FileName:    pbFileInfo.FileName,
-		FileSize:    pbFileInfo.FileSize,
-		ContentType: pbFileInfo.ContentType,
-		MD5Hash:     pbFileInfo.Md5Hash,
-		StorageKey:  pbFileInfo.StorageKey,
-		StoredAt:    pbFileInfo.StoredAt.AsTime(),
-	}
-}
-func fromPBDownloadProgress(pbProgress *pb.DownloadProgress) *task.DownloadProgress {
-	if pbProgress == nil {
-		return nil
-	}
-	return &task.DownloadProgress{
-		BytesDownloaded: pbProgress.BytesDownloaded,
-		TotalBytes:      pbProgress.TotalBytes,
-		Speed:           pbProgress.SpeedBps,
-		ETA:             time.Duration(pbProgress.EtaSeconds) * time.Second,
-		Percentage:      pbProgress.Percentage,
-	}
-}
-func fromPBDownloadOptions(pbOptions *pb.DownloadOptions) *task.DownloadOptions {
-	if pbOptions == nil {
-		return nil
-	}
-	return &task.DownloadOptions{
-		ChunkSize:    pbOptions.ChunkSize,
-		MaxRetries:   int(pbOptions.MaxRetries),
-		Timeout:      time.Duration(pbOptions.TimeoutSeconds) * time.Second,
-		Resume:       pbOptions.Resume,
-		ChecksumType: pbOptions.ChecksumType,
-	}
-}
-
-func (e *Set) StartTask(ctx context.Context, taskID uint64) error {
-	_, err := e.StartTaskEndpoint(ctx, &StartTaskRequest{Id: taskID})
-	return err
-}
-
 func (e *Set) PauseTask(ctx context.Context, taskID uint64) error {
 	_, err := e.PauseTaskEndpoint(ctx, &PauseTaskRequest{Id: taskID})
 	return err
@@ -264,49 +180,146 @@ func (e *Set) UpdateTaskStoragePath(ctx context.Context, id uint64, storagePath 
 	_, err := e.UpdateTaskStoragePathEndpoint(ctx, &UpdateTaskStoragePathRequest{Id: id, StoragePath: storagePath})
 	return err
 }
+
 func (e *Set) UpdateTaskStatus(ctx context.Context, id uint64, status task.TaskStatus) error {
 	_, err := e.UpdateTaskStatusEndpoint(ctx, &UpdateTaskStatusRequest{Id: id, Status: pb.TaskStatus(pb.TaskStatus_value[string(status)])})
 	return err
 }
+
 func (e *Set) UpdateTaskProgress(ctx context.Context, id uint64, progress task.DownloadProgress) error {
-	_, err := e.UpdateTaskProgressEndpoint(ctx, &UpdateTaskProgressRequest{Id: id, Progress: &pb.DownloadProgress{BytesDownloaded: progress.BytesDownloaded, TotalBytes: progress.TotalBytes, SpeedBps: progress.Speed}})
+	_, err := e.UpdateTaskProgressEndpoint(ctx, &UpdateTaskProgressRequest{
+		Id: id,
+		Progress: &pb.DownloadProgress{
+			TotalBytes: progress.TotalBytes,
+		},
+	})
 	return err
 }
+
 func (e *Set) UpdateTaskError(ctx context.Context, id uint64, err error) error {
 	_, err = e.UpdateTaskErrorEndpoint(ctx, &UpdateTaskErrorRequest{Id: id, Error: err.Error()})
 	return err
 }
-func (e *Set) CompleteTask(ctx context.Context, id uint64, fileInfo *task.FileInfo) error {
-	_, err := e.CompleteTaskEndpoint(ctx, &CompleteTaskRequest{Id: id, FileInfo: &pb.FileInfo{FileName: fileInfo.FileName, FileSize: fileInfo.FileSize, ContentType: fileInfo.ContentType, Md5Hash: fileInfo.MD5Hash, StorageKey: fileInfo.StorageKey}})
+
+func (e *Set) CompleteTask(ctx context.Context, id uint64) error {
+	_, err := e.CompleteTaskEndpoint(ctx, &CompleteTaskRequest{Id: id})
 	return err
 }
-func (e *Set) GetFileInfo(ctx context.Context, taskID uint64) (*task.FileInfo, error) {
-	resp, err := e.GetFileInfoEndpoint(ctx, &GetFileInfoRequest{TaskId: taskID})
-	if err != nil {
-		return nil, err
-	}
-	out := resp.(*GetFileInfoResponse)
-	return toDomainFileInfo(out.FileInfo), nil
-}
+
 func (e *Set) CheckFileExists(ctx context.Context, taskID uint64) (bool, error) {
-	resp, err := e.CheckFileExistsEndpoint(ctx, &CheckFileExistsRequest{TaskId: taskID})
+	response, err := e.CheckFileExistsEndpoint(ctx, &CheckFileExistsRequest{TaskId: taskID})
 	if err != nil {
 		return false, err
 	}
-	out := resp.(*CheckFileExistsResponse)
-	return out.Exists, nil
+	resp := response.(*CheckFileExistsResponse)
+	return resp.Exists, nil
 }
+
 func (e *Set) GetTaskProgress(ctx context.Context, taskID uint64) (*task.DownloadProgress, error) {
-	resp, err := e.GetTaskProgressEndpoint(ctx, &GetTaskProgressRequest{TaskId: taskID})
+	response, err := e.GetTaskProgressEndpoint(ctx, &GetTaskProgressRequest{TaskId: taskID})
 	if err != nil {
 		return nil, err
 	}
-	out := resp.(*GetTaskProgressResponse)
-	if out.Progress == nil {
-		return nil, nil
+	resp := response.(*GetTaskProgressResponse)
+	return fromPBDownloadProgress(resp.Progress), nil
+}
+
+func (e *Set) UpdateTaskChecksum(ctx context.Context, id uint64, checksum *task.ChecksumInfo) error {
+	_, err := e.UpdateTaskChecksumEndpoint(ctx, &UpdateTaskChecksumRequest{
+		TaskId:   id,
+		Checksum: toPBChecksumInfo(checksum),
+	})
+	return err
+}
+
+func (e *Set) UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]interface{}) error {
+	_, err := e.UpdateTaskMetadataEndpoint(ctx, &UpdateTaskMetadataRequest{
+		TaskId:   id,
+		Metadata: toPBStruct(metadata),
+	})
+	return err
+}
+
+// fromPBTask converts a protobuf Task to domain Task
+func fromPBTask(pbTask *pb.Task) *task.Task {
+	if pbTask == nil {
+		return nil
 	}
-	p := toDomainProgress(out.Progress)
-	return &p, nil
+
+	return &task.Task{
+		ID:          pbTask.Id,
+		OfAccountID: pbTask.OfAccountId,
+		FileName:    pbTask.FileName,
+		SourceURL:   pbTask.SourceUrl,
+		SourceType:  task.SourceType(pbTask.SourceType),
+		SourceAuth:  fromPBAuthConfig(pbTask.SourceAuth),
+		StorageType: task.StorageType(pbTask.StorageType),
+		StoragePath: pbTask.StoragePath,
+		Checksum: &task.ChecksumInfo{
+			ChecksumType:  pbTask.Checksum.ChecksumType,
+			ChecksumValue: pbTask.Checksum.ChecksumValue,
+		},
+		Metadata:  pbTask.Metadata.AsMap(),
+		CreatedAt: pbTask.CreatedAt.AsTime(),
+		UpdatedAt: pbTask.UpdatedAt.AsTime(),
+		CompletedAt: func() *time.Time {
+			if pbTask.CompletedAt != nil {
+				t := pbTask.CompletedAt.AsTime()
+				return &t
+			}
+			return nil
+		}(),
+	}
+}
+
+func fromPBAuthConfig(pbAuth *pb.AuthConfig) *task.AuthConfig {
+	if pbAuth == nil {
+		return nil
+	}
+	return &task.AuthConfig{
+		Username: pbAuth.Username,
+		Password: pbAuth.Password,
+		Token:    pbAuth.Token,
+		Headers:  pbAuth.Headers,
+	}
+}
+
+func toPBDownloadProgress(progress *task.DownloadProgress) *pb.DownloadProgress {
+	if progress == nil {
+		return nil
+	}
+	return &pb.DownloadProgress{
+		TotalBytes: progress.TotalBytes,
+	}
+}
+
+func fromPBDownloadProgress(pbProgress *pb.DownloadProgress) *task.DownloadProgress {
+	if pbProgress == nil {
+		return nil
+	}
+	return &task.DownloadProgress{
+		TotalBytes: pbProgress.TotalBytes,
+	}
+}
+
+func toPBChecksumInfo(checksum *task.ChecksumInfo) *pb.ChecksumInfo {
+	if checksum == nil {
+		return nil
+	}
+	return &pb.ChecksumInfo{
+		ChecksumType:  checksum.ChecksumType,
+		ChecksumValue: checksum.ChecksumValue,
+	}
+}
+
+func fromPBChecksumInfo(pbChecksum *pb.ChecksumInfo) *task.ChecksumInfo {
+	if pbChecksum == nil {
+		return nil
+	}
+	return &task.ChecksumInfo{
+		ChecksumType:  pbChecksum.ChecksumType,
+		ChecksumValue: pbChecksum.ChecksumValue,
+	}
 }
 
 // MakeCreateTaskEndpoint endpoint for Service.CreateTask
@@ -316,8 +329,7 @@ func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
 
 		params := &task.CreateTaskParam{
 			OfAccountID: req.OfAccountId,
-			Name:        req.Name,
-			Description: req.Description,
+			FileName:    req.FileName,
 			SourceURL:   req.SourceUrl,
 			SourceType:  task.SourceType(req.SourceType.String()),
 			SourceAuth: &task.AuthConfig{
@@ -326,16 +338,11 @@ func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
 				Token:    req.SourceAuth.GetToken(),
 				Headers:  req.SourceAuth.GetHeaders(),
 			},
-			Options: &task.DownloadOptions{
-				ChunkSize:    req.Options.GetChunkSize(),
-				MaxRetries:   int(req.Options.GetMaxRetries()),
-				Timeout:      time.Duration(req.Options.GetTimeoutSeconds()) * time.Second,
-				Resume:       req.Options.GetResume(),
-				ChecksumType: req.Options.GetChecksumType(),
+			Checksum: &task.ChecksumInfo{
+				ChecksumType:  req.Checksum.GetChecksumType(),
+				ChecksumValue: req.Checksum.GetChecksumValue(),
 			},
-			MaxRetries: req.MaxRetries,
-			Tags:       req.Tags,
-			Metadata:   req.Metadata.AsMap(),
+			Metadata: req.Metadata.AsMap(),
 		}
 		created, err := svc.CreateTask(ctx, params)
 		if err != nil {
@@ -423,7 +430,7 @@ func MakeUpdateTaskErrorEndpoint(svc task.Service) endpoint.Endpoint {
 func MakeCompleteTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*CompleteTaskRequest)
-		if err := svc.CompleteTask(ctx, req.Id, toDomainFileInfo(req.FileInfo)); err != nil {
+		if err := svc.CompleteTask(ctx, req.Id); err != nil {
 			return nil, err
 		}
 		t, err := svc.GetTask(ctx, req.Id)
@@ -431,42 +438,6 @@ func MakeCompleteTaskEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, err
 		}
 		return &TaskResponse{Task: toPBTask(t)}, nil
-	}
-}
-
-// MakeGetFileInfoEndpoint retrieves file info for a task
-func MakeGetFileInfoEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*GetFileInfoRequest)
-		fi, err := svc.GetFileInfo(ctx, req.TaskId)
-		if err != nil {
-			return nil, err
-		}
-		return &GetFileInfoResponse{FileInfo: toPBFileInfo(fi)}, nil
-	}
-}
-
-// MakeCheckFileExistsEndpoint checks if a file exists for a task
-func MakeCheckFileExistsEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*CheckFileExistsRequest)
-		exists, err := svc.CheckFileExists(ctx, req.TaskId)
-		if err != nil {
-			return nil, err
-		}
-		return &CheckFileExistsResponse{Exists: exists}, nil
-	}
-}
-
-// MakeGetTaskProgressEndpoint retrieves progress for a task
-func MakeGetTaskProgressEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*GetTaskProgressRequest)
-		prog, err := svc.GetTaskProgress(ctx, req.TaskId)
-		if err != nil {
-			return nil, err
-		}
-		return &GetTaskProgressResponse{Progress: toPBProgress(prog)}, nil
 	}
 }
 
@@ -508,17 +479,6 @@ func MakeDeleteTaskEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, err
 		}
 		return &DeleteTaskResponse{Message: "deleted"}, nil
-	}
-}
-
-// MakeStartTaskEndpoint endpoint for Service.StartTask
-func MakeStartTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*StartTaskRequest)
-		if err := svc.StartTask(ctx, req.Id); err != nil {
-			return nil, err
-		}
-		return &StartTaskResponse{Message: "started"}, nil
 	}
 }
 
@@ -566,6 +526,46 @@ func MakeRetryTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	}
 }
 
+// MakeCheckFileExistsEndpoint endpoint for Service.CheckFileExists
+func MakeCheckFileExistsEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*CheckFileExistsRequest)
+		exists, err := svc.CheckFileExists(ctx, req.TaskId)
+		if err != nil {
+			return nil, err
+		}
+		return &CheckFileExistsResponse{Exists: exists}, nil
+	}
+}
+
+// MakeGetTaskProgressEndpoint endpoint for Service.GetTaskProgress
+func MakeGetTaskProgressEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*GetTaskProgressRequest)
+		progress, err := svc.GetTaskProgress(ctx, req.TaskId)
+		if err != nil {
+			return nil, err
+		}
+		return &GetTaskProgressResponse{Progress: toPBDownloadProgress(progress)}, nil
+	}
+}
+
+// MakeUpdateTaskChecksumEndpoint updates task checksum
+func MakeUpdateTaskChecksumEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*UpdateTaskChecksumRequest)
+		return nil, svc.UpdateTaskChecksum(ctx, req.TaskId, fromPBChecksumInfo(req.Checksum))
+	}
+}
+
+// MakeUpdateTaskMetadataEndpoint updates task metadata
+func MakeUpdateTaskMetadataEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*UpdateTaskMetadataRequest)
+		return nil, svc.UpdateTaskMetadata(ctx, req.TaskId, fromPBStruct(req.Metadata))
+	}
+}
+
 // New builds the Set with rate limiters similar to auth endpoints
 func New(svc task.Service) Set {
 	var (
@@ -573,7 +573,6 @@ func New(svc task.Service) Set {
 		getEndpoint               endpoint.Endpoint
 		listEndpoint              endpoint.Endpoint
 		deleteEndpoint            endpoint.Endpoint
-		startEndpoint             endpoint.Endpoint
 		pauseEndpoint             endpoint.Endpoint
 		resumeEndpoint            endpoint.Endpoint
 		cancelEndpoint            endpoint.Endpoint
@@ -583,9 +582,10 @@ func New(svc task.Service) Set {
 		updateProgressEndpoint    endpoint.Endpoint
 		updateErrorEndpoint       endpoint.Endpoint
 		completeTaskEndpoint      endpoint.Endpoint
-		getFileInfoEndpoint       endpoint.Endpoint
 		checkFileExistsEndpoint   endpoint.Endpoint
 		getTaskProgressEndpoint   endpoint.Endpoint
+		updateChecksumEndpoint    endpoint.Endpoint
+		updateMetadataEndpoint    endpoint.Endpoint
 	)
 
 	limiter := ratelimit.NewErroringLimiter(rate.NewLimiter(rate.Limit(1), 100))
@@ -608,8 +608,6 @@ func New(svc task.Service) Set {
 	listEndpoint = limiter(listEndpoint)
 	deleteEndpoint = MakeDeleteTaskEndpoint(svc)
 	deleteEndpoint = limiter(deleteEndpoint)
-	startEndpoint = MakeStartTaskEndpoint(svc)
-	startEndpoint = limiter(startEndpoint)
 	pauseEndpoint = MakePauseTaskEndpoint(svc)
 	pauseEndpoint = limiter(pauseEndpoint)
 	resumeEndpoint = MakeResumeTaskEndpoint(svc)
@@ -618,19 +616,20 @@ func New(svc task.Service) Set {
 	cancelEndpoint = limiter(cancelEndpoint)
 	retryEndpoint = MakeRetryTaskEndpoint(svc)
 	retryEndpoint = limiter(retryEndpoint)
-	getFileInfoEndpoint = MakeGetFileInfoEndpoint(svc)
-	getFileInfoEndpoint = limiter(getFileInfoEndpoint)
 	checkFileExistsEndpoint = MakeCheckFileExistsEndpoint(svc)
 	checkFileExistsEndpoint = limiter(checkFileExistsEndpoint)
 	getTaskProgressEndpoint = MakeGetTaskProgressEndpoint(svc)
 	getTaskProgressEndpoint = limiter(getTaskProgressEndpoint)
+	updateChecksumEndpoint = MakeUpdateTaskChecksumEndpoint(svc)
+	updateChecksumEndpoint = limiter(updateChecksumEndpoint)
+	updateMetadataEndpoint = MakeUpdateTaskMetadataEndpoint(svc)
+	updateMetadataEndpoint = limiter(updateMetadataEndpoint)
 
 	return Set{
 		CreateTaskEndpoint:            createEndpoint,
 		GetTaskEndpoint:               getEndpoint,
 		ListTasksEndpoint:             listEndpoint,
 		DeleteTaskEndpoint:            deleteEndpoint,
-		StartTaskEndpoint:             startEndpoint,
 		PauseTaskEndpoint:             pauseEndpoint,
 		ResumeTaskEndpoint:            resumeEndpoint,
 		CancelTaskEndpoint:            cancelEndpoint,
@@ -640,9 +639,10 @@ func New(svc task.Service) Set {
 		UpdateTaskProgressEndpoint:    updateProgressEndpoint,
 		UpdateTaskErrorEndpoint:       updateErrorEndpoint,
 		CompleteTaskEndpoint:          completeTaskEndpoint,
-		GetFileInfoEndpoint:           getFileInfoEndpoint,
 		CheckFileExistsEndpoint:       checkFileExistsEndpoint,
 		GetTaskProgressEndpoint:       getTaskProgressEndpoint,
+		UpdateTaskChecksumEndpoint:    updateChecksumEndpoint,
+		UpdateTaskMetadataEndpoint:    updateMetadataEndpoint,
 	}
 }
 
@@ -653,17 +653,18 @@ func toPBTask(t *task.Task) *pb.Task {
 	}
 	return &pb.Task{
 		Id:          t.ID,
-		Name:        t.Name,
-		Description: t.Description,
+		FileName:    t.FileName,
 		SourceUrl:   t.SourceURL,
 		SourceType:  pb.SourceType(pb.SourceType_value[string(t.SourceType)]),
 		SourceAuth:  toPBAuthConfig(t.SourceAuth),
 		StorageType: pb.StorageType(pb.StorageType_value[string(t.StorageType)]),
 		StoragePath: t.StoragePath,
-		Status:      pb.TaskStatus(pb.TaskStatus_value[string(t.Status)]),
-		FileInfo:    toPBFileInfo(t.FileInfo),
-		Progress:    toPBProgress(t.Progress),
-		Options:     toPBDownloadOptions(t.Options),
+		Checksum: &pb.ChecksumInfo{
+			ChecksumType:  t.Checksum.ChecksumType,
+			ChecksumValue: t.Checksum.ChecksumValue,
+		},
+		Metadata:    toPBStruct(t.Metadata),
+		OfAccountId: t.OfAccountID,
 		CreatedAt:   timestamppb.New(t.CreatedAt),
 		UpdatedAt:   timestamppb.New(t.UpdatedAt),
 		CompletedAt: func() *timestamppb.Timestamp {
@@ -672,14 +673,9 @@ func toPBTask(t *task.Task) *pb.Task {
 			}
 			return nil
 		}(),
-		Error:       t.Error,
-		RetryCount:  t.RetryCount,
-		MaxRetries:  t.MaxRetries,
-		Tags:        t.Tags,
-		Metadata:    toPBStruct(t.Metadata),
-		OfAccountId: t.OfAccountID,
 	}
 }
+
 func toPBAuthConfig(auth *task.AuthConfig) *pb.AuthConfig {
 	if auth == nil {
 		return nil
@@ -691,16 +687,26 @@ func toPBAuthConfig(auth *task.AuthConfig) *pb.AuthConfig {
 		Headers:  auth.Headers,
 	}
 }
+
 func toPBDownloadOptions(options *task.DownloadOptions) *pb.DownloadOptions {
 	if options == nil {
 		return nil
 	}
 	return &pb.DownloadOptions{
-		ChunkSize:      options.ChunkSize,
-		MaxRetries:     int32(options.MaxRetries),
-		TimeoutSeconds: int64(options.Timeout.Seconds()),
-		Resume:         options.Resume,
-		ChecksumType:   options.ChecksumType,
+		Concurrency: int32(options.Concurrency),
+		MaxSpeed: func() int64 {
+			if options.MaxSpeed != nil {
+				return *options.MaxSpeed
+			}
+			return 0
+		}(),
+		MaxRetries: int32(options.MaxRetries),
+		Timeout: func() int32 {
+			if options.Timeout != nil {
+				return int32(*options.Timeout)
+			}
+			return 0
+		}(),
 	}
 }
 
@@ -715,44 +721,19 @@ func toPBStruct(metadata map[string]interface{}) *structpb.Struct {
 	return pbStruct
 }
 
+func fromPBStruct(pbStruct *structpb.Struct) map[string]interface{} {
+	if pbStruct == nil {
+		return nil
+	}
+	return pbStruct.AsMap()
+}
+
 func toDomainProgress(p *pb.DownloadProgress) task.DownloadProgress {
 	if p == nil {
 		return task.DownloadProgress{}
 	}
 	return task.DownloadProgress{
-		BytesDownloaded: p.BytesDownloaded,
-		TotalBytes:      p.TotalBytes,
-		Speed:           p.SpeedBps,
-		ETA:             time.Duration(p.EtaSeconds) * time.Second,
-		Percentage:      p.Percentage,
-	}
-}
-
-func toDomainFileInfo(f *pb.FileInfo) *task.FileInfo {
-	if f == nil {
-		return nil
-	}
-	return &task.FileInfo{
-		FileName:    f.FileName,
-		FileSize:    f.FileSize,
-		ContentType: f.ContentType,
-		MD5Hash:     f.Md5Hash,
-		StorageKey:  f.StorageKey,
-		StoredAt:    f.StoredAt.AsTime(),
-	}
-}
-
-func toPBFileInfo(f *task.FileInfo) *pb.FileInfo {
-	if f == nil {
-		return nil
-	}
-	return &pb.FileInfo{
-		FileName:    f.FileName,
-		FileSize:    f.FileSize,
-		ContentType: f.ContentType,
-		Md5Hash:     f.MD5Hash,
-		StorageKey:  f.StorageKey,
-		StoredAt:    timestamppb.New(f.StoredAt),
+		TotalBytes: p.TotalBytes,
 	}
 }
 
@@ -761,10 +742,6 @@ func toPBProgress(p *task.DownloadProgress) *pb.DownloadProgress {
 		return nil
 	}
 	return &pb.DownloadProgress{
-		BytesDownloaded: p.BytesDownloaded,
-		TotalBytes:      p.TotalBytes,
-		SpeedBps:        p.Speed,
-		EtaSeconds:      int64(p.ETA.Seconds()),
-		Percentage:      p.Percentage,
+		TotalBytes: p.TotalBytes,
 	}
 }

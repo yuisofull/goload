@@ -23,7 +23,6 @@ const (
 	TaskService_GetTask_FullMethodName               = "/task.TaskService/GetTask"
 	TaskService_ListTasks_FullMethodName             = "/task.TaskService/ListTasks"
 	TaskService_DeleteTask_FullMethodName            = "/task.TaskService/DeleteTask"
-	TaskService_StartTask_FullMethodName             = "/task.TaskService/StartTask"
 	TaskService_PauseTask_FullMethodName             = "/task.TaskService/PauseTask"
 	TaskService_ResumeTask_FullMethodName            = "/task.TaskService/ResumeTask"
 	TaskService_CancelTask_FullMethodName            = "/task.TaskService/CancelTask"
@@ -32,8 +31,9 @@ const (
 	TaskService_UpdateTaskStatus_FullMethodName      = "/task.TaskService/UpdateTaskStatus"
 	TaskService_UpdateTaskProgress_FullMethodName    = "/task.TaskService/UpdateTaskProgress"
 	TaskService_UpdateTaskError_FullMethodName       = "/task.TaskService/UpdateTaskError"
+	TaskService_UpdateTaskChecksum_FullMethodName    = "/task.TaskService/UpdateTaskChecksum"
+	TaskService_UpdateTaskMetadata_FullMethodName    = "/task.TaskService/UpdateTaskMetadata"
 	TaskService_CompleteTask_FullMethodName          = "/task.TaskService/CompleteTask"
-	TaskService_GetFileInfo_FullMethodName           = "/task.TaskService/GetFileInfo"
 	TaskService_CheckFileExists_FullMethodName       = "/task.TaskService/CheckFileExists"
 	TaskService_GetTaskProgress_FullMethodName       = "/task.TaskService/GetTaskProgress"
 )
@@ -42,30 +42,21 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TaskServiceClient interface {
-	// Creates a new file download task.
 	CreateTask(ctx context.Context, in *CreateTaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	// Retrieves a task by its ID.
 	GetTask(ctx context.Context, in *GetTaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	// Lists all tasks based on a filter.
 	ListTasks(ctx context.Context, in *ListTasksRequest, opts ...grpc.CallOption) (*ListTasksResponse, error)
-	// Deletes a task by its ID.
 	DeleteTask(ctx context.Context, in *DeleteTaskRequest, opts ...grpc.CallOption) (*DeleteTaskResponse, error)
-	// Starts a previously created task.
-	StartTask(ctx context.Context, in *StartTaskRequest, opts ...grpc.CallOption) (*StartTaskResponse, error)
-	// Pauses a running task.
 	PauseTask(ctx context.Context, in *PauseTaskRequest, opts ...grpc.CallOption) (*PauseTaskResponse, error)
-	// Resumes a paused task.
 	ResumeTask(ctx context.Context, in *ResumeTaskRequest, opts ...grpc.CallOption) (*ResumeTaskResponse, error)
-	// Cancels a task.
 	CancelTask(ctx context.Context, in *CancelTaskRequest, opts ...grpc.CallOption) (*CancelTaskResponse, error)
-	// Retries a failed task.
 	RetryTask(ctx context.Context, in *RetryTaskRequest, opts ...grpc.CallOption) (*RetryTaskResponse, error)
-	UpdateTaskStoragePath(ctx context.Context, in *UpdateTaskStoragePathRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	UpdateTaskStatus(ctx context.Context, in *UpdateTaskStatusRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	UpdateTaskProgress(ctx context.Context, in *UpdateTaskProgressRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	UpdateTaskError(ctx context.Context, in *UpdateTaskErrorRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	CompleteTask(ctx context.Context, in *CompleteTaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	GetFileInfo(ctx context.Context, in *GetFileInfoRequest, opts ...grpc.CallOption) (*GetFileInfoResponse, error)
+	UpdateTaskStoragePath(ctx context.Context, in *UpdateTaskStoragePathRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
+	UpdateTaskStatus(ctx context.Context, in *UpdateTaskStatusRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
+	UpdateTaskProgress(ctx context.Context, in *UpdateTaskProgressRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
+	UpdateTaskError(ctx context.Context, in *UpdateTaskErrorRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
+	UpdateTaskChecksum(ctx context.Context, in *UpdateTaskChecksumRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
+	UpdateTaskMetadata(ctx context.Context, in *UpdateTaskMetadataRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
+	CompleteTask(ctx context.Context, in *CompleteTaskRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
 	CheckFileExists(ctx context.Context, in *CheckFileExistsRequest, opts ...grpc.CallOption) (*CheckFileExistsResponse, error)
 	GetTaskProgress(ctx context.Context, in *GetTaskProgressRequest, opts ...grpc.CallOption) (*GetTaskProgressResponse, error)
 }
@@ -118,16 +109,6 @@ func (c *taskServiceClient) DeleteTask(ctx context.Context, in *DeleteTaskReques
 	return out, nil
 }
 
-func (c *taskServiceClient) StartTask(ctx context.Context, in *StartTaskRequest, opts ...grpc.CallOption) (*StartTaskResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StartTaskResponse)
-	err := c.cc.Invoke(ctx, TaskService_StartTask_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *taskServiceClient) PauseTask(ctx context.Context, in *PauseTaskRequest, opts ...grpc.CallOption) (*PauseTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PauseTaskResponse)
@@ -168,9 +149,9 @@ func (c *taskServiceClient) RetryTask(ctx context.Context, in *RetryTaskRequest,
 	return out, nil
 }
 
-func (c *taskServiceClient) UpdateTaskStoragePath(ctx context.Context, in *UpdateTaskStoragePathRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *taskServiceClient) UpdateTaskStoragePath(ctx context.Context, in *UpdateTaskStoragePathRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskResponse)
+	out := new(UpdateTaskResponse)
 	err := c.cc.Invoke(ctx, TaskService_UpdateTaskStoragePath_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -178,9 +159,9 @@ func (c *taskServiceClient) UpdateTaskStoragePath(ctx context.Context, in *Updat
 	return out, nil
 }
 
-func (c *taskServiceClient) UpdateTaskStatus(ctx context.Context, in *UpdateTaskStatusRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *taskServiceClient) UpdateTaskStatus(ctx context.Context, in *UpdateTaskStatusRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskResponse)
+	out := new(UpdateTaskResponse)
 	err := c.cc.Invoke(ctx, TaskService_UpdateTaskStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -188,9 +169,9 @@ func (c *taskServiceClient) UpdateTaskStatus(ctx context.Context, in *UpdateTask
 	return out, nil
 }
 
-func (c *taskServiceClient) UpdateTaskProgress(ctx context.Context, in *UpdateTaskProgressRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *taskServiceClient) UpdateTaskProgress(ctx context.Context, in *UpdateTaskProgressRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskResponse)
+	out := new(UpdateTaskResponse)
 	err := c.cc.Invoke(ctx, TaskService_UpdateTaskProgress_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -198,9 +179,9 @@ func (c *taskServiceClient) UpdateTaskProgress(ctx context.Context, in *UpdateTa
 	return out, nil
 }
 
-func (c *taskServiceClient) UpdateTaskError(ctx context.Context, in *UpdateTaskErrorRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *taskServiceClient) UpdateTaskError(ctx context.Context, in *UpdateTaskErrorRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskResponse)
+	out := new(UpdateTaskResponse)
 	err := c.cc.Invoke(ctx, TaskService_UpdateTaskError_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -208,20 +189,30 @@ func (c *taskServiceClient) UpdateTaskError(ctx context.Context, in *UpdateTaskE
 	return out, nil
 }
 
-func (c *taskServiceClient) CompleteTask(ctx context.Context, in *CompleteTaskRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *taskServiceClient) UpdateTaskChecksum(ctx context.Context, in *UpdateTaskChecksumRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskResponse)
-	err := c.cc.Invoke(ctx, TaskService_CompleteTask_FullMethodName, in, out, cOpts...)
+	out := new(UpdateTaskResponse)
+	err := c.cc.Invoke(ctx, TaskService_UpdateTaskChecksum_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *taskServiceClient) GetFileInfo(ctx context.Context, in *GetFileInfoRequest, opts ...grpc.CallOption) (*GetFileInfoResponse, error) {
+func (c *taskServiceClient) UpdateTaskMetadata(ctx context.Context, in *UpdateTaskMetadataRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetFileInfoResponse)
-	err := c.cc.Invoke(ctx, TaskService_GetFileInfo_FullMethodName, in, out, cOpts...)
+	out := new(UpdateTaskResponse)
+	err := c.cc.Invoke(ctx, TaskService_UpdateTaskMetadata_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskServiceClient) CompleteTask(ctx context.Context, in *CompleteTaskRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateTaskResponse)
+	err := c.cc.Invoke(ctx, TaskService_CompleteTask_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,30 +243,21 @@ func (c *taskServiceClient) GetTaskProgress(ctx context.Context, in *GetTaskProg
 // All implementations must embed UnimplementedTaskServiceServer
 // for forward compatibility.
 type TaskServiceServer interface {
-	// Creates a new file download task.
 	CreateTask(context.Context, *CreateTaskRequest) (*TaskResponse, error)
-	// Retrieves a task by its ID.
 	GetTask(context.Context, *GetTaskRequest) (*TaskResponse, error)
-	// Lists all tasks based on a filter.
 	ListTasks(context.Context, *ListTasksRequest) (*ListTasksResponse, error)
-	// Deletes a task by its ID.
 	DeleteTask(context.Context, *DeleteTaskRequest) (*DeleteTaskResponse, error)
-	// Starts a previously created task.
-	StartTask(context.Context, *StartTaskRequest) (*StartTaskResponse, error)
-	// Pauses a running task.
 	PauseTask(context.Context, *PauseTaskRequest) (*PauseTaskResponse, error)
-	// Resumes a paused task.
 	ResumeTask(context.Context, *ResumeTaskRequest) (*ResumeTaskResponse, error)
-	// Cancels a task.
 	CancelTask(context.Context, *CancelTaskRequest) (*CancelTaskResponse, error)
-	// Retries a failed task.
 	RetryTask(context.Context, *RetryTaskRequest) (*RetryTaskResponse, error)
-	UpdateTaskStoragePath(context.Context, *UpdateTaskStoragePathRequest) (*TaskResponse, error)
-	UpdateTaskStatus(context.Context, *UpdateTaskStatusRequest) (*TaskResponse, error)
-	UpdateTaskProgress(context.Context, *UpdateTaskProgressRequest) (*TaskResponse, error)
-	UpdateTaskError(context.Context, *UpdateTaskErrorRequest) (*TaskResponse, error)
-	CompleteTask(context.Context, *CompleteTaskRequest) (*TaskResponse, error)
-	GetFileInfo(context.Context, *GetFileInfoRequest) (*GetFileInfoResponse, error)
+	UpdateTaskStoragePath(context.Context, *UpdateTaskStoragePathRequest) (*UpdateTaskResponse, error)
+	UpdateTaskStatus(context.Context, *UpdateTaskStatusRequest) (*UpdateTaskResponse, error)
+	UpdateTaskProgress(context.Context, *UpdateTaskProgressRequest) (*UpdateTaskResponse, error)
+	UpdateTaskError(context.Context, *UpdateTaskErrorRequest) (*UpdateTaskResponse, error)
+	UpdateTaskChecksum(context.Context, *UpdateTaskChecksumRequest) (*UpdateTaskResponse, error)
+	UpdateTaskMetadata(context.Context, *UpdateTaskMetadataRequest) (*UpdateTaskResponse, error)
+	CompleteTask(context.Context, *CompleteTaskRequest) (*UpdateTaskResponse, error)
 	CheckFileExists(context.Context, *CheckFileExistsRequest) (*CheckFileExistsResponse, error)
 	GetTaskProgress(context.Context, *GetTaskProgressRequest) (*GetTaskProgressResponse, error)
 	mustEmbedUnimplementedTaskServiceServer()
@@ -300,9 +282,6 @@ func (UnimplementedTaskServiceServer) ListTasks(context.Context, *ListTasksReque
 func (UnimplementedTaskServiceServer) DeleteTask(context.Context, *DeleteTaskRequest) (*DeleteTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteTask not implemented")
 }
-func (UnimplementedTaskServiceServer) StartTask(context.Context, *StartTaskRequest) (*StartTaskResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StartTask not implemented")
-}
 func (UnimplementedTaskServiceServer) PauseTask(context.Context, *PauseTaskRequest) (*PauseTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PauseTask not implemented")
 }
@@ -315,23 +294,26 @@ func (UnimplementedTaskServiceServer) CancelTask(context.Context, *CancelTaskReq
 func (UnimplementedTaskServiceServer) RetryTask(context.Context, *RetryTaskRequest) (*RetryTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RetryTask not implemented")
 }
-func (UnimplementedTaskServiceServer) UpdateTaskStoragePath(context.Context, *UpdateTaskStoragePathRequest) (*TaskResponse, error) {
+func (UnimplementedTaskServiceServer) UpdateTaskStoragePath(context.Context, *UpdateTaskStoragePathRequest) (*UpdateTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskStoragePath not implemented")
 }
-func (UnimplementedTaskServiceServer) UpdateTaskStatus(context.Context, *UpdateTaskStatusRequest) (*TaskResponse, error) {
+func (UnimplementedTaskServiceServer) UpdateTaskStatus(context.Context, *UpdateTaskStatusRequest) (*UpdateTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskStatus not implemented")
 }
-func (UnimplementedTaskServiceServer) UpdateTaskProgress(context.Context, *UpdateTaskProgressRequest) (*TaskResponse, error) {
+func (UnimplementedTaskServiceServer) UpdateTaskProgress(context.Context, *UpdateTaskProgressRequest) (*UpdateTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskProgress not implemented")
 }
-func (UnimplementedTaskServiceServer) UpdateTaskError(context.Context, *UpdateTaskErrorRequest) (*TaskResponse, error) {
+func (UnimplementedTaskServiceServer) UpdateTaskError(context.Context, *UpdateTaskErrorRequest) (*UpdateTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskError not implemented")
 }
-func (UnimplementedTaskServiceServer) CompleteTask(context.Context, *CompleteTaskRequest) (*TaskResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CompleteTask not implemented")
+func (UnimplementedTaskServiceServer) UpdateTaskChecksum(context.Context, *UpdateTaskChecksumRequest) (*UpdateTaskResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskChecksum not implemented")
 }
-func (UnimplementedTaskServiceServer) GetFileInfo(context.Context, *GetFileInfoRequest) (*GetFileInfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetFileInfo not implemented")
+func (UnimplementedTaskServiceServer) UpdateTaskMetadata(context.Context, *UpdateTaskMetadataRequest) (*UpdateTaskResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateTaskMetadata not implemented")
+}
+func (UnimplementedTaskServiceServer) CompleteTask(context.Context, *CompleteTaskRequest) (*UpdateTaskResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteTask not implemented")
 }
 func (UnimplementedTaskServiceServer) CheckFileExists(context.Context, *CheckFileExistsRequest) (*CheckFileExistsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckFileExists not implemented")
@@ -428,24 +410,6 @@ func _TaskService_DeleteTask_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaskServiceServer).DeleteTask(ctx, req.(*DeleteTaskRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TaskService_StartTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StartTaskRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TaskServiceServer).StartTask(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TaskService_StartTask_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TaskServiceServer).StartTask(ctx, req.(*StartTaskRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -594,6 +558,42 @@ func _TaskService_UpdateTaskError_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaskService_UpdateTaskChecksum_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateTaskChecksumRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskServiceServer).UpdateTaskChecksum(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskService_UpdateTaskChecksum_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskServiceServer).UpdateTaskChecksum(ctx, req.(*UpdateTaskChecksumRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskService_UpdateTaskMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateTaskMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskServiceServer).UpdateTaskMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskService_UpdateTaskMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskServiceServer).UpdateTaskMetadata(ctx, req.(*UpdateTaskMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaskService_CompleteTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CompleteTaskRequest)
 	if err := dec(in); err != nil {
@@ -608,24 +608,6 @@ func _TaskService_CompleteTask_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaskServiceServer).CompleteTask(ctx, req.(*CompleteTaskRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TaskService_GetFileInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetFileInfoRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TaskServiceServer).GetFileInfo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TaskService_GetFileInfo_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TaskServiceServer).GetFileInfo(ctx, req.(*GetFileInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -690,10 +672,6 @@ var TaskService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TaskService_DeleteTask_Handler,
 		},
 		{
-			MethodName: "StartTask",
-			Handler:    _TaskService_StartTask_Handler,
-		},
-		{
 			MethodName: "PauseTask",
 			Handler:    _TaskService_PauseTask_Handler,
 		},
@@ -726,12 +704,16 @@ var TaskService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TaskService_UpdateTaskError_Handler,
 		},
 		{
-			MethodName: "CompleteTask",
-			Handler:    _TaskService_CompleteTask_Handler,
+			MethodName: "UpdateTaskChecksum",
+			Handler:    _TaskService_UpdateTaskChecksum_Handler,
 		},
 		{
-			MethodName: "GetFileInfo",
-			Handler:    _TaskService_GetFileInfo_Handler,
+			MethodName: "UpdateTaskMetadata",
+			Handler:    _TaskService_UpdateTaskMetadata_Handler,
+		},
+		{
+			MethodName: "CompleteTask",
+			Handler:    _TaskService_CompleteTask_Handler,
 		},
 		{
 			MethodName: "CheckFileExists",

@@ -3,7 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
-	stderrors "errors"
+	stderrs "errors"
 	"fmt"
 	"time"
 
@@ -33,43 +33,32 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) (*task.Task, error)
 	if err != nil {
 		return nil, fmt.Errorf("marshal SourceAuth: %w", err)
 	}
-	fileInfo, err := toJSON(t.FileInfo)
-	if err != nil {
-		return nil, fmt.Errorf("marshal FileInfo: %w", err)
-	}
-	progress, err := toJSON(t.Progress)
-	if err != nil {
-		return nil, fmt.Errorf("marshal Progress: %w", err)
-	}
-	options, err := toJSON(t.Options)
-	if err != nil {
-		return nil, fmt.Errorf("marshal Options: %w", err)
-	}
-	tags, err := toJSON(t.Tags)
-	if err != nil {
-		return nil, fmt.Errorf("marshal Tags: %w", err)
-	}
 	metadata, err := toJSON(t.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Metadata: %w", err)
 	}
+	headers, err := toJSON(t.SourceAuth.Headers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Headers: %w", err)
+	}
 
 	result, err := q.CreateTask(ctx, sqlc.CreateTaskParams{
-		OfAccountID: t.OfAccountID,
-		Name:        t.Name,
-		Description: sql.NullString{String: t.Description, Valid: true},
-		SourceUrl:   t.SourceURL,
-		SourceType:  string(t.SourceType),
-		SourceAuth:  sourceAuth,
-		StorageType: string(t.StorageType),
-		StoragePath: t.StoragePath,
-		Status:      string(t.Status),
-		FileInfo:    fileInfo,
-		Progress:    progress,
-		Options:     options,
-		MaxRetries:  t.MaxRetries,
-		Tags:        tags,
-		Metadata:    metadata,
+		OfAccountID:   t.OfAccountID,
+		FileName:      t.FileName,
+		SourceUrl:     t.SourceURL,
+		SourceType:    string(t.SourceType),
+		SourceAuth:    sourceAuth,
+		Headers:       headers,
+		StorageType:   string(t.StorageType),
+		StoragePath:   t.StoragePath,
+		Status:        string(t.Status),
+		ChecksumType:  sql.NullString{String: t.Checksum.ChecksumType, Valid: t.Checksum != nil},
+		ChecksumValue: sql.NullString{String: t.Checksum.ChecksumValue, Valid: t.Checksum != nil},
+		Concurrency:   sql.NullInt32{Int32: int32(t.DownloadOptions.Concurrency), Valid: t.DownloadOptions != nil},
+		MaxSpeed:      sql.NullInt64{Int64: *t.DownloadOptions.MaxSpeed, Valid: t.DownloadOptions != nil && t.DownloadOptions.MaxSpeed != nil},
+		MaxRetries:    int32(t.DownloadOptions.MaxRetries),
+		Timeout:       sql.NullInt32{Int32: int32(*t.DownloadOptions.Timeout), Valid: t.DownloadOptions != nil && t.DownloadOptions.Timeout != nil},
+		Metadata:      metadata,
 	})
 	if err != nil {
 		return nil, err
@@ -85,13 +74,13 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) (*task.Task, error)
 func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error) {
 	q := r.queries
 	var (
-		openTx bool
+		opentx bool
 		err    error
 		tx     *sql.Tx
 	)
 
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
-		openTx = true
+		opentx = true
 	} else {
 		tx, err = r.db.BeginTx(ctx, nil)
 		if err != nil {
@@ -101,30 +90,30 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error)
 	}
 	q = q.WithTx(tx)
 
-	fileInfo, err := toJSON(t.FileInfo)
-	if err != nil {
-		return nil, fmt.Errorf("marshal FileInfo: %w", err)
-	}
-	progress, err := toJSON(t.Progress)
-	if err != nil {
-		return nil, fmt.Errorf("marshal Progress: %w", err)
-	}
-
-	if fileInfo != nil {
-		if err = q.UpdateTaskFileInfo(ctx, sqlc.UpdateTaskFileInfoParams{
-			ID:       t.ID,
-			FileInfo: fileInfo,
-		}); err != nil {
-			return nil, err
+	if t.Progress != nil {
+		if t.Progress.Progress > 0 {
+			if err = q.UpdateTaskProgress(ctx, sqlc.UpdateTaskProgressParams{
+				ID:       t.ID,
+				Progress: sql.NullFloat64{Float64: t.Progress.Progress, Valid: true},
+			}); err != nil {
+				return nil, err
+			}
 		}
-	}
-
-	if progress != nil {
-		if err = q.UpdateTaskProgress(ctx, sqlc.UpdateTaskProgressParams{
-			ID:       t.ID,
-			Progress: progress,
-		}); err != nil {
-			return nil, err
+		if t.Progress.TotalBytes > 0 {
+			if err = q.UpdateTaskTotalBytes(ctx, sqlc.UpdateTaskTotalBytesParams{
+				ID:         t.ID,
+				TotalBytes: sql.NullInt64{Int64: t.Progress.TotalBytes, Valid: true},
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if t.Progress.DownloadedBytes > 0 {
+			if err = q.UpdateTaskDownloadedBytes(ctx, sqlc.UpdateTaskDownloadedBytesParams{
+				ID:              t.ID,
+				DownloadedBytes: sql.NullInt64{Int64: t.Progress.DownloadedBytes, Valid: true},
+			}); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -146,25 +135,16 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error)
 		}
 	}
 
-	if t.Error != "" {
+	if t.ErrorMessage != nil && *t.ErrorMessage != "" {
 		if err = q.UpdateTaskError(ctx, sqlc.UpdateTaskErrorParams{
-			ID:    t.ID,
-			Error: sql.NullString{String: t.Error, Valid: true},
+			ID:           t.ID,
+			ErrorMessage: sql.NullString{String: *t.ErrorMessage, Valid: true},
 		}); err != nil {
 			return nil, err
 		}
 	}
 
-	if t.RetryCount != 0 {
-		if err = q.UpdateTaskRetryCount(ctx, sqlc.UpdateTaskRetryCountParams{
-			ID:         t.ID,
-			RetryCount: t.RetryCount,
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	if openTx {
+	if opentx {
 		if err = tx.Commit(); err != nil {
 			return nil, err
 		}
@@ -180,7 +160,7 @@ func (r *taskRepo) GetByID(ctx context.Context, id uint64) (*task.Task, error) {
 	}
 	t, err := q.GetTaskById(ctx, id)
 	if err != nil {
-		if stderrors.Is(err, sql.ErrNoRows) {
+		if stderrs.Is(err, sql.ErrNoRows) {
 			return nil, errors.ErrNotFound
 		}
 		return nil, err
@@ -226,74 +206,59 @@ func toTask(t sqlc.Task) (*task.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal SourceAuth: %w", err)
 	}
-	fileInfo, err := fromJSON[task.FileInfo](t.FileInfo)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal FileInfo: %w", err)
-	}
-	progress, err := fromJSON[task.DownloadProgress](t.Progress)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal Progress: %w", err)
-	}
-	options, err := fromJSON[task.DownloadOptions](t.Options)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal Options: %w", err)
-	}
-	tags, err := fromJSON[[]string](t.Tags)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal Tags: %w", err)
-	}
-	metadata, err := fromJSON[map[string]any](t.Metadata)
+	metadata, err := fromJSON[map[string]interface{}](t.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal Metadata: %w", err)
 	}
 
-	var completedAt *time.Time
-	if t.CompletedAt.Valid {
-		completedAt = &t.CompletedAt.Time
+	progress := &task.DownloadProgress{
+		Progress:        t.Progress.Float64,
+		DownloadedBytes: t.DownloadedBytes.Int64,
+		TotalBytes:      t.TotalBytes.Int64,
 	}
 
-	var description string
-	if t.Description.Valid {
-		description = t.Description.String
-	}
-
-	var errorMsg string
-	if t.Error.Valid {
-		errorMsg = t.Error.String
-	}
-
-	var createdAt time.Time
-	if t.CreatedAt.Valid {
-		createdAt = t.CreatedAt.Time
-	}
-
-	var updatedAt time.Time
-	if t.UpdatedAt.Valid {
-		updatedAt = t.UpdatedAt.Time
+	checksum := &task.ChecksumInfo{
+		ChecksumType:  t.ChecksumType.String,
+		ChecksumValue: t.ChecksumValue.String,
 	}
 
 	return &task.Task{
 		ID:          t.ID,
 		OfAccountID: t.OfAccountID,
-		Name:        t.Name,
-		Description: description,
+		FileName:    t.FileName,
 		SourceURL:   t.SourceUrl,
 		SourceType:  task.SourceType(t.SourceType),
 		SourceAuth:  sourceAuth,
 		StorageType: task.StorageType(t.StorageType),
 		StoragePath: t.StoragePath,
+		Checksum:    checksum,
 		Status:      task.TaskStatus(t.Status),
-		FileInfo:    fileInfo,
 		Progress:    progress,
-		Options:     options,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
-		CompletedAt: completedAt,
-		Error:       errorMsg,
-		RetryCount:  t.RetryCount,
-		MaxRetries:  t.MaxRetries,
-		Tags:        getOrEmpty(tags),
-		Metadata:    getOrEmpty(metadata),
+		ErrorMessage: func() *string {
+			if t.ErrorMessage.Valid {
+				return &t.ErrorMessage.String
+			}
+			return nil
+		}(),
+		Metadata: *metadata,
+		CreatedAt: func() time.Time {
+			if t.CreatedAt.Valid {
+				return t.CreatedAt.Time
+			}
+			return time.Time{}
+		}(),
+		UpdatedAt: func() time.Time {
+			if t.UpdatedAt.Valid {
+				return t.UpdatedAt.Time
+			}
+			return time.Time{}
+		}(),
+		CompletedAt: func() *time.Time {
+			if t.CompletedAt.Valid {
+				return &t.CompletedAt.Time
+			}
+			return nil
+		}(),
 	}, nil
 }
 

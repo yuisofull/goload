@@ -19,7 +19,7 @@ import (
 // Downloader interface for different download sources
 type Downloader interface {
 	Download(ctx context.Context, url string, sourceAuth *task.AuthConfig, opts task.DownloadOptions) (io.ReadCloser, int64, error)
-	GetFileInfo(ctx context.Context, url string, sourceAuth *task.AuthConfig) (*storage.FileMetadata, error)
+	GetFileInfo(ctx context.Context, url string, sourceAuth *task.AuthConfig) (*FileMetadata, error)
 	SupportsResume() bool
 }
 
@@ -204,7 +204,14 @@ func (s *service) executeDownload(execution *taskExecution) error {
 	teeReader := io.TeeReader(progressReader, hash)
 
 	storageKey := s.generateStorageKey(t)
-	if err := s.storage.Store(ctx, storageKey, teeReader, metadata); err != nil {
+	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
+	if err := s.storage.Store(ctx, storageKey, teeReader, &storage.FileMetadata{
+		FileName:     metadata.FileName,
+		FileSize:     metadata.FileSize,
+		ContentType:  metadata.ContentType,
+		LastModified: time.Now(),
+		MD5Hash:      []byte(md5Hash),
+	}); err != nil {
 		// If storing fails, the file might be partially written. Attempt to clean it up.
 		// Use a background context for cleanup in case the task context is cancelled.
 		if exists, _ := s.storage.Exists(context.WithoutCancel(ctx), storageKey); exists {
@@ -215,8 +222,6 @@ func (s *service) executeDownload(execution *taskExecution) error {
 		s.markTaskFailed(ctx, t, fmt.Errorf("failed to store file: %w", err))
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
-
-	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
 
 	fileInfo := &task.FileInfo{
 		FileName:    metadata.FileName,

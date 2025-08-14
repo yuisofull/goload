@@ -14,10 +14,7 @@ service DownloadService {
 
   // Streams a stored file to the client.
   rpc StreamFile(StreamFileRequest) returns (stream StreamFileResponse);
-
-  // Retrieves metadata for a stored file.
-  rpc GetFileInfo(GetFileInfoRequest) returns (GetFileInfoResponse);
-
+  
   // Deletes a stored file.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
 }
@@ -34,10 +31,7 @@ message DownloadAndStoreRequest {
 
 // Response stream for the download and store process.
 message DownloadAndStoreResponse {
-  oneof response {
     task.DownloadProgress progress = 1;
-    task.FileInfo file_info = 2;
-  }
 }
 
 // Request to stream a file.
@@ -55,16 +49,6 @@ message Range {
 // Response stream for file streaming.
 message StreamFileResponse {
   bytes chunk = 1;
-}
-
-// Request to get file info.
-message GetFileInfoRequest {
-  string storage_key = 1;
-}
-
-// Response for file info.
-message GetFileInfoResponse {
-  task.FileInfo file_info = 1;
 }
 
 // Request to delete a file.

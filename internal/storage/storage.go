@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"github.com/yuisofull/goload/internal/task"
 	"io"
 	"time"
 )
@@ -16,7 +15,7 @@ type Writer interface {
 type Reader interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	GetWithRange(ctx context.Context, key string, start, end int64) (io.ReadCloser, error)
-	GetInfo(ctx context.Context, key string) (*task.FileInfo, error)
+	GetInfo(ctx context.Context, key string) (*FileMetadata, error)
 	Exists(ctx context.Context, key string) (bool, error)
 }
 
@@ -32,5 +31,9 @@ type FileMetadata struct {
 	FileSize     int64             `json:"file_size"`
 	ContentType  string            `json:"content_type"`
 	LastModified time.Time         `json:"last_modified"`
+	StorageKey   string            `json:"storage_key"`
+	Bucket       string            `json:"bucket"`
+	ChecksumType string            `json:"checksum_type"`
+	Checksum     []byte            `json:"checksum"`
 	Headers      map[string]string `json:"headers"`
 }
