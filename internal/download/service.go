@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
-	"github.com/yuisofull/goload/internal/storage"
 	"io"
 	"path/filepath"
 	"strings"
@@ -12,20 +11,29 @@ import (
 	"time"
 
 	"github.com/yuisofull/goload/internal/errors"
-	"github.com/yuisofull/goload/internal/task"
+	"github.com/yuisofull/goload/internal/events"
+	"github.com/yuisofull/goload/internal/storage"
 	"golang.org/x/sync/semaphore"
 )
 
 // Downloader interface for different download sources
 type Downloader interface {
-	Download(ctx context.Context, url string, sourceAuth *task.AuthConfig, opts task.DownloadOptions) (io.ReadCloser, int64, error)
-	GetFileInfo(ctx context.Context, url string, sourceAuth *task.AuthConfig) (*FileMetadata, error)
+	Download(ctx context.Context, url string, sourceAuth *events.AuthConfig, opts events.DownloadOptions) (io.ReadCloser, int64, error)
+	GetFileInfo(ctx context.Context, url string, sourceAuth *events.AuthConfig) (*FileMetadata, error)
 	SupportsResume() bool
+}
+
+// EventPublisher publishes events to the message bus
+type EventPublisher interface {
+	PublishTaskStatusUpdated(ctx context.Context, event events.TaskStatusUpdatedEvent) error
+	PublishTaskProgressUpdated(ctx context.Context, event events.TaskProgressUpdatedEvent) error
+	PublishTaskCompleted(ctx context.Context, event events.TaskCompletedEvent) error
+	PublishTaskFailed(ctx context.Context, event events.TaskFailedEvent) error
 }
 
 // Service handles file download operations as a worker
 type Service interface {
-	ExecuteTask(ctx context.Context, taskID uint64) error
+	ExecuteTask(ctx context.Context, req TaskRequest) error
 	PauseTask(ctx context.Context, taskID uint64) error
 	ResumeTask(ctx context.Context, taskID uint64) error
 	CancelTask(ctx context.Context, taskID uint64) error
@@ -33,29 +41,19 @@ type Service interface {
 	GetActiveTaskCount(ctx context.Context) int
 }
 
-// TaskServiceClient defines the contract for interacting with the task service.
-type TaskServiceClient interface {
-	GetTask(ctx context.Context, id uint64) (*task.Task, error)
-	UpdateTaskStatus(ctx context.Context, id uint64, status task.TaskStatus) error
-	UpdateTaskProgress(ctx context.Context, id uint64, progress task.DownloadProgress) error
-	UpdateTaskError(ctx context.Context, id uint64, err error) error
-	CompleteTask(ctx context.Context, id uint64, fileInfo *task.FileInfo) error
-}
-
 // taskExecution holds the state of a running download task.
 type taskExecution struct {
-	task       *task.Task
-	ctx        context.Context
-	cancelFunc context.CancelFunc
-	progress   *task.DownloadProgress
-	// The reader is now part of the execution state to allow control from other methods.
+	task           TaskRequest
+	ctx            context.Context
+	cancelFunc     context.CancelFunc
+	progress       Progress
 	progressReader *PausableProgressReader
 }
 
 type service struct {
-	downloaders        map[task.SourceType]Downloader
+	downloaders        map[string]Downloader
 	storage            storage.Backend
-	taskClient         TaskServiceClient
+	publisher          *DownloadEventPublisher
 	mu                 sync.RWMutex
 	activeTasks        map[uint64]*taskExecution
 	maxConcurrent      int
@@ -66,8 +64,10 @@ type service struct {
 	progressMu         sync.Mutex
 }
 
-type Option func(s *service)
-type ErrorHandler func(ctx context.Context, err error)
+type (
+	Option       func(s *service)
+	ErrorHandler func(ctx context.Context, err error)
+)
 
 func WithMaxConcurrent(maxConcurrent int) Option {
 	return func(s *service) {
@@ -87,11 +87,11 @@ func WithErrorHandler(errorHandler ErrorHandler) Option {
 	}
 }
 
-func NewService(storage storage.Backend, taskClient task.Service, opts ...Option) Service {
+func NewService(storage storage.Backend, publisher *DownloadEventPublisher, opts ...Option) Service {
 	s := &service{
-		downloaders:        make(map[task.SourceType]Downloader),
+		downloaders:        make(map[string]Downloader),
 		storage:            storage,
-		taskClient:         taskClient,
+		publisher:          publisher,
 		activeTasks:        make(map[uint64]*taskExecution),
 		lastProgressUpdate: make(map[uint64]time.Time),
 		taskTimeOut:        30 * time.Minute,
@@ -108,137 +108,168 @@ func NewService(storage storage.Backend, taskClient task.Service, opts ...Option
 	return s
 }
 
-func (s *service) RegisterDownloader(sourceType task.SourceType, downloader Downloader) {
+func (s *service) RegisterDownloader(sourceType string, downloader Downloader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.downloaders[sourceType] = downloader
 }
 
-// ExecuteTask starts a download task. It is a blocking call that will wait
-// for the download to complete, fail, or be cancelled. The caller should
-// run this in a goroutine for non-blocking behavior.
-func (s *service) ExecuteTask(ctx context.Context, taskID uint64) error {
+// ExecuteTask starts a download task based on an internal TaskRequest
+func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
 	if err := s.sem.Acquire(ctx, 1); err != nil {
-		return &errors.Error{Code: errors.ErrCodeTooManyRequests, Message: "max concurrent download reached"}
+		return fmt.Errorf("failed to acquire semaphore: %w", err)
 	}
 	defer s.sem.Release(1)
 
-	getTask, err := s.taskClient.GetTask(ctx, taskID)
-	if err != nil {
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to call get task", Cause: err}
-	}
-
 	s.mu.Lock()
-	if _, ok := s.activeTasks[getTask.ID]; ok {
+	if _, ok := s.activeTasks[req.TaskID]; ok {
 		s.mu.Unlock()
 		return &errors.Error{Code: errors.ErrCodeConflict, Message: "task already running"}
 	}
 
-	if _, exists := s.downloaders[getTask.SourceType]; !exists {
+	downloader, exists := s.downloaders[req.SourceType]
+	if !exists {
 		s.mu.Unlock()
-		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: fmt.Sprintf("unsupported source type: %s", getTask.SourceType)}
+		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: fmt.Sprintf("no downloader for source type %s", req.SourceType)}
 	}
 
 	taskCtx, cancel := context.WithTimeout(ctx, s.taskTimeOut)
 	execution := &taskExecution{
-		task:       getTask,
+		task:       req,
 		ctx:        taskCtx,
 		cancelFunc: cancel,
-		progress:   &task.DownloadProgress{},
+		progress: Progress{
+			Progress:        0,
+			DownloadedBytes: 0,
+			TotalBytes:      0,
+		},
 	}
 
-	s.activeTasks[getTask.ID] = execution
+	s.activeTasks[req.TaskID] = execution
 	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
-		delete(s.activeTasks, getTask.ID)
+		delete(s.activeTasks, req.TaskID)
 		s.mu.Unlock()
 	}()
 
-	return s.executeDownload(execution)
+	return s.executeDownload(execution, downloader)
 }
 
 // executeDownload performs the actual download and storage
-func (s *service) executeDownload(execution *taskExecution) error {
-	t := execution.task
+func (s *service) executeDownload(execution *taskExecution, downloader Downloader) error {
+	taskReq := execution.task
 	ctx := execution.ctx
 
-	if err := s.taskClient.UpdateTaskStatus(ctx, t.ID, task.StatusDownloading); err != nil {
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
+	// Publish status update: DOWNLOADING
+	if err := s.publisher.PublishTaskStatusUpdated(ctx, events.TaskStatusUpdatedEvent{
+		TaskID:    taskReq.TaskID,
+		Status:    "DOWNLOADING",
+		UpdatedAt: time.Now(),
+	}); err != nil {
+		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to publish task status", Cause: err}
 	}
 
-	downloader := s.downloaders[t.SourceType]
+	// Get download options, with defaults if nil, convert to events.DownloadOptions for downloader
+	downloadOpts := events.DownloadOptions{
+		Concurrency: 1,
+		MaxRetries:  3,
+	}
+	if taskReq.DownloadOptions != nil {
+		downloadOpts = events.DownloadOptions{
+			Concurrency: taskReq.DownloadOptions.Concurrency,
+			MaxRetries:  taskReq.DownloadOptions.MaxRetries,
+		}
+	}
 
-	metadata, err := downloader.GetFileInfo(ctx, t.SourceURL, t.SourceAuth)
+	// convert internal auth to events.AuthConfig for downloader
+	var sourceAuth *events.AuthConfig
+	if taskReq.SourceAuth != nil {
+		sourceAuth = &events.AuthConfig{
+			Type:     taskReq.SourceAuth.Type,
+			Username: taskReq.SourceAuth.Username,
+			Password: taskReq.SourceAuth.Password,
+			Token:    taskReq.SourceAuth.Token,
+		}
+	}
+
+	metadata, err := downloader.GetFileInfo(ctx, taskReq.SourceURL, sourceAuth)
 	if err != nil {
-		s.markTaskFailed(ctx, t, fmt.Errorf("failed to get file info: %w", err))
+		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to get file info: %w", err))
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
 
-	reader, totalSize, err := downloader.Download(ctx, t.SourceURL, t.SourceAuth, *t.Options)
+	reader, totalSize, err := downloader.Download(ctx, taskReq.SourceURL, sourceAuth, downloadOpts)
 	if err != nil {
-		s.markTaskFailed(ctx, t, fmt.Errorf("failed to start download: %w", err))
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to start download", Cause: fmt.Errorf("downloading %s: %w", t.SourceURL, err)}
+		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to start download: %w", err))
+		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to start download", Cause: fmt.Errorf("downloading %s: %w", taskReq.SourceURL, err)}
 	}
 	defer reader.Close()
 
 	execution.progress.TotalBytes = totalSize
-	s.updateProgress(ctx, t.ID, *execution.progress)
+	s.updateProgress(ctx, taskReq.TaskID, execution.progress)
 
 	progressReader := NewPausableProgressReader(reader, func(bytesRead int64) {
-		execution.progress.BytesDownloaded = bytesRead
+		execution.progress.DownloadedBytes = bytesRead
 		if totalSize > 0 {
-			execution.progress.Percentage = float64(bytesRead) / float64(totalSize) * 100
+			execution.progress.Progress = float64(bytesRead) / float64(totalSize) * 100
 		}
-		s.updateProgress(ctx, t.ID, *execution.progress)
+		execution.progress.UpdatedAt = time.Now()
+		s.updateProgress(ctx, taskReq.TaskID, execution.progress)
 	})
 
 	execution.progressReader = progressReader
 
-	if err := s.taskClient.UpdateTaskStatus(ctx, t.ID, task.StatusStoring); err != nil {
-		s.errorHandler(ctx, fmt.Errorf("failed to update task status to storing: %w", err))
+	// Publish status update: STORING
+	if err := s.publisher.PublishTaskStatusUpdated(ctx, events.TaskStatusUpdatedEvent{
+		TaskID:    taskReq.TaskID,
+		Status:    "STORING",
+		UpdatedAt: time.Now(),
+	}); err != nil {
+		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to publish task status", Cause: err}
 	}
 
 	hash := md5.New()
 	teeReader := io.TeeReader(progressReader, hash)
 
-	storageKey := s.generateStorageKey(t)
+	storageKey := s.generateStorageKey(taskReq)
 	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
 	if err := s.storage.Store(ctx, storageKey, teeReader, &storage.FileMetadata{
 		FileName:     metadata.FileName,
 		FileSize:     metadata.FileSize,
 		ContentType:  metadata.ContentType,
 		LastModified: time.Now(),
-		MD5Hash:      []byte(md5Hash),
 	}); err != nil {
-		// If storing fails, the file might be partially written. Attempt to clean it up.
-		// Use a background context for cleanup in case the task context is cancelled.
-		if exists, _ := s.storage.Exists(context.WithoutCancel(ctx), storageKey); exists {
-			if delErr := s.storage.Delete(context.WithoutCancel(ctx), storageKey); delErr != nil {
-				s.errorHandler(ctx, fmt.Errorf("failed to clean up partial file %s after store error: %w", storageKey, delErr))
-			}
-		}
-		s.markTaskFailed(ctx, t, fmt.Errorf("failed to store file: %w", err))
+		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to store file: %w", err))
+		// Clean up partial file
+		_ = s.storage.Delete(context.Background(), storageKey)
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
 
-	fileInfo := &task.FileInfo{
+	// Publish completion event
+	completedEvent := events.TaskCompletedEvent{
+		TaskID:      taskReq.TaskID,
 		FileName:    metadata.FileName,
 		FileSize:    totalSize,
 		ContentType: metadata.ContentType,
-		MD5Hash:     md5Hash,
+		Checksum: &events.ChecksumInfo{
+			ChecksumType:  "md5",
+			ChecksumValue: md5Hash,
+		},
 		StorageKey:  storageKey,
-		StoredAt:    time.Now(),
+		CompletedAt: time.Now(),
 	}
 
-	if err := s.taskClient.CompleteTask(ctx, t.ID, fileInfo); err != nil {
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to complete task", Cause: err}
+	if err := s.publisher.PublishTaskCompleted(ctx, completedEvent); err != nil {
+		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to publish completion event: %w", err))
+		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to publish completion event", Cause: err}
 	}
 
-	execution.progress.BytesDownloaded = totalSize
-	execution.progress.Percentage = 100.0
-	s.updateProgress(ctx, t.ID, *execution.progress)
+	execution.progress.DownloadedBytes = totalSize
+	execution.progress.Progress = 100.0
+	execution.progress.UpdatedAt = time.Now()
+	s.updateProgress(ctx, taskReq.TaskID, execution.progress)
 	return nil
 }
 
@@ -253,16 +284,10 @@ func (s *service) PauseTask(ctx context.Context, taskID uint64) error {
 	}
 
 	if execution.progressReader == nil {
-		return &errors.Error{Code: errors.ErrCodeConflict, Message: "task download has not started yet, cannot pause"}
+		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "task is not in a pausable state"}
 	}
 
 	execution.progressReader.Pause()
-
-	if err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusPaused); err != nil {
-		execution.progressReader.Resume()
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
-	}
-
 	return nil
 }
 
@@ -277,16 +302,10 @@ func (s *service) ResumeTask(ctx context.Context, taskID uint64) error {
 	}
 
 	if execution.progressReader == nil {
-		return &errors.Error{Code: errors.ErrCodeConflict, Message: "task is not in a state that can be resumed"}
+		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "task is not in a resumable state"}
 	}
 
 	execution.progressReader.Resume()
-
-	if err := s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusDownloading); err != nil {
-		execution.progressReader.Pause()
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to update task status", Cause: err}
-	}
-
 	return nil
 }
 
@@ -301,56 +320,14 @@ func (s *service) CancelTask(ctx context.Context, taskID uint64) error {
 	}
 
 	execution.cancelFunc()
-
-	return s.taskClient.UpdateTaskStatus(ctx, taskID, task.StatusCancelled)
+	return nil
 }
 
 // StreamFile streams a file to the client
 func (s *service) StreamFile(ctx context.Context, req FileStreamRequest) (*FileStreamResponse, error) {
-	getTask, err := s.taskClient.GetTask(ctx, req.TaskID)
-	if err != nil {
-		return nil, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get task", Cause: err}
-	}
-
-	if getTask.Status != task.StatusCompleted || getTask.FileInfo == nil {
-		return nil, &errors.Error{Code: errors.ErrCodeNotFound, Message: "file not available for streaming"}
-	}
-
-	var reader io.ReadCloser
-	var statusCode = 200
-
-	if req.Range != nil {
-		reader, err = s.storage.GetWithRange(ctx, getTask.FileInfo.StorageKey, req.Range.Start, req.Range.End)
-		statusCode = 206 // Partial Content
-	} else {
-		reader, err = s.storage.Get(ctx, getTask.FileInfo.StorageKey)
-	}
-
-	if err != nil {
-		return nil, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file from storage", Cause: err}
-	}
-
-	headers := make(map[string]string)
-	headers["Content-Type"] = getTask.FileInfo.ContentType
-	headers["Content-Length"] = fmt.Sprintf("%d", getTask.FileInfo.FileSize)
-	headers["Content-Disposition"] = fmt.Sprintf("attachment; filename=\"%s\"", getTask.FileInfo.FileName)
-	headers["ETag"] = fmt.Sprintf("\"%s\"", getTask.FileInfo.MD5Hash)
-
-	if req.Range != nil {
-		contentLength := req.Range.End - req.Range.Start + 1
-		headers["Content-Length"] = fmt.Sprintf("%d", contentLength)
-		headers["Content-Range"] = fmt.Sprintf("bytes %d-%d/%d",
-			req.Range.Start, req.Range.End, getTask.FileInfo.FileSize)
-	}
-
-	return &FileStreamResponse{
-		Reader:      reader,
-		ContentType: getTask.FileInfo.ContentType,
-		FileSize:    getTask.FileInfo.FileSize,
-		FileName:    getTask.FileInfo.FileName,
-		Headers:     headers,
-		StatusCode:  statusCode,
-	}, nil
+	// NOTE: This method needs to be redesigned for event-driven architecture
+	// as it requires task information that is not available without direct access to task service
+	return nil, &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "StreamFile requires redesign for event-driven architecture"}
 }
 
 func (s *service) GetActiveTaskCount(ctx context.Context) int {
@@ -359,42 +336,50 @@ func (s *service) GetActiveTaskCount(ctx context.Context) int {
 	return len(s.activeTasks)
 }
 
-func (s *service) markTaskFailed(ctx context.Context, t *task.Task, err error) {
-	// The context passed to UpdateTaskError should probably not be the task's context,
-	// as it might be cancelled.
-	if updateErr := s.taskClient.UpdateTaskError(context.WithoutCancel(ctx), t.ID, err); updateErr != nil {
-		s.errorHandler(ctx, fmt.Errorf("failed to update task error state: %w (original error: %v)", updateErr, err))
+func (s *service) markTaskFailed(ctx context.Context, taskID uint64, err error) {
+	s.errorHandler(ctx, err)
+
+	failEvent := events.TaskFailedEvent{
+		TaskID:   taskID,
+		Error:    err.Error(),
+		FailedAt: time.Now(),
+	}
+
+	if publishErr := s.publisher.PublishTaskFailed(context.Background(), failEvent); publishErr != nil {
+		s.errorHandler(context.Background(), fmt.Errorf("failed to publish task failed event for task %d: %w", taskID, publishErr))
 	}
 }
 
-func (s *service) updateProgress(ctx context.Context, taskID uint64, progress task.DownloadProgress) {
+func (s *service) updateProgress(ctx context.Context, taskID uint64, progress Progress) {
 	s.progressMu.Lock()
-	now := time.Now()
-	if lastUpdate, ok := s.lastProgressUpdate[taskID]; ok {
-		if now.Sub(lastUpdate) < time.Second {
-			s.progressMu.Unlock()
-			return
-		}
+	lastUpdate, ok := s.lastProgressUpdate[taskID]
+	if ok && time.Since(lastUpdate) < time.Second {
+		s.progressMu.Unlock()
+		return
 	}
-	s.lastProgressUpdate[taskID] = now
+	s.lastProgressUpdate[taskID] = time.Now()
 	s.progressMu.Unlock()
 
-	if err := s.taskClient.UpdateTaskProgress(ctx, taskID, progress); err != nil {
-		s.errorHandler(ctx, fmt.Errorf("progress update failed: %w", err))
+	// convert internal Progress to events.TaskProgressUpdatedEvent
+	evt := events.TaskProgressUpdatedEvent{
+		TaskID:          taskID,
+		Progress:        progress.Progress,
+		DownloadedBytes: progress.DownloadedBytes,
+		TotalBytes:      progress.TotalBytes,
+		UpdatedAt:       progress.UpdatedAt,
+	}
+
+	if err := s.publisher.PublishTaskProgressUpdated(ctx, evt); err != nil {
+		s.errorHandler(ctx, fmt.Errorf("failed to publish progress for task %d: %w", taskID, err))
 	}
 }
 
-func (s *service) generateStorageKey(t *task.Task) string {
-	urlHash := md5.Sum([]byte(t.SourceURL))
-	if t.Name != "" {
-		return fmt.Sprintf("%d/%s-%x", t.ID, t.Name, urlHash[:8])
-	}
-
-	safeName := filepath.Base(t.SourceURL)
-	if idx := strings.LastIndex(safeName, "?"); idx > 0 {
-		safeName = safeName[:idx]
-	}
-	return fmt.Sprintf("%d/%s-%x", t.ID, safeName, urlHash[:8])
+func (s *service) generateStorageKey(req TaskRequest) string {
+	urlHash := md5.Sum([]byte(req.SourceURL))
+	safeName := filepath.Base(req.SourceURL)
+	// Sanitize the name to avoid issues with file systems
+	safeName = strings.ReplaceAll(safeName, "/", "_")
+	return fmt.Sprintf("%d/%s-%x", req.TaskID, safeName, urlHash[:8])
 }
 
 // PausableProgressReader wraps a reader to support pause/resume and progress tracking.
@@ -429,12 +414,8 @@ func (pr *PausableProgressReader) Read(p []byte) (n int, err error) {
 
 	n, err = pr.reader.Read(p)
 	if n > 0 {
-		pr.mu.Lock()
 		pr.totalRead += int64(n)
-		if pr.onProgress != nil {
-			pr.onProgress(pr.totalRead)
-		}
-		pr.mu.Unlock()
+		pr.onProgress(pr.totalRead)
 	}
 	return n, err
 }

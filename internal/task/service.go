@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/yuisofull/goload/internal/errors"
-	"github.com/yuisofull/goload/internal/events"
 )
 
 type Service interface {
@@ -28,7 +27,7 @@ type Service interface {
 	UpdateTaskError(ctx context.Context, id uint64, err error) error
 	CompleteTask(ctx context.Context, id uint64) error
 	UpdateTaskChecksum(ctx context.Context, id uint64, checksum *ChecksumInfo) error
-	UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]interface{}) error
+	UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]any) error
 
 	// File info and streaming
 	CheckFileExists(ctx context.Context, taskID uint64) (bool, error)
@@ -48,10 +47,6 @@ type Repository interface {
 
 type TxManager interface {
 	DoInTx(ctx context.Context, fn func(ctx context.Context) error) error
-}
-
-type Publisher interface {
-	PublishTaskCreated(ctx context.Context, event events.TaskCreatedEvent) error
 }
 
 type service struct {
@@ -117,36 +112,12 @@ func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task
 			}
 		}
 
-		if err := s.pub.PublishTaskCreated(ctx, events.TaskCreatedEvent{
-			SourceURL: task.SourceURL,
-			SourceAuth: func() *events.AuthConfig {
-				if task.SourceAuth == nil {
-					return nil
-				}
-				return &events.AuthConfig{
-					Type:     task.SourceAuth.Type,
-					Username: task.SourceAuth.Username,
-					Password: task.SourceAuth.Password,
-					Token:    task.SourceAuth.Token,
-					Headers:  task.SourceAuth.Headers,
-				}
-			}(),
-			TaskID:   task.ID,
-			FileName: task.FileName,
-			Metadata: task.Metadata,
-			Checksum: func() *events.ChecksumInfo {
-				if task.Checksum == nil {
-					return nil
-				}
-				return &events.ChecksumInfo{
-					ChecksumType:  task.Checksum.ChecksumType,
-					ChecksumValue: task.Checksum.ChecksumValue,
-				}
-			}(),
-		}); err != nil {
+		// Publish TaskCreated event inside the same transaction. If publishing fails
+		// the transaction should be rolled back by returning an error here.
+		if err := s.pub.PublishTaskCreated(ctx, createdTask); err != nil {
 			return &errors.Error{
 				Code:    errors.ErrCodeInternal,
-				Message: "Failed to publish task created event",
+				Message: "failed to publish task created event",
 				Cause:   err,
 			}
 		}
@@ -217,13 +188,28 @@ func (s *service) PauseTask(ctx context.Context, taskID uint64) error {
 	}
 
 	task.Status = StatusPaused
-	_, err = s.repo.Update(ctx, task)
-	if err != nil {
-		return &errors.Error{
-			Code:    errors.ErrCodeInternal,
-			Message: "Failed to pause task",
-			Cause:   err,
+
+	if err := s.tx.DoInTx(ctx, func(ctx context.Context) error {
+		_, err := s.repo.Update(ctx, task)
+		if err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "Failed to pause task",
+				Cause:   err,
+			}
 		}
+
+		if err := s.pub.PublishTaskPaused(ctx, taskID); err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to publish task paused event",
+				Cause:   err,
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	return nil
@@ -248,13 +234,28 @@ func (s *service) ResumeTask(ctx context.Context, taskID uint64) error {
 	}
 
 	task.Status = StatusDownloading
-	_, err = s.repo.Update(ctx, task)
-	if err != nil {
-		return &errors.Error{
-			Code:    errors.ErrCodeInternal,
-			Message: "Failed to resume task",
-			Cause:   err,
+
+	if err := s.tx.DoInTx(ctx, func(ctx context.Context) error {
+		_, err := s.repo.Update(ctx, task)
+		if err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "Failed to resume task",
+				Cause:   err,
+			}
 		}
+
+		if err := s.pub.PublishTaskResumed(ctx, taskID); err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to publish task resumed event",
+				Cause:   err,
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	return nil
@@ -279,13 +280,28 @@ func (s *service) CancelTask(ctx context.Context, taskID uint64) error {
 	}
 
 	task.Status = StatusCancelled
-	_, err = s.repo.Update(ctx, task)
-	if err != nil {
-		return &errors.Error{
-			Code:    errors.ErrCodeInternal,
-			Message: "Failed to cancel task",
-			Cause:   err,
+
+	if err := s.tx.DoInTx(ctx, func(ctx context.Context) error {
+		_, err := s.repo.Update(ctx, task)
+		if err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "Failed to cancel task",
+				Cause:   err,
+			}
 		}
+
+		if err := s.pub.PublishTaskCancelled(ctx, taskID); err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to publish task cancelled event",
+				Cause:   err,
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	return nil
@@ -310,13 +326,29 @@ func (s *service) RetryTask(ctx context.Context, taskID uint64) error {
 	}
 
 	task.Status = StatusPending
-	_, err = s.repo.Update(ctx, task)
-	if err != nil {
-		return &errors.Error{
-			Code:    errors.ErrCodeInternal,
-			Message: "Failed to retry task",
-			Cause:   err,
+
+	if err := s.tx.DoInTx(ctx, func(ctx context.Context) error {
+		_, err := s.repo.Update(ctx, task)
+		if err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "Failed to retry task",
+				Cause:   err,
+			}
 		}
+
+		// Publish status update to notify workers that the task is pending again
+		if err := s.pub.PublishTaskStatusUpdated(ctx, taskID, StatusPending); err != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to publish task status updated event for retry",
+				Cause:   err,
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	return nil

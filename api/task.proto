@@ -98,8 +98,9 @@ message CreateTaskRequest {
   SourceType source_type = 4;
   AuthConfig source_auth = 5;
   ChecksumInfo checksum = 6;
-  DownloadOptions download_options = 7;
-  google.protobuf.Struct metadata = 8;
+  int32 expiration_days = 7;
+  DownloadOptions download_options = 8;
+  google.protobuf.Struct metadata = 9;
 }
 
 message UpdateTaskRequest {

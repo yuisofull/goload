@@ -2,8 +2,8 @@
 INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
                    storage_type, storage_path, status,
                    checksum_type, checksum_value,
-                   concurrency, max_speed, max_retries, timeout, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                   concurrency, max_speed, max_retries, timeout, metadata, expiration_days)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTaskById :one
 SELECT *

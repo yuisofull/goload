@@ -15,27 +15,28 @@ const createTask = `-- name: CreateTask :execresult
 INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
                    storage_type, storage_path, status,
                    checksum_type, checksum_value,
-                   concurrency, max_speed, max_retries, timeout, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   concurrency, max_speed, max_retries, timeout, metadata, expiration_days)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTaskParams struct {
-	OfAccountID   uint64          `json:"of_account_id"`
-	FileName      string          `json:"file_name"`
-	SourceUrl     string          `json:"source_url"`
-	SourceType    string          `json:"source_type"`
-	SourceAuth    json.RawMessage `json:"source_auth"`
-	Headers       json.RawMessage `json:"headers"`
-	StorageType   string          `json:"storage_type"`
-	StoragePath   string          `json:"storage_path"`
-	Status        string          `json:"status"`
-	ChecksumType  sql.NullString  `json:"checksum_type"`
-	ChecksumValue sql.NullString  `json:"checksum_value"`
-	Concurrency   sql.NullInt32   `json:"concurrency"`
-	MaxSpeed      sql.NullInt64   `json:"max_speed"`
-	MaxRetries    int32           `json:"max_retries"`
-	Timeout       sql.NullInt32   `json:"timeout"`
-	Metadata      json.RawMessage `json:"metadata"`
+	OfAccountID    uint64          `json:"of_account_id"`
+	FileName       string          `json:"file_name"`
+	SourceUrl      string          `json:"source_url"`
+	SourceType     string          `json:"source_type"`
+	SourceAuth     json.RawMessage `json:"source_auth"`
+	Headers        json.RawMessage `json:"headers"`
+	StorageType    string          `json:"storage_type"`
+	StoragePath    string          `json:"storage_path"`
+	Status         string          `json:"status"`
+	ChecksumType   sql.NullString  `json:"checksum_type"`
+	ChecksumValue  sql.NullString  `json:"checksum_value"`
+	Concurrency    sql.NullInt32   `json:"concurrency"`
+	MaxSpeed       sql.NullInt64   `json:"max_speed"`
+	MaxRetries     int32           `json:"max_retries"`
+	Timeout        sql.NullInt32   `json:"timeout"`
+	Metadata       json.RawMessage `json:"metadata"`
+	ExpirationDays sql.NullInt32   `json:"expiration_days"`
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (sql.Result, error) {
@@ -56,6 +57,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (sql.Res
 		arg.MaxRetries,
 		arg.Timeout,
 		arg.Metadata,
+		arg.ExpirationDays,
 	)
 }
 
@@ -71,7 +73,7 @@ func (q *Queries) DeleteTask(ctx context.Context, id uint64) error {
 }
 
 const getTaskById = `-- name: GetTaskById :one
-SELECT id, of_account_id, file_name, source_url, source_type, headers, source_auth, storage_type, storage_path, checksum_type, checksum_value, concurrency, max_speed, max_retries, timeout, status, progress, downloaded_bytes, total_bytes, error_message, metadata, created_at, updated_at, completed_at
+SELECT id, of_account_id, file_name, source_url, source_type, headers, source_auth, storage_type, storage_path, checksum_type, checksum_value, concurrency, max_speed, max_retries, timeout, status, progress, downloaded_bytes, total_bytes, error_message, metadata, created_at, updated_at, completed_at, last_accessed_at, expiration_days
 FROM tasks
 WHERE id = ?
 `
@@ -104,6 +106,8 @@ func (q *Queries) GetTaskById(ctx context.Context, id uint64) (Task, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
+		&i.LastAccessedAt,
+		&i.ExpirationDays,
 	)
 	return i, err
 }
@@ -122,7 +126,7 @@ func (q *Queries) GetTaskCountByAccountId(ctx context.Context, ofAccountID uint6
 }
 
 const listTasks = `-- name: ListTasks :many
-SELECT id, of_account_id, file_name, source_url, source_type, headers, source_auth, storage_type, storage_path, checksum_type, checksum_value, concurrency, max_speed, max_retries, timeout, status, progress, downloaded_bytes, total_bytes, error_message, metadata, created_at, updated_at, completed_at
+SELECT id, of_account_id, file_name, source_url, source_type, headers, source_auth, storage_type, storage_path, checksum_type, checksum_value, concurrency, max_speed, max_retries, timeout, status, progress, downloaded_bytes, total_bytes, error_message, metadata, created_at, updated_at, completed_at, last_accessed_at, expiration_days
 FROM tasks
 WHERE of_account_id = ?
 ORDER BY created_at DESC
@@ -169,6 +173,8 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,
+			&i.LastAccessedAt,
+			&i.ExpirationDays,
 		); err != nil {
 			return nil, err
 		}

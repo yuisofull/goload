@@ -1,0 +1,1 @@
+when you run any linux command, just know that pwd is /home/yui/repo/goload

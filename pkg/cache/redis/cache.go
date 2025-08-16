@@ -39,8 +39,8 @@ func New[K comparable, V any](client *redis.Client, opts ...Option[K, V]) *Redis
 		opt(redisCache)
 	}
 
-	redisCache.marshaler = cmp.Or(redisCache.marshaler, &DefaultMarshaler[V]{})
-	redisCache.keyEncoder = cmp.Or(redisCache.keyEncoder, &DefaultKeyEncoder[K]{})
+	redisCache.marshaler = cmp.Or[Marshaler[V]](redisCache.marshaler, &DefaultMarshaler[V]{})
+	redisCache.keyEncoder = cmp.Or[KeyEncoder[K]](redisCache.keyEncoder, &DefaultKeyEncoder[K]{})
 
 	return redisCache
 }

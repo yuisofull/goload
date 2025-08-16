@@ -45,7 +45,7 @@ func NewSubscriber(
 	config.ReconnectRetrySleep = cmp.Or(config.ReconnectRetrySleep, time.Second*1)
 	config.Version = cmp.Or(config.Version, sarama.V2_0_0_0)
 	config.ClientID = cmp.Or(config.ClientID, "watermill")
-	config.Unmarshaler = cmp.Or(config.Unmarshaler, DefaultMarshaler{})
+	config.Unmarshaler = cmp.Or[Unmarshaler](config.Unmarshaler, DefaultMarshaler{})
 	if config.ConsumerGroup == "" {
 		return nil, ErrConsumerGroupEmpty
 	}

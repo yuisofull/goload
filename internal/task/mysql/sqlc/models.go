@@ -34,4 +34,6 @@ type Task struct {
 	CreatedAt       sql.NullTime    `json:"created_at"`
 	UpdatedAt       sql.NullTime    `json:"updated_at"`
 	CompletedAt     sql.NullTime    `json:"completed_at"`
+	LastAccessedAt  sql.NullTime    `json:"last_accessed_at"`
+	ExpirationDays  sql.NullInt32   `json:"expiration_days"`
 }

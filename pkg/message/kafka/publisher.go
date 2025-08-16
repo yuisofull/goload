@@ -16,7 +16,7 @@ func NewPublisher(cfg *PublisherConfig) (*Publisher, error) {
 	var err error
 	p := &Publisher{}
 
-	p.marshaler = cmp.Or(cfg.Marshaler, DefaultMarshaler{})
+	p.marshaler = cmp.Or[Marshaler](cfg.Marshaler, DefaultMarshaler{})
 
 	sconfig := sarama.NewConfig()
 	{

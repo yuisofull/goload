@@ -1,28 +1,95 @@
 package events
 
+import "time"
+
 // TaskCreatedEvent represents events published by the task service
 type TaskCreatedEvent struct {
-	SourceURL  string                 `json:"source_url"`
-	SourceAuth *AuthConfig            `json:"source_auth,omitempty"`
-	TaskID     uint64                 `json:"task_id"`
-	FileName   string                 `json:"file_name"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	Checksum   *ChecksumInfo          `json:"checksum,omitempty"`
+	TaskID          uint64           `json:"task_id"`
+	OfAccountID     uint64           `json:"of_account_id"`
+	FileName        string           `json:"file_name"`
+	SourceURL       string           `json:"source_url"`
+	SourceType      string           `json:"source_type"`
+	SourceAuth      *AuthConfig      `json:"source_auth,omitempty"`
+	DownloadOptions *DownloadOptions `json:"download_options,omitempty"`
+	Metadata        map[string]any   `json:"metadata,omitempty"`
+	Checksum        *ChecksumInfo    `json:"checksum,omitempty"`
+	CreatedAt       time.Time        `json:"created_at"`
+}
+
+// TaskStatusUpdatedEvent represents status changes from download service
+type TaskStatusUpdatedEvent struct {
+	TaskID    uint64    `json:"task_id"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TaskProgressUpdatedEvent represents progress updates from download service
+type TaskProgressUpdatedEvent struct {
+	TaskID          uint64    `json:"task_id"`
+	Progress        float64   `json:"progress"`
+	DownloadedBytes int64     `json:"downloaded_bytes"`
+	TotalBytes      int64     `json:"total_bytes"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// TaskCompletedEvent represents task completion from download service
+type TaskCompletedEvent struct {
+	TaskID      uint64        `json:"task_id"`
+	FileName    string        `json:"file_name"`
+	FileSize    int64         `json:"file_size"`
+	ContentType string        `json:"content_type"`
+	Checksum    *ChecksumInfo `json:"checksum,omitempty"`
+	StorageKey  string        `json:"storage_key"`
+	CompletedAt time.Time     `json:"completed_at"`
+}
+
+// TaskFailedEvent represents task failure from download service
+type TaskFailedEvent struct {
+	TaskID   uint64    `json:"task_id"`
+	Error    string    `json:"error"`
+	FailedAt time.Time `json:"failed_at"`
+}
+
+// TaskPausedEvent represents task pause requests
+type TaskPausedEvent struct {
+	TaskID   uint64    `json:"task_id"`
+	PausedAt time.Time `json:"paused_at"`
+}
+
+// TaskResumedEvent represents task resume requests
+type TaskResumedEvent struct {
+	TaskID    uint64    `json:"task_id"`
+	ResumedAt time.Time `json:"resumed_at"`
+}
+
+// TaskCancelledEvent represents task cancellation requests
+type TaskCancelledEvent struct {
+	TaskID      uint64    `json:"task_id"`
+	CancelledAt time.Time `json:"cancelled_at"`
 }
 
 // EventType enum for task events
 type EventType string
 
 const (
-	EventTaskStarted   EventType = "task_started"
-	EventTaskCreated   EventType = "task_created"
-	EventTaskPaused    EventType = "task_paused"
-	EventTaskResumed   EventType = "task_resumed"
-	EventTaskCancelled EventType = "task_cancelled"
-	EventTaskRetried   EventType = "task_retried"
-	EventTaskCompleted EventType = "task_completed"
-	EventTaskFailed    EventType = "task_failed"
+	EventTaskCreated         EventType = "task_created"
+	EventTaskStatusUpdated   EventType = "task_status_updated"
+	EventTaskProgressUpdated EventType = "task_progress_updated"
+	EventTaskCompleted       EventType = "task_completed"
+	EventTaskFailed          EventType = "task_failed"
+	EventTaskPaused          EventType = "task_paused"
+	EventTaskResumed         EventType = "task_resumed"
+	EventTaskCancelled       EventType = "task_cancelled"
+	EventTaskRetried         EventType = "task_retried"
 )
+
+// DownloadOptions configures download behavior
+type DownloadOptions struct {
+	Concurrency int    `json:"concurrency"`
+	MaxSpeed    *int64 `json:"max_speed,omitempty"`
+	MaxRetries  int    `json:"max_retries"`
+	Timeout     *int   `json:"timeout,omitempty"`
+}
 
 // AuthConfig for authenticated sources
 type AuthConfig struct {

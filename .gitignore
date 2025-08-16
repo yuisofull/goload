@@ -31,3 +31,10 @@ go.work.sum
  .idea/*
  .vscode/*
 
+.idea/.gitignore
+.idea/AugmentWebviewStateStore.xml
+.idea/goload.iml
+.idea/MarsCodeWorkspaceAppSettings.xml
+.idea/misc.xml
+.idea/protoeditor.xml
+.idea/vcs.xml
