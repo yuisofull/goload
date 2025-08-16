@@ -15,7 +15,7 @@ import (
 	"github.com/yuisofull/goload/internal/configs"
 )
 
-//go:embed ../../migrations/mysql/*.sql
+//go:embed mysql/*.sql
 var migrationDirectoryMySQL embed.FS
 
 type migrator struct {
