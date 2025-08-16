@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -36,4 +37,46 @@ type FileMetadata struct {
 	ChecksumType string            `json:"checksum_type"`
 	Checksum     []byte            `json:"checksum"`
 	Headers      map[string]string `json:"headers"`
+}
+
+// Type defines the type of storage backend
+type Type string
+
+const (
+	TypeLocal  Type = "local"
+	TypeS3     Type = "s3"
+	TypeGCS    Type = "gcs"
+	TypeAzure  Type = "azure"
+	TypeFTP    Type = "ftp"
+	TypeHTTP   Type = "http"
+	TypeMemory Type = "memory"
+	TypeMinio  Type = "minio"
+)
+
+func (s Type) String() string {
+	return string(s)
+}
+
+func TypeValue(s string) Type {
+	s = strings.ToLower(s)
+	switch s {
+	case "local":
+		return TypeLocal
+	case "s3":
+		return TypeS3
+	case "gcs":
+		return TypeGCS
+	case "azure":
+		return TypeAzure
+	case "ftp":
+		return TypeFTP
+	case "http":
+		return TypeHTTP
+	case "memory":
+		return TypeMemory
+	case "minio":
+		return TypeMinio
+	default:
+		return TypeLocal
+	}
 }

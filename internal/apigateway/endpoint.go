@@ -2,9 +2,9 @@ package apigateway
 
 import (
 	"context"
+
 	"github.com/go-kit/kit/endpoint"
-	"github.com/yuisofull/goload/internal/file"
-	"github.com/yuisofull/goload/internal/task_v2"
+	"github.com/yuisofull/goload/internal/task"
 )
 
 type CreateDownloadTaskRequest struct {
@@ -70,11 +70,11 @@ type DownloadTaskEndpoints struct {
 }
 
 // MakeCreateDownloadTaskEndpoint creates endpoint for creating download tasks
-func MakeCreateDownloadTaskEndpoint(svc task_v2.Service) endpoint.Endpoint {
+func MakeCreateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*CreateDownloadTaskRequest)
 
-		params := task_v2.CreateParams{
+		params := task.CreateParams{
 			UserID:       req.UserID,
 			DownloadType: req.DownloadType,
 			Url:          req.URL,
@@ -98,11 +98,11 @@ func MakeCreateDownloadTaskEndpoint(svc task_v2.Service) endpoint.Endpoint {
 }
 
 // MakeGetDownloadTaskListEndpoint creates endpoint for listing download tasks
-func MakeGetDownloadTaskListEndpoint(svc task_v2.Service) endpoint.Endpoint {
+func MakeGetDownloadTaskListEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*GetDownloadTaskListRequest)
 
-		params := task_v2.ListParams{
+		params := task.ListParams{
 			UserID: req.UserID,
 			Offset: req.Offset,
 			Limit:  req.Limit,
@@ -132,11 +132,11 @@ func MakeGetDownloadTaskListEndpoint(svc task_v2.Service) endpoint.Endpoint {
 }
 
 // MakeUpdateDownloadTaskEndpoint creates endpoint for updating download tasks
-func MakeUpdateDownloadTaskEndpoint(svc task_v2.Service) endpoint.Endpoint {
+func MakeUpdateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*UpdateDownloadTaskRequest)
 
-		params := task_v2.UpdateParams{
+		params := task.UpdateParams{
 			UserID:         req.UserID,
 			DownloadTaskId: req.DownloadTaskID,
 			Url:            req.URL,
@@ -160,13 +160,13 @@ func MakeUpdateDownloadTaskEndpoint(svc task_v2.Service) endpoint.Endpoint {
 }
 
 // MakeDeleteDownloadTaskEndpoint creates endpoint for deleting download tasks
-func MakeDeleteDownloadTaskEndpoint(svc task_v2.Service) endpoint.Endpoint {
+func MakeDeleteDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*DeleteDownloadTaskRequest)
 
-		params := task_v2.DeleteParams{
+		params := task.DeleteParams{
 			UserID: req.UserID,
-			DownloadTask: &task_v2.DownloadTask{
+			DownloadTask: &task.DownloadTask{
 				Id: req.DownloadTaskID,
 			},
 		}
@@ -181,7 +181,7 @@ func MakeDeleteDownloadTaskEndpoint(svc task_v2.Service) endpoint.Endpoint {
 }
 
 // NewGatewayEndpoints creates a new set of all gateway endpoints
-func NewGatewayEndpoints(downloadTaskSvc task_v2.Service, authMW endpoint.Middleware) GatewayEndpoints {
+func NewGatewayEndpoints(downloadTaskSvc task.Service, authMW endpoint.Middleware) GatewayEndpoints {
 	return GatewayEndpoints{
 		CreateDownloadTask:  authMW(MakeCreateDownloadTaskEndpoint(downloadTaskSvc)),
 		GetDownloadTaskList: authMW(MakeGetDownloadTaskListEndpoint(downloadTaskSvc)),

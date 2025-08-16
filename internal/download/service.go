@@ -42,6 +42,7 @@ type taskExecution struct {
 
 type service struct {
 	downloaders        map[string]Downloader
+	storageType        storage.Type
 	storage            storage.Backend
 	publisher          *DownloadEventPublisher
 	mu                 sync.RWMutex
@@ -271,6 +272,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 			ChecksumType:  "md5",
 			ChecksumValue: md5Hash,
 		},
+		StorageType: s.storageType.String(),
 		StorageKey:  storageKey,
 		CompletedAt: time.Now(),
 	}

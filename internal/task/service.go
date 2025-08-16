@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/storage"
 )
 
 type Service interface {
@@ -28,6 +29,8 @@ type Service interface {
 	CompleteTask(ctx context.Context, id uint64) error
 	UpdateTaskChecksum(ctx context.Context, id uint64, checksum *ChecksumInfo) error
 	UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]any) error
+	UpdateFileName(ctx context.Context, id uint64, fileName string) error
+	UpdateStorageInfo(ctx context.Context, id uint64, storageType storage.Type, storagePath string) error
 
 	// File info and streaming
 	CheckFileExists(ctx context.Context, taskID uint64) (bool, error)
@@ -363,6 +366,37 @@ func (s *service) UpdateTaskStoragePath(ctx context.Context, id uint64, storageP
 		return &errors.Error{
 			Code:    errors.ErrCodeInternal,
 			Message: "update task storage path failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) UpdateStorageInfo(ctx context.Context, id uint64, storageType storage.Type, storagePath string) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:          id,
+		StorageType: storageType,
+		StoragePath: storagePath,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task storage info failed",
+			Cause:   err,
+		}
+	}
+	return nil
+}
+
+func (s *service) UpdateFileName(ctx context.Context, id uint64, fileName string) error {
+	_, err := s.repo.Update(ctx, &Task{
+		ID:       id,
+		FileName: fileName,
+	})
+	if err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "update task file name failed",
 			Cause:   err,
 		}
 	}

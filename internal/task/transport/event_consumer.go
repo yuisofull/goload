@@ -7,6 +7,7 @@ import (
 
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/events"
+	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
 	"github.com/yuisofull/goload/pkg/message"
 )
@@ -90,7 +91,6 @@ func (ec *EventConsumer) handleFailures(ctx context.Context, ch <-chan *message.
 func (ec *EventConsumer) handleTaskProgressUpdated(ctx context.Context, msg *message.Message) error {
 	var event events.TaskProgressUpdatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		log.Printf("Failed to unmarshal TaskProgressUpdatedEvent: %v", err)
 		return err
 	}
 
@@ -102,7 +102,6 @@ func (ec *EventConsumer) handleTaskProgressUpdated(ctx context.Context, msg *mes
 	}
 
 	if err := ec.taskService.UpdateTaskProgress(ctx, event.TaskID, progress); err != nil {
-		log.Printf("Failed to update task progress for task %d: %v", event.TaskID, err)
 		return err
 	}
 
@@ -113,29 +112,42 @@ func (ec *EventConsumer) handleTaskProgressUpdated(ctx context.Context, msg *mes
 func (ec *EventConsumer) handleTaskCompleted(ctx context.Context, msg *message.Message) error {
 	var event events.TaskCompletedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		log.Printf("Failed to unmarshal TaskCompletedEvent: %v", err)
 		return err
 	}
 
-	// Mark task as completed - the service interface only needs taskID
 	if err := ec.taskService.CompleteTask(ctx, event.TaskID); err != nil {
 		log.Printf("Failed to complete task %d: %v", event.TaskID, err)
 		return err
 	}
 
-	// Store additional file metadata using UpdateTaskMetadata
-	metadata := map[string]interface{}{
-		"fileName":    event.FileName,
-		"fileSize":    event.FileSize,
-		"contentType": event.ContentType,
-		"checksum":    event.Checksum,
-		"storageKey":  event.StorageKey,
-		"completedAt": event.CompletedAt,
+	if event.FileName != "" {
+		if err := ec.taskService.UpdateFileName(ctx, event.TaskID, event.FileName); err != nil {
+			return err
+		}
 	}
 
-	if err := ec.taskService.UpdateTaskMetadata(ctx, event.TaskID, metadata); err != nil {
-		log.Printf("Failed to update task metadata for task %d: %v", event.TaskID, err)
-		return err
+	if event.Checksum != nil {
+		checksum := task.ChecksumInfo{
+			ChecksumType:  event.Checksum.ChecksumType,
+			ChecksumValue: event.Checksum.ChecksumValue,
+		}
+		if err := ec.taskService.UpdateTaskChecksum(ctx, event.TaskID, &checksum); err != nil {
+			return err
+		}
+	}
+
+	if event.StorageType != "" || event.StorageKey != "" {
+		if err := ec.taskService.UpdateStorageInfo(ctx, event.TaskID, storage.TypeValue(event.StorageType), event.StorageKey); err != nil {
+			return err
+		}
+	}
+
+	if event.FileSize > 0 {
+		if err := ec.taskService.UpdateTaskProgress(ctx, event.TaskID, task.DownloadProgress{
+			TotalBytes: event.FileSize,
+		}); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -156,7 +168,6 @@ func (ec *EventConsumer) handleTaskFailed(ctx context.Context, msg *message.Mess
 	}
 
 	if err := ec.taskService.UpdateTaskError(ctx, event.TaskID, taskErr); err != nil {
-		log.Printf("Failed to update task error for task %d: %v", event.TaskID, err)
 		return err
 	}
 

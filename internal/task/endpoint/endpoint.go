@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/ratelimit"
+	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
 	pb "github.com/yuisofull/goload/internal/task/pb"
 	"golang.org/x/time/rate"
@@ -240,6 +241,14 @@ func (e *Set) UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[st
 	return err
 }
 
+func (e *Set) UpdateFileName(ctx context.Context, id uint64, fileName string) error {
+	panic("not implemented: UpdateFileName")
+}
+
+func (e *Set) UpdateStorageInfo(ctx context.Context, id uint64, storageType storage.Type, storagePath string) error {
+	panic("not implemented: UpdateStorageInfo")
+}
+
 // fromPBTask converts a protobuf Task to domain Task
 func fromPBTask(pbTask *pb.Task) *task.Task {
 	if pbTask == nil {
@@ -253,7 +262,7 @@ func fromPBTask(pbTask *pb.Task) *task.Task {
 		SourceURL:   pbTask.SourceUrl,
 		SourceType:  task.SourceType(pbTask.SourceType),
 		SourceAuth:  fromPBAuthConfig(pbTask.SourceAuth),
-		StorageType: task.StorageType(pbTask.StorageType),
+		StorageType: storage.TypeValue(pbTask.StorageType.String()),
 		StoragePath: pbTask.StoragePath,
 		Checksum: &task.ChecksumInfo{
 			ChecksumType:  pbTask.Checksum.ChecksumType,

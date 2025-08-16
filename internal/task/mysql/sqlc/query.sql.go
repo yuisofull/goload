@@ -206,6 +206,39 @@ func (q *Queries) UpdateFileChecksum(ctx context.Context, arg UpdateFileChecksum
 	return err
 }
 
+const updateFileName = `-- name: UpdateFileName :exec
+UPDATE tasks
+SET file_name = ?
+WHERE id = ?
+`
+
+type UpdateFileNameParams struct {
+	FileName string `json:"file_name"`
+	ID       uint64 `json:"id"`
+}
+
+func (q *Queries) UpdateFileName(ctx context.Context, arg UpdateFileNameParams) error {
+	_, err := q.db.ExecContext(ctx, updateFileName, arg.FileName, arg.ID)
+	return err
+}
+
+const updateStorageInfo = `-- name: UpdateStorageInfo :exec
+UPDATE tasks
+SET storage_type = ?, storage_path = ?
+WHERE id = ?
+`
+
+type UpdateStorageInfoParams struct {
+	StorageType string `json:"storage_type"`
+	StoragePath string `json:"storage_path"`
+	ID          uint64 `json:"id"`
+}
+
+func (q *Queries) UpdateStorageInfo(ctx context.Context, arg UpdateStorageInfoParams) error {
+	_, err := q.db.ExecContext(ctx, updateStorageInfo, arg.StorageType, arg.StoragePath, arg.ID)
+	return err
+}
+
 const updateTaskCompletedAt = `-- name: UpdateTaskCompletedAt :exec
 UPDATE tasks
 SET completed_at = ?

@@ -20,6 +20,11 @@ UPDATE tasks
 SET completed_at = ?
 WHERE id = ?;
 
+-- name: UpdateFileName :exec
+UPDATE tasks
+SET file_name = ?
+WHERE id = ?;
+
 -- name: UpdateTaskError :exec
 UPDATE tasks
 SET error_message = ?
@@ -43,6 +48,11 @@ WHERE id = ?;
 -- name: UpdateTaskProgress :exec
 UPDATE tasks
 SET progress = ?
+WHERE id = ?;
+
+-- name: UpdateStorageInfo :exec
+UPDATE tasks
+SET storage_type = ?, storage_path = ?
 WHERE id = ?;
 
 -- name: UpdateFileChecksum :exec

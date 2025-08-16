@@ -39,6 +39,7 @@ type TaskCompletedEvent struct {
 	FileSize    int64         `json:"file_size"`
 	ContentType string        `json:"content_type"`
 	Checksum    *ChecksumInfo `json:"checksum,omitempty"`
+	StorageType string        `json:"storage_type"`
 	StorageKey  string        `json:"storage_key"`
 	CompletedAt time.Time     `json:"completed_at"`
 }

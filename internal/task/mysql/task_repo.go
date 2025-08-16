@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yuisofull/goload/internal/errors"
+	"github.com/yuisofull/goload/internal/storage"
 	task "github.com/yuisofull/goload/internal/task"
 	"github.com/yuisofull/goload/internal/task/mysql/sqlc"
 )
@@ -115,6 +116,15 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error)
 				return nil, err
 			}
 		}
+
+	}
+	if t.FileName != "" {
+		if err = q.UpdateFileName(ctx, sqlc.UpdateFileNameParams{
+			ID:       t.ID,
+			FileName: t.FileName,
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	if t.Status != "" {
@@ -139,6 +149,16 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error)
 		if err = q.UpdateTaskError(ctx, sqlc.UpdateTaskErrorParams{
 			ID:           t.ID,
 			ErrorMessage: sql.NullString{String: *t.ErrorMessage, Valid: true},
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	if t.StorageType != "" || t.StoragePath != "" {
+		if err = q.UpdateStorageInfo(ctx, sqlc.UpdateStorageInfoParams{
+			ID:          t.ID,
+			StorageType: string(t.StorageType),
+			StoragePath: t.StoragePath,
 		}); err != nil {
 			return nil, err
 		}
@@ -229,7 +249,7 @@ func toTask(t sqlc.Task) (*task.Task, error) {
 		SourceURL:   t.SourceUrl,
 		SourceType:  task.SourceType(t.SourceType),
 		SourceAuth:  sourceAuth,
-		StorageType: task.StorageType(t.StorageType),
+		StorageType: storage.TypeValue(t.StorageType),
 		StoragePath: t.StoragePath,
 		Checksum:    checksum,
 		Status:      task.TaskStatus(t.Status),

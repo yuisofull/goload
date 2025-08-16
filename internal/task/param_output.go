@@ -3,6 +3,8 @@ package task
 import (
 	"strings"
 	"time"
+
+	"github.com/yuisofull/goload/internal/storage"
 )
 
 type CreateTaskParam struct {
@@ -48,9 +50,8 @@ type ListTasksOutput struct {
 }
 
 type (
-	SourceType  string
-	StorageType string
-	TaskStatus  string
+	SourceType string
+	TaskStatus string
 )
 
 const (
@@ -60,11 +61,6 @@ const (
 	SourceFTP        SourceType = "FTP"
 	SourceSFTP       SourceType = "SFTP"
 	SourceBitTorrent SourceType = "BITTORRENT"
-
-	// StorageType
-	StorageLocal StorageType = "LOCAL"
-	StorageMinIO StorageType = "MINIO"
-	StorageS3    StorageType = "S3"
 
 	// TaskStatus
 	StatusPending     TaskStatus = "PENDING"
@@ -102,7 +98,7 @@ type Task struct {
 	SourceURL       string            `json:"source_url"`
 	SourceType      SourceType        `json:"source_type"`
 	SourceAuth      *AuthConfig       `json:"source_auth,omitempty"`
-	StorageType     StorageType       `json:"storage_type"`
+	StorageType     storage.Type      `json:"storage_type"`
 	StoragePath     string            `json:"storage_path"`
 	Checksum        *ChecksumInfo     `json:"checksum,omitempty"`
 	DownloadOptions *DownloadOptions  `json:"download_options,omitempty"`
