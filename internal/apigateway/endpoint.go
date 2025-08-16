@@ -2,190 +2,98 @@ package apigateway
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/samber/lo"
 	"github.com/yuisofull/goload/internal/task"
 )
 
-type CreateDownloadTaskRequest struct {
-	UserID       uint64
-	DownloadType file.DownloadType
-	URL          string
+type ListTasksRequest struct {
+	Filter *struct {
+		OfAccountID uint64
+	}
+	Offset  int32
+	Limit   int32
+	SortBy  string
+	SortAsc bool
 }
 
-type CreateDownloadTaskResponse struct {
-	DownloadTask *HTTPDownloadTask `json:"download_task"`
+type ListTasksResponse struct {
+	Tasks      []*Task `json:"tasks"`
+	TotalCount int32   `json:"total_count"`
 }
 
-type GetDownloadTaskListRequest struct {
-	UserID uint64
-	Offset uint64
-	Limit  uint64
+type Task struct {
+	ID              uint64         `json:"id"`
+	OfAccountID     uint64         `json:"of_account_id"`
+	FileName        string         `json:"file_name"`
+	SourceUrl       string         `json:"source_url"`
+	SourceType      string         `json:"source_type"`
+	ChecksumType    *string        `json:"checksum_type"`
+	ChecksumValue   *string        `json:"checksum_value"`
+	Status          string         `json:"status"`
+	Progress        *float64       `json:"progress"`
+	DownloadedBytes *int64         `json:"downloaded_bytes"`
+	TotalBytes      *int64         `json:"total_bytes"`
+	ErrorMessage    *string        `json:"error_message"`
+	Metadata        map[string]any `json:"metadata"`
+	CreatedAt       *time.Time     `json:"created_at"`
+	UpdatedAt       *time.Time     `json:"updated_at"`
+	CompletedAt     *time.Time     `json:"completed_at"`
 }
 
-type GetDownloadTaskListResponse struct {
-	DownloadTasks []*HTTPDownloadTask `json:"download_tasks"`
-	TotalCount    uint64              `json:"total_count"`
-}
-
-type UpdateDownloadTaskRequest struct {
-	UserID         uint64
-	DownloadTaskID uint64
-	URL            string
-}
-
-type UpdateDownloadTaskResponse struct {
-	DownloadTask *HTTPDownloadTask `json:"download_task"`
-}
-
-type DeleteDownloadTaskRequest struct {
-	UserID         uint64
-	DownloadTaskID uint64
-}
-
-type DeleteDownloadTaskResponse struct{}
-
-// GatewayEndpoints holds all endpoints from all services
 type GatewayEndpoints struct {
-	// Download Task Service endpoints
-	CreateDownloadTask  endpoint.Endpoint
-	GetDownloadTaskList endpoint.Endpoint
-	UpdateDownloadTask  endpoint.Endpoint
-	DeleteDownloadTask  endpoint.Endpoint
-
-	// Auth Service endpoints (for future use)
-	// Login    endpoint.Endpoint
-	// Register endpoint.Endpoint
-
-	// File Service endpoints (for future use)
-	// GetFile endpoint.Endpoint
+	ListTasksEndpoint endpoint.Endpoint
 }
 
-// DownloadTaskEndpoints holds all download task endpoints (for backward compatibility)
-type DownloadTaskEndpoints struct {
-	CreateDownloadTask  endpoint.Endpoint
-	GetDownloadTaskList endpoint.Endpoint
-	UpdateDownloadTask  endpoint.Endpoint
-	DeleteDownloadTask  endpoint.Endpoint
-}
-
-// MakeCreateDownloadTaskEndpoint creates endpoint for creating download tasks
-func MakeCreateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
+func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*CreateDownloadTaskRequest)
+		req := request.(*ListTasksRequest)
 
-		params := task.CreateParams{
-			UserID:       req.UserID,
-			DownloadType: req.DownloadType,
-			Url:          req.URL,
+		params := task.ListTasksParam{
+			Filter: &task.TaskFilter{
+				OfAccountID: req.Filter.OfAccountID,
+			},
+			Offset:  req.Offset,
+			Limit:   req.Limit,
+			SortBy:  req.SortBy,
+			SortAsc: req.SortAsc,
 		}
 
-		result, err := svc.Create(ctx, params)
+		result, err := svc.ListTasks(ctx, &params)
 		if err != nil {
 			return nil, err
 		}
 
-		return &CreateDownloadTaskResponse{
-			DownloadTask: &HTTPDownloadTask{
-				ID:             result.DownloadTask.Id,
-				OfAccountID:    result.DownloadTask.OfAccountId,
-				DownloadType:   int(result.DownloadTask.DownloadType),
-				URL:            result.DownloadTask.Url,
-				DownloadStatus: int(result.DownloadTask.DownloadStatus),
-			},
+		return &ListTasksResponse{
+			Tasks: lo.Map(result.Tasks, func(task *task.Task, _ int) *Task {
+				return &Task{
+					ID:              task.ID,
+					OfAccountID:     task.OfAccountID,
+					FileName:        task.FileName,
+					SourceUrl:       task.SourceURL,
+					SourceType:      task.SourceType.String(),
+					ChecksumType:    &task.Checksum.ChecksumType,
+					ChecksumValue:   &task.Checksum.ChecksumValue,
+					Status:          task.Status.String(),
+					Progress:        &task.Progress.Progress,
+					DownloadedBytes: &task.Progress.DownloadedBytes,
+					TotalBytes:      &task.Progress.TotalBytes,
+					ErrorMessage:    task.ErrorMessage,
+					Metadata:        task.Metadata,
+					CreatedAt:       &task.CreatedAt,
+					UpdatedAt:       &task.UpdatedAt,
+					CompletedAt:     task.CompletedAt,
+				}
+			}),
+			TotalCount: result.Total,
 		}, nil
 	}
 }
 
-// MakeGetDownloadTaskListEndpoint creates endpoint for listing download tasks
-func MakeGetDownloadTaskListEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*GetDownloadTaskListRequest)
-
-		params := task.ListParams{
-			UserID: req.UserID,
-			Offset: req.Offset,
-			Limit:  req.Limit,
-		}
-
-		result, err := svc.List(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-
-		httpTasks := make([]*HTTPDownloadTask, len(result.DownloadTasks))
-		for i, downloadTask := range result.DownloadTasks {
-			httpTasks[i] = &HTTPDownloadTask{
-				ID:             downloadTask.Id,
-				OfAccountID:    downloadTask.OfAccountId,
-				DownloadType:   int(downloadTask.DownloadType),
-				URL:            downloadTask.Url,
-				DownloadStatus: int(downloadTask.DownloadStatus),
-			}
-		}
-
-		return &GetDownloadTaskListResponse{
-			DownloadTasks: httpTasks,
-			TotalCount:    result.TotalCount,
-		}, nil
-	}
-}
-
-// MakeUpdateDownloadTaskEndpoint creates endpoint for updating download tasks
-func MakeUpdateDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*UpdateDownloadTaskRequest)
-
-		params := task.UpdateParams{
-			UserID:         req.UserID,
-			DownloadTaskId: req.DownloadTaskID,
-			Url:            req.URL,
-		}
-
-		result, err := svc.Update(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-
-		return &UpdateDownloadTaskResponse{
-			DownloadTask: &HTTPDownloadTask{
-				ID:             result.DownloadTask.Id,
-				OfAccountID:    result.DownloadTask.OfAccountId,
-				DownloadType:   int(result.DownloadTask.DownloadType),
-				URL:            result.DownloadTask.Url,
-				DownloadStatus: int(result.DownloadTask.DownloadStatus),
-			},
-		}, nil
-	}
-}
-
-// MakeDeleteDownloadTaskEndpoint creates endpoint for deleting download tasks
-func MakeDeleteDownloadTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
-		req := request.(*DeleteDownloadTaskRequest)
-
-		params := task.DeleteParams{
-			UserID: req.UserID,
-			DownloadTask: &task.DownloadTask{
-				Id: req.DownloadTaskID,
-			},
-		}
-
-		err := svc.Delete(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-
-		return &DeleteDownloadTaskResponse{}, nil
-	}
-}
-
-// NewGatewayEndpoints creates a new set of all gateway endpoints
 func NewGatewayEndpoints(downloadTaskSvc task.Service, authMW endpoint.Middleware) GatewayEndpoints {
 	return GatewayEndpoints{
-		CreateDownloadTask:  authMW(MakeCreateDownloadTaskEndpoint(downloadTaskSvc)),
-		GetDownloadTaskList: authMW(MakeGetDownloadTaskListEndpoint(downloadTaskSvc)),
-		UpdateDownloadTask:  authMW(MakeUpdateDownloadTaskEndpoint(downloadTaskSvc)),
-		DeleteDownloadTask:  authMW(MakeDeleteDownloadTaskEndpoint(downloadTaskSvc)),
+		ListTasksEndpoint: authMW(MakeListTasksEndpoint(downloadTaskSvc)),
 	}
 }

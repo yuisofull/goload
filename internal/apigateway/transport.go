@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"github.com/go-kit/kit/transport"
 	"github.com/go-kit/log/level"
-	"github.com/yuisofull/goload/internal/file"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,15 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-type HTTPCreateDownloadTaskRequest struct {
-	DownloadType int    `json:"download_type"`
-	URL          string `json:"url"`
-}
-
-type HTTPCreateDownloadTaskResponse struct {
-	DownloadTask *HTTPDownloadTask `json:"download_task"`
-}
 
 type HTTPGetDownloadTaskListRequest struct {
 	Offset uint64 `json:"offset"`

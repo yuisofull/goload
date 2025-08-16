@@ -72,6 +72,14 @@ const (
 	StatusPaused      TaskStatus = "PAUSED"
 )
 
+func (s TaskStatus) String() string {
+	return string(s)
+}
+
+func (s SourceType) String() string {
+	return string(s)
+}
+
 func ToSourceType(src string) SourceType {
 	src = strings.ToUpper(src)
 	switch src {
