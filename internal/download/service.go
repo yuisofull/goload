@@ -16,14 +16,6 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// Downloader interface for different download sources
-type Downloader interface {
-	Download(ctx context.Context, url string, sourceAuth *events.AuthConfig, opts events.DownloadOptions) (io.ReadCloser, int64, error)
-	GetFileInfo(ctx context.Context, url string, sourceAuth *events.AuthConfig) (*FileMetadata, error)
-	SupportsResume() bool
-}
-
-// EventPublisher publishes events to the message bus
 type EventPublisher interface {
 	PublishTaskStatusUpdated(ctx context.Context, event events.TaskStatusUpdatedEvent) error
 	PublishTaskProgressUpdated(ctx context.Context, event events.TaskProgressUpdatedEvent) error
@@ -31,7 +23,6 @@ type EventPublisher interface {
 	PublishTaskFailed(ctx context.Context, event events.TaskFailedEvent) error
 }
 
-// Service handles file download operations as a worker
 type Service interface {
 	ExecuteTask(ctx context.Context, req TaskRequest) error
 	PauseTask(ctx context.Context, taskID uint64) error
@@ -41,7 +32,6 @@ type Service interface {
 	GetActiveTaskCount(ctx context.Context) int
 }
 
-// taskExecution holds the state of a running download task.
 type taskExecution struct {
 	task           TaskRequest
 	ctx            context.Context
@@ -162,31 +152,28 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	taskReq := execution.task
 	ctx := execution.ctx
 
-	// Publish status update: DOWNLOADING
 	if err := s.publisher.PublishTaskStatusUpdated(ctx, events.TaskStatusUpdatedEvent{
 		TaskID:    taskReq.TaskID,
-		Status:    "DOWNLOADING",
+		Status:    events.StatusDownloading,
 		UpdatedAt: time.Now(),
 	}); err != nil {
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to publish task status", Cause: err}
 	}
 
-	// Get download options, with defaults if nil, convert to events.DownloadOptions for downloader
-	downloadOpts := events.DownloadOptions{
+	downloadOpts := DownloadOptions{
 		Concurrency: 1,
 		MaxRetries:  3,
 	}
 	if taskReq.DownloadOptions != nil {
-		downloadOpts = events.DownloadOptions{
+		downloadOpts = DownloadOptions{
 			Concurrency: taskReq.DownloadOptions.Concurrency,
 			MaxRetries:  taskReq.DownloadOptions.MaxRetries,
 		}
 	}
 
-	// convert internal auth to events.AuthConfig for downloader
-	var sourceAuth *events.AuthConfig
+	var sourceAuth *AuthConfig
 	if taskReq.SourceAuth != nil {
-		sourceAuth = &events.AuthConfig{
+		sourceAuth = &AuthConfig{
 			Type:     taskReq.SourceAuth.Type,
 			Username: taskReq.SourceAuth.Username,
 			Password: taskReq.SourceAuth.Password,
@@ -200,10 +187,40 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
 
-	reader, totalSize, err := downloader.Download(ctx, taskReq.SourceURL, sourceAuth, downloadOpts)
-	if err != nil {
-		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to start download: %w", err))
-		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to start download", Cause: fmt.Errorf("downloading %s: %w", taskReq.SourceURL, err)}
+	maxRetries := 3
+	if taskReq.DownloadOptions != nil {
+		maxRetries = int(taskReq.DownloadOptions.MaxRetries)
+		if maxRetries < 0 {
+			maxRetries = 0
+		}
+	}
+
+	var reader io.ReadCloser
+	var totalSize int64
+	var dlErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		reader, totalSize, dlErr = downloader.Download(ctx, taskReq.SourceURL, sourceAuth, downloadOpts)
+		if dlErr == nil {
+			break
+		}
+
+		// If this was the last attempt, fail
+		if attempt == maxRetries {
+			s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to start download: %w", dlErr))
+			return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to start download", Cause: fmt.Errorf("downloading %s: %w", taskReq.SourceURL, dlErr)}
+		}
+
+		// _ = s.publisher.PublishTaskRetried(ctx, events.TaskRetriedEvent{
+		// 	TaskID:     taskReq.TaskID,
+		// 	RetryCount: uint32(attempt + 1),
+		// 	Reason:     dlErr.Error(),
+		// 	RetriedAt:  time.Now(),
+		// })
+
+		backoff := time.Second * time.Duration(1<<attempt)
+		jitter := time.Duration(time.Now().UnixNano() % int64(time.Second))
+		time.Sleep(backoff + jitter)
 	}
 	defer reader.Close()
 
@@ -221,10 +238,9 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 
 	execution.progressReader = progressReader
 
-	// Publish status update: STORING
 	if err := s.publisher.PublishTaskStatusUpdated(ctx, events.TaskStatusUpdatedEvent{
 		TaskID:    taskReq.TaskID,
-		Status:    "STORING",
+		Status:    events.StatusStoring,
 		UpdatedAt: time.Now(),
 	}); err != nil {
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to publish task status", Cause: err}
@@ -242,12 +258,10 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		LastModified: time.Now(),
 	}); err != nil {
 		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to store file: %w", err))
-		// Clean up partial file
 		_ = s.storage.Delete(context.Background(), storageKey)
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
 
-	// Publish completion event
 	completedEvent := events.TaskCompletedEvent{
 		TaskID:      taskReq.TaskID,
 		FileName:    metadata.FileName,
@@ -360,7 +374,6 @@ func (s *service) updateProgress(ctx context.Context, taskID uint64, progress Pr
 	s.lastProgressUpdate[taskID] = time.Now()
 	s.progressMu.Unlock()
 
-	// convert internal Progress to events.TaskProgressUpdatedEvent
 	evt := events.TaskProgressUpdatedEvent{
 		TaskID:          taskID,
 		Progress:        progress.Progress,

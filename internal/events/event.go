@@ -18,9 +18,9 @@ type TaskCreatedEvent struct {
 
 // TaskStatusUpdatedEvent represents status changes from download service
 type TaskStatusUpdatedEvent struct {
-	TaskID    uint64    `json:"task_id"`
-	Status    string    `json:"status"`
-	UpdatedAt time.Time `json:"updated_at"`
+	TaskID    uint64     `json:"task_id"`
+	Status    TaskStatus `json:"status"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // TaskProgressUpdatedEvent represents progress updates from download service
@@ -50,6 +50,14 @@ type TaskFailedEvent struct {
 	FailedAt time.Time `json:"failed_at"`
 }
 
+// TaskRetriedEvent represents a retry attempt for a task
+type TaskRetriedEvent struct {
+	TaskID     uint64    `json:"task_id"`
+	RetryCount uint32    `json:"retry_count"`
+	Reason     string    `json:"reason"`
+	RetriedAt  time.Time `json:"retried_at"`
+}
+
 // TaskPausedEvent represents task pause requests
 type TaskPausedEvent struct {
 	TaskID   uint64    `json:"task_id"`
@@ -69,7 +77,39 @@ type TaskCancelledEvent struct {
 }
 
 // EventType enum for task events
-type EventType string
+type (
+	EventType  string
+	TaskStatus string
+)
+
+func (e EventType) String() string {
+	return string(e)
+}
+
+func (s TaskStatus) String() string {
+	return string(s)
+}
+
+func TaskStatusValue(status string) TaskStatus {
+	switch status {
+	case "PENDING":
+		return StatusPending
+	case "DOWNLOADING":
+		return StatusDownloading
+	case "STORING":
+		return StatusStoring
+	case "COMPLETED":
+		return StatusCompleted
+	case "FAILED":
+		return StatusFailed
+	case "CANCELLED":
+		return StatusCancelled
+	case "PAUSED":
+		return StatusPaused
+	default:
+		return TaskStatus(status)
+	}
+}
 
 const (
 	EventTaskCreated         EventType = "task_created"
@@ -81,6 +121,14 @@ const (
 	EventTaskResumed         EventType = "task_resumed"
 	EventTaskCancelled       EventType = "task_cancelled"
 	EventTaskRetried         EventType = "task_retried"
+
+	StatusPending     TaskStatus = "PENDING"
+	StatusDownloading TaskStatus = "DOWNLOADING"
+	StatusStoring     TaskStatus = "STORING"
+	StatusCompleted   TaskStatus = "COMPLETED"
+	StatusFailed      TaskStatus = "FAILED"
+	StatusCancelled   TaskStatus = "CANCELLED"
+	StatusPaused      TaskStatus = "PAUSED"
 )
 
 // DownloadOptions configures download behavior

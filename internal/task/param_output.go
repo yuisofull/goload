@@ -96,29 +96,23 @@ func ToSourceType(src string) SourceType {
 
 // Task represents a file download and storage task
 type Task struct {
-	ID          uint64 `json:"id"`
-	OfAccountID uint64 `json:"of_account_id"`
-	FileName    string `json:"file_name"`
-
-	SourceURL  string      `json:"source_url"`
-	SourceType SourceType  `json:"source_type"`
-	SourceAuth *AuthConfig `json:"source_auth,omitempty"`
-
-	StorageType StorageType `json:"storage_type"`
-	StoragePath string      `json:"storage_path"`
-
-	Checksum        *ChecksumInfo    `json:"checksum,omitempty"`
-	DownloadOptions *DownloadOptions `json:"download_options,omitempty"`
-
-	Status       TaskStatus        `json:"status"`
-	Progress     *DownloadProgress `json:"progress,omitempty"`
-	ErrorMessage *string           `json:"error_message,omitempty"`
-
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
-
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	ID              uint64            `json:"id"`
+	OfAccountID     uint64            `json:"of_account_id"`
+	FileName        string            `json:"file_name"`
+	SourceURL       string            `json:"source_url"`
+	SourceType      SourceType        `json:"source_type"`
+	SourceAuth      *AuthConfig       `json:"source_auth,omitempty"`
+	StorageType     StorageType       `json:"storage_type"`
+	StoragePath     string            `json:"storage_path"`
+	Checksum        *ChecksumInfo     `json:"checksum,omitempty"`
+	DownloadOptions *DownloadOptions  `json:"download_options,omitempty"`
+	Status          TaskStatus        `json:"status"`
+	Progress        *DownloadProgress `json:"progress,omitempty"`
+	ErrorMessage    *string           `json:"error_message,omitempty"`
+	Metadata        map[string]any    `json:"metadata,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 }
 
 // DownloadProgress tracks download progress

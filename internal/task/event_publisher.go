@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/yuisofull/goload/internal/events"
 	"github.com/yuisofull/goload/pkg/message"
 )
@@ -53,7 +54,7 @@ func (ep *Publisher) PublishTaskCreated(ctx context.Context, task *Task) error {
 func (ep *Publisher) PublishTaskStatusUpdated(ctx context.Context, taskID uint64, status TaskStatus) error {
 	event := events.TaskStatusUpdatedEvent{
 		TaskID:    taskID,
-		Status:    string(status),
+		Status:    events.TaskStatusValue(string(status)),
 		UpdatedAt: time.Now(),
 	}
 
@@ -172,8 +173,6 @@ func (ep *Publisher) convertDownloadOptions(opts *DownloadOptions) *events.Downl
 	}
 }
 
-// generateUUID generates a simple UUID for messages
-// In a real implementation, you might want to use a proper UUID library
 func generateUUID() string {
-	return time.Now().Format("20060102150405.000000")
+	return uuid.New().String()
 }

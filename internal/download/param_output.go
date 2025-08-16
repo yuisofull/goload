@@ -39,7 +39,5 @@ type FileMetadata struct {
 	FileName    string
 	FileSize    int64
 	ContentType string
-	MD5Hash     string
-	LocalPath   string
 	Headers     map[string]string
 }

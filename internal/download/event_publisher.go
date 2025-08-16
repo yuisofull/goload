@@ -3,10 +3,10 @@ package download
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/yuisofull/goload/internal/events"
 	"github.com/yuisofull/goload/pkg/message"
+	"github.com/google/uuid"
 )
 
 // DownloadEventPublisher publishes download-related events
@@ -97,8 +97,25 @@ func (dep *DownloadEventPublisher) PublishTaskFailed(ctx context.Context, event 
 	return dep.publisher.Publish("task.failed", msg)
 }
 
-// generateUUID generates a simple UUID for messages
-// In a real implementation, you might want to use a proper UUID library
+// PublishTaskRetried publishes a task retried event
+func (dep *DownloadEventPublisher) PublishTaskRetried(ctx context.Context, event events.TaskRetriedEvent) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	msg := &message.Message{
+		UUID:    generateUUID(),
+		Payload: payload,
+		Metadata: message.Metadata{
+			"eventType": "TaskRetried",
+			"taskID":    string(rune(event.TaskID)),
+		},
+	}
+
+	return dep.publisher.Publish("task.retried", msg)
+}
+
 func generateUUID() string {
-	return time.Now().Format("20060102150405.000000")
+	return uuid.New().String()
 }
