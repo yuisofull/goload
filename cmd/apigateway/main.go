@@ -10,6 +10,7 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -17,8 +18,10 @@ import (
 	"github.com/yuisofull/goload/internal/auth"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
 	"github.com/yuisofull/goload/internal/configs"
-	"github.com/yuisofull/goload/internal/task_v2"
-	downloadtasktransport "github.com/yuisofull/goload/internal/task_v2/transport"
+	"github.com/yuisofull/goload/internal/storage"
+	taskpkg "github.com/yuisofull/goload/internal/task"
+	tasktransport "github.com/yuisofull/goload/internal/task/transport"
+	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 )
 
 func main() {
@@ -52,7 +55,7 @@ func main() {
 	}
 
 	// Connect to Download Task Service via gRPC
-	var downloadTaskService task_v2.Service
+	var downloadTaskService taskpkg.Service
 	{
 		conn, err := grpc.NewClient(config.DownloadTaskService.GRPC.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
@@ -61,7 +64,7 @@ func main() {
 		}
 		defer conn.Close()
 
-		downloadTaskService = downloadtasktransport.NewGRPCClient(conn, logger)
+		downloadTaskService = tasktransport.NewGRPCClient(conn, logger)
 	}
 
 	// Create token validator for authentication middleware
@@ -71,10 +74,36 @@ func main() {
 	authMiddleware := apigateway.NewAuthMiddleware(tokenValidator)
 
 	// Create unified gateway endpoints with authentication middleware
-	gatewayEndpoints := apigateway.NewGatewayEndpoints(downloadTaskService, authMiddleware)
+	gatewayEndpoints := apigateway.NewGatewayEndpoints(downloadTaskService, authMiddleware, authService)
 
-	// Create HTTP handler
-	httpHandler := apigateway.NewHTTPHandler(gatewayEndpoints, logger)
+	// Create redis client and token store
+	var tokenStore taskpkg.TokenStore
+	{
+		redisClient := redis.NewClient(&redis.Options{Addr: config.Redis.Address, Username: config.Redis.Username, Password: config.Redis.Password})
+		secret := []byte(config.APIGateway.TokenHMACSecret)
+		if len(secret) == 0 {
+			secret = []byte("default-secret-change-me")
+		}
+		// create a redis-backed cache and pass it into the generic token store constructor
+		rc := rediscache.New[string, storage.TokenMetadata](redisClient)
+		tokenStore = taskpkg.NewTokenStore(rc, secret)
+	}
+
+	// Create storage backend (MinIO) if config provided; otherwise nil
+	var storageBackend storage.Reader
+	{
+		minioCfg := config.APIGateway.Storage.Minio
+		if minioCfg.Endpoint != "" && minioCfg.AccessKey != "" && minioCfg.SecretKey != "" && minioCfg.Bucket != "" {
+			if m, err := storage.NewMinioBackend(minioCfg.Endpoint, minioCfg.AccessKey, minioCfg.SecretKey, minioCfg.UseSSL, minioCfg.Bucket); err == nil {
+				storageBackend = m
+			} else {
+				level.Error(logger).Log("msg", "failed to initialize minio backend", "err", err)
+			}
+		}
+	}
+
+	// Create HTTP handler (with download handler that uses token store and storage backend)
+	httpHandler := apigateway.NewHTTPHandlerWithDownload(gatewayEndpoints, logger, storageBackend, tokenStore)
 
 	var g run.Group
 	{
@@ -94,10 +123,8 @@ func main() {
 
 	{
 		g.Add(func() error {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			<-ctx.Done()
+			return ctx.Err()
 		}, func(error) {
 		})
 	}

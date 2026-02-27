@@ -95,8 +95,154 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 	// mux.Handle("/api/v1/auth/login", loginHandler)
 	// mux.Handle("/api/v1/auth/register", registerHandler)
 
-	// File Service endpoints
-	// mux.Handle("/api/v1/files/{id}", addTokenToContext(getFileHandler))
+	{
+		createHandler := httptransport.NewServer(
+			endpoints.AuthCreateEndpoint,
+			func(_ context.Context, r *http.Request) (interface{}, error) {
+				var req CreateAccountGatewayRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					return nil, err
+				}
+				return &req, nil
+			},
+			encodeHTTPResponse,
+			options...,
+		)
+		mux.Handle("/api/v1/auth/create", createHandler)
+	}
+
+	{
+		sessionHandler := httptransport.NewServer(
+			endpoints.AuthSessionEndpoint,
+			func(_ context.Context, r *http.Request) (interface{}, error) {
+				var req CreateSessionGatewayRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					return nil, err
+				}
+				return &req, nil
+			},
+			encodeHTTPResponse,
+			options...,
+		)
+		mux.Handle("/api/v1/auth/session", sessionHandler)
+	}
+
+	return mux
+}
+
+// NewHTTPHandlerWithDownload builds the same handlers as NewHTTPHandler and also
+// registers a /download handler that consumes tokens from the provided
+// TokenStore and streams files from the provided storage backend.
+func NewHTTPHandlerWithDownload(endpoints GatewayEndpoints, logger log.Logger, store storage.Reader, tokenStore task.TokenStore) http.Handler {
+	// call NewHTTPHandler which will pick up auth endpoints from the endpoints struct
+	mux := NewHTTPHandler(endpoints, logger).(*http.ServeMux)
+
+	// Register download handler
+	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, "missing token", http.StatusBadRequest)
+			return
+		}
+
+		// Consume token
+		meta, err := tokenStore.ConsumeToken(ctx, token)
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to consume token", "err", err)
+			http.Error(w, "failed to validate token", http.StatusInternalServerError)
+			return
+		}
+		if meta == nil {
+			level.Info(logger).Log("msg", "token not found or expired", "token", token)
+			http.Error(w, "invalid or expired token", http.StatusNotFound)
+			return
+		}
+		if time.Now().After(meta.Expires) {
+			level.Info(logger).Log("msg", "token expired", "token", token)
+			http.Error(w, "token expired", http.StatusNotFound)
+			return
+		}
+
+		// ACL: ensure authenticated user matches token owner
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			level.Warn(logger).Log("msg", "download request missing user in context")
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		if meta.OwnerID != 0 && meta.OwnerID != userID {
+			level.Warn(logger).Log("msg", "token owner mismatch", "token_owner", meta.OwnerID, "request_user", userID)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		level.Info(logger).Log("msg", "token validated", "task_key", meta.Key, "owner", meta.OwnerID)
+
+		// Support Range header
+		var reader io.ReadCloser
+		rangeHdr := r.Header.Get("Range")
+		if rangeHdr != "" {
+			// expect format: bytes=start-end or bytes=start-
+			if !strings.HasPrefix(rangeHdr, "bytes=") {
+				http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			parts := strings.Split(strings.TrimPrefix(rangeHdr, "bytes="), "-")
+			if len(parts) != 2 {
+				http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			start, err1 := strconv.ParseInt(parts[0], 10, 64)
+			var end int64 = -1
+			var err2 error
+			if parts[1] != "" {
+				end, err2 = strconv.ParseInt(parts[1], 10, 64)
+			}
+			if err1 != nil || (parts[1] != "" && err2 != nil) {
+				http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			if end >= 0 {
+				reader, err = store.GetWithRange(ctx, meta.Key, start, end)
+			} else {
+				reader, err = store.GetWithRange(ctx, meta.Key, start, -1)
+			}
+			if err != nil {
+				http.Error(w, fmt.Sprintf("failed to fetch range: %v", err), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusPartialContent)
+		} else {
+			reader, err = store.Get(ctx, meta.Key)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("failed to fetch file: %v", err), http.StatusInternalServerError)
+				return
+			}
+		}
+		defer reader.Close()
+
+		// Try to get info for headers
+		if info, err := store.GetInfo(ctx, meta.Key); err == nil && info != nil {
+			if info.ContentType != "" {
+				w.Header().Set("Content-Type", info.ContentType)
+			}
+			if info.FileSize > 0 {
+				w.Header().Set("Content-Length", strconv.FormatInt(info.FileSize, 10))
+			}
+			if info.FileName != "" {
+				w.Header().Set("Content-Disposition", "attachment; filename=\""+info.FileName+"\"")
+			}
+		}
+
+		// Stream the content
+		if _, err := io.Copy(w, reader); err != nil {
+			// If client aborted, nothing to do; otherwise log error
+			http.Error(w, "failed to stream file", http.StatusInternalServerError)
+			return
+		}
+	})
 
 	return mux
 }
