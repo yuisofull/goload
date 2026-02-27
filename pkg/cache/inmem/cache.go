@@ -2,9 +2,10 @@ package inmem
 
 import (
 	"context"
-	"github.com/yuisofull/goload/pkg/cache"
 	"sync"
 	"time"
+
+	"github.com/yuisofull/goload/pkg/cache"
 )
 
 type item[V any] struct {
@@ -54,6 +55,21 @@ func (c *Cache[K, V]) Get(_ context.Context, key K) (V, error) {
 func (c *Cache[K, V]) Delete(_ context.Context, key K) error {
 	c.data.Delete(key)
 	return nil
+}
+
+func (c *Cache[K, V]) GetAndDelete(_ context.Context, key K) (V, error) {
+	var zero V
+	val, ok := c.data.Load(key)
+	if !ok {
+		return zero, cache.Nil
+	}
+	it := val.(item[V])
+	if !it.expiration.IsZero() && time.Now().After(it.expiration) {
+		c.data.Delete(key)
+		return zero, cache.Nil
+	}
+	c.data.Delete(key)
+	return it.value, nil
 }
 
 func (c *Cache[K, V]) Has(ctx context.Context, key K) (bool, error) {

@@ -5,8 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/yuisofull/goload/pkg/cache"
 	"time"
+
+	"github.com/yuisofull/goload/pkg/cache"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -75,6 +76,53 @@ func (c *RedisCache[K, V]) Get(ctx context.Context, key K) (V, error) {
 		return zero, err
 	}
 	return v, nil
+}
+
+// GetAndDelete atomically retrieves the value for the given key and deletes it.
+// Returns cache.Nil if the key does not exist.
+func (c *RedisCache[K, V]) GetAndDelete(ctx context.Context, key K) (V, error) {
+	var zero V
+	encodedKey, err := c.keyEncoder.Encode(key)
+	if err != nil {
+		return zero, err
+	}
+
+	// Lua script: get value, if nil return nil, else delete and return value
+	script := redis.NewScript(`
+		local v = redis.call("GET", KEYS[1])
+		if (not v) then
+			return nil
+		end
+		redis.call("DEL", KEYS[1])
+		return v
+	`)
+
+	res, err := script.Run(ctx, c.client, []string{encodedKey}).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return zero, cache.Nil
+		}
+		return zero, err
+	}
+	if res == nil {
+		return zero, cache.Nil
+	}
+
+	var raw []byte
+	switch v := res.(type) {
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	default:
+		return zero, fmt.Errorf("unexpected redis type: %T", res)
+	}
+
+	value, err := c.marshaler.Unmarshal(raw)
+	if err != nil {
+		return zero, err
+	}
+	return value, nil
 }
 
 func (c *RedisCache[K, V]) Delete(ctx context.Context, key K) error {

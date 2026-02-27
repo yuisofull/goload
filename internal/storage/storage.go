@@ -26,6 +26,13 @@ type Backend interface {
 	Reader
 }
 
+// Presigner is an optional interface implemented by backends that can
+// return temporary presigned URLs for GET operations.
+type Presigner interface {
+	// PresignGet returns a URL that allows GET access to `key` for the provided ttl.
+	PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error)
+}
+
 // FileMetadata contains file metadata from source
 type FileMetadata struct {
 	FileName     string            `json:"file_name"`
@@ -37,6 +44,14 @@ type FileMetadata struct {
 	ChecksumType string            `json:"checksum_type"`
 	Checksum     []byte            `json:"checksum"`
 	Headers      map[string]string `json:"headers"`
+}
+
+// TokenMetadata describes stored information for one-time download tokens.
+type TokenMetadata struct {
+	Key     string
+	OwnerID uint64
+	OneTime bool
+	Expires time.Time
 }
 
 // Type defines the type of storage backend

@@ -25,6 +25,10 @@ type Cache[K comparable, V any] interface {
 
 	// Len will return the number of values stored in the cache.
 	Len(ctx context.Context) (int, error)
+
+	// GetAndDelete atomically retrieves the value for the given key and deletes it.
+	// Implementations should return cache.Nil when the key does not exist.
+	GetAndDelete(ctx context.Context, key K) (V, error)
 }
 
 type SetCache[K comparable, V any] interface {
@@ -34,7 +38,5 @@ type SetCache[K comparable, V any] interface {
 	Contains(ctx context.Context, key K, member V) (bool, error)
 }
 
-var (
-	// Nil is return when the value does not exist
-	Nil = errors.New("cache: nil")
-)
+// Nil is return when the value does not exist
+var Nil = errors.New("cache: nil")

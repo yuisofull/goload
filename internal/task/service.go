@@ -3,9 +3,12 @@ package task
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/storage"
 )
@@ -37,6 +40,10 @@ type Service interface {
 
 	// Utility
 	GetTaskProgress(ctx context.Context, taskID uint64) (*DownloadProgress, error)
+	// GenerateDownloadURL returns a URL clients can use to download the stored file.
+	// If direct is true, the URL is a presigned storage URL. If false, the URL
+	// points to a server-side download endpoint that will validate a token.
+	GenerateDownloadURL(ctx context.Context, taskID uint64, ttl time.Duration, oneTime bool) (url string, direct bool, err error)
 }
 
 type Repository interface {
@@ -56,14 +63,105 @@ type service struct {
 	repo Repository
 	pub  Publisher
 	tx   TxManager
+	// optional presigner for storage backends that support presigning
+	presigner storage.Presigner
+	// token store for one-time tokens fallback
+	tokenStore TokenStore
+}
+
+// TokenStore stores one-time or short-lived tokens for server-side download URLs.
+type TokenStore interface {
+	CreateToken(ctx context.Context, token string, meta storage.TokenMetadata, ttl time.Duration) error
+	ConsumeToken(ctx context.Context, token string) (*storage.TokenMetadata, error)
+}
+
+// WithPresigner configures the task service with a storage presigner (optional).
+func WithPresigner(p storage.Presigner) func(*service) {
+	return func(s *service) { s.presigner = p }
+}
+
+// WithTokenStore configures the task service with a TokenStore (optional).
+func WithTokenStore(ts TokenStore) func(*service) {
+	return func(s *service) { s.tokenStore = ts }
+}
+
+// in-memory token store for tests or simple setups
+type inmemTokenStore struct {
+	mu    sync.Mutex
+	store map[string]storage.TokenMetadata
+}
+
+func NewInmemTokenStore() TokenStore {
+	return &inmemTokenStore{store: make(map[string]storage.TokenMetadata)}
+}
+
+func (m *inmemTokenStore) CreateToken(ctx context.Context, token string, meta storage.TokenMetadata, ttl time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.store[token] = meta
+	// TTL not enforced in this simple implementation
+	return nil
+}
+
+func (m *inmemTokenStore) ConsumeToken(ctx context.Context, token string) (*storage.TokenMetadata, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	meta, ok := m.store[token]
+	if !ok {
+		return nil, nil
+	}
+	delete(m.store, token)
+	return &meta, nil
 }
 
 func NewService(repo Repository, pub Publisher, tx TxManager) Service {
-	return &service{
+	s := &service{
 		repo: repo,
 		pub:  pub,
 		tx:   tx,
 	}
+	return s
+}
+
+// GenerateDownloadURL returns a presigned URL or server token URL for the task's stored file.
+func (s *service) GenerateDownloadURL(ctx context.Context, taskID uint64, ttl time.Duration, oneTime bool) (string, bool, error) {
+	// fetch task and authorization is expected to be handled by caller
+	t, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return "", false, &errors.Error{Code: errors.ErrCodeNotFound, Message: "task not found", Cause: err}
+	}
+
+	if t.StoragePath == "" {
+		return "", false, &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "task has no stored file"}
+	}
+
+	// Try presigner if available and oneTime == false
+	if s.presigner != nil && !oneTime {
+		urlStr, err := s.presigner.PresignGet(ctx, t.StorageType.String(), t.StoragePath, ttl)
+		if err == nil {
+			return urlStr, true, nil
+		}
+		// fallthrough to token path on presign error
+	}
+
+	if s.tokenStore == nil {
+		return "", false, &errors.Error{Code: errors.ErrCodeInternal, Message: "no token store configured"}
+	}
+
+	token := uuid.New().String()
+	meta := storage.TokenMetadata{
+		Key:     t.StoragePath,
+		OwnerID: t.OfAccountID,
+		OneTime: oneTime,
+		Expires: time.Now().Add(ttl),
+	}
+
+	if err := s.tokenStore.CreateToken(ctx, token, meta, ttl); err != nil {
+		return "", false, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to create download token", Cause: err}
+	}
+
+	// server endpoint is assumed to be handled by API gateway; return token URL path
+	return fmt.Sprintf("/download?token=%s", url.QueryEscape(token)), false, nil
 }
 
 func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task, error) {
