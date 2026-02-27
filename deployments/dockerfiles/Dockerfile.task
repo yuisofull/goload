@@ -1,0 +1,20 @@
+FROM golang:1.23.4 AS builder
+WORKDIR /src
+COPY . .
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN go build -o /bin/task ./cmd/task
+
+FROM debian:12-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl netcat-openbsd wget default-mysql-client \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /bin/task /app/task
+COPY --from=builder /bin/task /bin/task
+RUN chmod +x /app/task || true
+RUN test -x /app/task || (echo "/app/task missing or not executable" && false)
+COPY configs/config.yaml /app/configs/config.yaml
+COPY migrations /app/migrations
+WORKDIR /app
+ENTRYPOINT ["/app/task"]

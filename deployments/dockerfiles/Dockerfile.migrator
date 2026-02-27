@@ -1,0 +1,18 @@
+FROM debian:12-slim
+
+# small migrator image: installs mysql client and mc
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates wget default-mysql-client netcat-openbsd curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# copy the wait script and migrations/config
+COPY deployments/run-migrations.sh /app/run-migrations.sh
+COPY configs/config.yaml /app/configs/config.yaml
+COPY migrations /app/migrations
+RUN chmod +x /app/run-migrations.sh
+
+# migrator will run migrations and then exit
+ENTRYPOINT ["/app/run-migrations.sh"]
+CMD ["/bin/true"]
