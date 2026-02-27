@@ -5,9 +5,11 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/ratelimit"
+	"golang.org/x/time/rate"
+
 	"github.com/yuisofull/goload/internal/auth"
 	pb "github.com/yuisofull/goload/internal/auth/pb"
-	"golang.org/x/time/rate"
+	apperrors "github.com/yuisofull/goload/internal/errors"
 )
 
 type CreateAccountRequest pb.CreateAccountRequest
@@ -18,8 +20,10 @@ type CreateSessionRequest pb.CreateSessionRequest
 
 type CreateSessionResponse pb.CreateSessionResponse
 
-type VerifyTokenRequest pb.VerifySessionRequest
-type VerifyTokenResponse pb.VerifySessionResponse
+type (
+	VerifyTokenRequest  pb.VerifySessionRequest
+	VerifyTokenResponse pb.VerifySessionResponse
+)
 
 type Set struct {
 	CreateAccountEndpoint endpoint.Endpoint
@@ -48,7 +52,7 @@ func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
 	}
 }
 
-// MakeCreateSessionEndpoint creates an endpoint for the CreateSession service method
+// MakeCreateSessionEndpoint creates an endpoint for the CreateSession service method.
 func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*CreateSessionRequest)
@@ -65,6 +69,10 @@ func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 
 		return &CreateSessionResponse{
 			Token: output.Token,
+			Account: &pb.Account{
+				Id:          output.Account.Id,
+				AccountName: output.Account.AccountName,
+			},
 		}, nil
 	}
 }
@@ -156,7 +164,21 @@ func (e *Set) VerifySession(ctx context.Context, params auth.VerifySessionParams
 	if err != nil {
 		return auth.VerifySessionOutput{}, err
 	}
-	out := resp.(*VerifyTokenResponse)
+	if resp == nil {
+		return auth.VerifySessionOutput{}, &apperrors.Error{
+			Code:    apperrors.ErrCodeUnauthenticated,
+			Message: "invalid token",
+		}
+	}
+
+	out, ok := resp.(*VerifyTokenResponse)
+	if !ok || out == nil {
+		return auth.VerifySessionOutput{}, &apperrors.Error{
+			Code:    apperrors.ErrCodeUnauthenticated,
+			Message: "invalid token response",
+		}
+	}
+
 	return auth.VerifySessionOutput{
 		AccountID: out.AccountId,
 	}, nil
