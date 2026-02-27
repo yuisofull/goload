@@ -25,6 +25,21 @@ service TaskService {
   rpc CompleteTask(CompleteTaskRequest) returns (UpdateTaskResponse);
   rpc CheckFileExists(CheckFileExistsRequest) returns (CheckFileExistsResponse);
   rpc GetTaskProgress(GetTaskProgressRequest) returns (GetTaskProgressResponse);
+  // Generate a download URL for a completed task. If direct is true the URL is
+  // a presigned storage URL, otherwise it points to the server-side download
+  // endpoint which validates a token.
+  rpc GenerateDownloadURL(GenerateDownloadURLRequest) returns (GenerateDownloadURLResponse);
+}
+
+message GenerateDownloadURLRequest {
+  uint64 task_id = 1;
+  int64 ttl_seconds = 2; // requested TTL for the URL/token
+  bool one_time = 3;     // whether this URL should be one-time use
+}
+
+message GenerateDownloadURLResponse {
+  string url = 1;
+  bool direct = 2; // true if this is a presigned direct storage URL
 }
 
 message Task {

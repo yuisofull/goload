@@ -36,6 +36,7 @@ const (
 	TaskService_CompleteTask_FullMethodName          = "/task.TaskService/CompleteTask"
 	TaskService_CheckFileExists_FullMethodName       = "/task.TaskService/CheckFileExists"
 	TaskService_GetTaskProgress_FullMethodName       = "/task.TaskService/GetTaskProgress"
+	TaskService_GenerateDownloadURL_FullMethodName   = "/task.TaskService/GenerateDownloadURL"
 )
 
 // TaskServiceClient is the client API for TaskService service.
@@ -59,6 +60,10 @@ type TaskServiceClient interface {
 	CompleteTask(ctx context.Context, in *CompleteTaskRequest, opts ...grpc.CallOption) (*UpdateTaskResponse, error)
 	CheckFileExists(ctx context.Context, in *CheckFileExistsRequest, opts ...grpc.CallOption) (*CheckFileExistsResponse, error)
 	GetTaskProgress(ctx context.Context, in *GetTaskProgressRequest, opts ...grpc.CallOption) (*GetTaskProgressResponse, error)
+	// Generate a download URL for a completed task. If direct is true the URL is
+	// a presigned storage URL, otherwise it points to the server-side download
+	// endpoint which validates a token.
+	GenerateDownloadURL(ctx context.Context, in *GenerateDownloadURLRequest, opts ...grpc.CallOption) (*GenerateDownloadURLResponse, error)
 }
 
 type taskServiceClient struct {
@@ -239,6 +244,16 @@ func (c *taskServiceClient) GetTaskProgress(ctx context.Context, in *GetTaskProg
 	return out, nil
 }
 
+func (c *taskServiceClient) GenerateDownloadURL(ctx context.Context, in *GenerateDownloadURLRequest, opts ...grpc.CallOption) (*GenerateDownloadURLResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenerateDownloadURLResponse)
+	err := c.cc.Invoke(ctx, TaskService_GenerateDownloadURL_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaskServiceServer is the server API for TaskService service.
 // All implementations must embed UnimplementedTaskServiceServer
 // for forward compatibility.
@@ -260,6 +275,10 @@ type TaskServiceServer interface {
 	CompleteTask(context.Context, *CompleteTaskRequest) (*UpdateTaskResponse, error)
 	CheckFileExists(context.Context, *CheckFileExistsRequest) (*CheckFileExistsResponse, error)
 	GetTaskProgress(context.Context, *GetTaskProgressRequest) (*GetTaskProgressResponse, error)
+	// Generate a download URL for a completed task. If direct is true the URL is
+	// a presigned storage URL, otherwise it points to the server-side download
+	// endpoint which validates a token.
+	GenerateDownloadURL(context.Context, *GenerateDownloadURLRequest) (*GenerateDownloadURLResponse, error)
 	mustEmbedUnimplementedTaskServiceServer()
 }
 
@@ -320,6 +339,9 @@ func (UnimplementedTaskServiceServer) CheckFileExists(context.Context, *CheckFil
 }
 func (UnimplementedTaskServiceServer) GetTaskProgress(context.Context, *GetTaskProgressRequest) (*GetTaskProgressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTaskProgress not implemented")
+}
+func (UnimplementedTaskServiceServer) GenerateDownloadURL(context.Context, *GenerateDownloadURLRequest) (*GenerateDownloadURLResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GenerateDownloadURL not implemented")
 }
 func (UnimplementedTaskServiceServer) mustEmbedUnimplementedTaskServiceServer() {}
 func (UnimplementedTaskServiceServer) testEmbeddedByValue()                     {}
@@ -648,6 +670,24 @@ func _TaskService_GetTaskProgress_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaskService_GenerateDownloadURL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GenerateDownloadURLRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskServiceServer).GenerateDownloadURL(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskService_GenerateDownloadURL_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskServiceServer).GenerateDownloadURL(ctx, req.(*GenerateDownloadURLRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaskService_ServiceDesc is the grpc.ServiceDesc for TaskService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -722,6 +762,10 @@ var TaskService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTaskProgress",
 			Handler:    _TaskService_GetTaskProgress_Handler,
+		},
+		{
+			MethodName: "GenerateDownloadURL",
+			Handler:    _TaskService_GenerateDownloadURL_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
