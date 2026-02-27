@@ -37,22 +37,26 @@ func (ec *EventConsumer) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	ec.logger.Printf("subscription started: topic=task.created")
 
 	// Subscribe to task control events
 	taskPausedCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskPaused))
 	if err != nil {
 		return err
 	}
+	ec.logger.Printf("subscription started: topic=task.paused")
 
 	taskResumedCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskResumed))
 	if err != nil {
 		return err
 	}
+	ec.logger.Printf("subscription started: topic=task.resumed")
 
 	taskCancelledCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskCancelled))
 	if err != nil {
 		return err
 	}
+	ec.logger.Printf("subscription started: topic=task.cancelled")
 
 	// Process events in separate goroutines
 	go ec.processTaskCreatedEvents(ctx, taskCreatedCh)
@@ -60,7 +64,11 @@ func (ec *EventConsumer) Start(ctx context.Context) error {
 	go ec.processTaskResumedEvents(ctx, taskResumedCh)
 	go ec.processTaskCancelledEvents(ctx, taskCancelledCh)
 
-	return nil
+	// Block here until context cancellation so Start acts as a long-running process
+	ec.logger.Printf("event consumer running, awaiting context done")
+	<-ctx.Done()
+	ec.logger.Printf("event consumer stopping: context canceled")
+	return ctx.Err()
 }
 
 func (ec *EventConsumer) processTaskCreatedEvents(ctx context.Context, ch <-chan *message.Message) {
