@@ -1,9 +1,11 @@
+// Package downloader provides concrete Downloader implementations.
 package downloader
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"path"
@@ -11,290 +13,265 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuisofull/goload/internal/download"
-	"github.com/yuisofull/goload/internal/task"
 	"golang.org/x/time/rate"
+
+	"github.com/yuisofull/goload/internal/download"
 )
 
-type HTTP struct {
+// HTTPDownloader implements download.Downloader for HTTP and HTTPS sources.
+// It supports:
+//   - HEAD-based metadata retrieval with GET fallback
+//   - Range requests for resume (when the server advertises Accept-Ranges)
+//   - Per-task download speed throttling via a token-bucket rate limiter
+//   - Custom request headers and Bearer/Basic authentication
+type HTTPDownloader struct {
 	client *http.Client
 }
 
-// NewHTTPDownloader creates a new HTTP downloader.
-// If client is nil, a sane default client is used.
-func NewHTTPDownloader(client *http.Client) *HTTP {
+// NewHTTPDownloader returns an HTTPDownloader that uses the provided *http.Client.
+// Pass nil to use a sensible default with a 30-second timeout.
+func NewHTTPDownloader(client *http.Client) *HTTPDownloader {
 	if client == nil {
 		client = &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 30 * time.Minute, // long-running download; individual dial is handled by transport
+			Transport: &http.Transport{
+				MaxIdleConnsPerHost:   4,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
 		}
 	}
-	return &HTTP{client: client}
+	return &HTTPDownloader{client: client}
 }
 
-func (d *HTTP) SupportsResume() bool {
-	// Protocol supports Range requests. Actual server capability
-	// is detected in GetFileInfo via Accept-Ranges/Content-Range.
-	return true
-}
+// SupportsResume returns true; the downloader will attempt range requests when
+// the server advertises "Accept-Ranges: bytes".
+func (h *HTTPDownloader) SupportsResume() bool { return true }
 
-// GetFileInfo attempts a HEAD request first; if the server doesn’t support it,
-// falls back to a 1-byte ranged GET to infer size and whether resume is supported.
-func (d *HTTP) GetFileInfo(ctx context.Context, rawURL string, auth *task.AuthConfig) (*download.FileMetadata, error) {
+// GetFileInfo issues a HEAD request (falling back to a zero-byte GET) to
+// retrieve the file name, size, and content-type without downloading the body.
+func (h *HTTPDownloader) GetFileInfo(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+) (*download.FileMetadata, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build HEAD request: %w", err)
 	}
-	applyAuthAndHeaders(req, auth)
 
-	resp, err := d.client.Do(req)
-	if err != nil || resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotFound {
-		// Fallback: GET with Range: bytes=0-0
-		if resp != nil && resp.Body != nil {
+	applyAuth(req, auth)
+
+	resp, err := h.client.Do(req)
+	if err != nil || resp.StatusCode == http.StatusMethodNotAllowed {
+		// Some servers do not support HEAD; fall back to a range-0 GET.
+		if resp != nil {
 			resp.Body.Close()
 		}
-		var fbErr error
-		return d.probeWithRangedGet(ctx, rawURL, auth, &fbErr)
+		return h.getFileInfoViaGet(ctx, rawURL, auth)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HEAD %s returned status %d", rawURL, resp.StatusCode)
+		return nil, fmt.Errorf("HEAD %s: unexpected status %s", rawURL, resp.Status)
 	}
 
-	filename := pickFileName(resp.Header.Get("Content-Disposition"), rawURL)
-	size := resp.ContentLength
-	if size < 0 {
-		// Some servers omit Content-Length on HEAD. Try ranged GET as a last resort.
-		var fbErr error
-		meta, err := d.probeWithRangedGet(ctx, rawURL, auth, &fbErr)
-		if err == nil {
-			// carry over headers from HEAD if ranged succeeded but keep filename from HEAD first
-			if filename == "" {
-				filename = meta.FileName
-			}
-			meta.FileName = filename
-			return meta, nil
-		}
-		// Keep size unknown; still return basic info.
-	}
-
-	return &download.FileMetadata{
-		FileName:    filename,
-		FileSize:    size,
-		ContentType: resp.Header.Get("Content-Type"),
-		Headers:     cloneHeader(resp.Header),
-	}, nil
+	return buildMetadata(rawURL, resp.Header), nil
 }
 
-// Download issues a GET request and returns a streaming body and the total size if known.
-// Caller must Close the returned ReadCloser.
-func (d *HTTP) Download(ctx context.Context, rawURL string, auth *task.AuthConfig, opts task.DownloadOptions) (io.ReadCloser, int64, error) {
-	client := *d.client
-	if opts.Timeout != nil && *opts.Timeout > 0 {
-		client.Timeout = time.Duration(*opts.Timeout) * time.Second
-	}
-
+// getFileInfoViaGet falls back to a GET with "Range: bytes=0-0" so we only
+// pull one byte but can still read all the response headers.
+func (h *HTTPDownloader) getFileInfoViaGet(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+) (*download.FileMetadata, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, -1, err
+		return nil, fmt.Errorf("build GET request for file info: %w", err)
 	}
-	applyAuthAndHeaders(req, auth)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, -1, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		return nil, -1, fmt.Errorf("GET %s returned status %d", rawURL, resp.StatusCode)
-	}
-
-	total := resp.ContentLength
-	reader := io.ReadCloser(resp.Body)
-	if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
-		reader = newRateLimitedReadCloser(resp.Body, *opts.MaxSpeed)
-	}
-
-	return reader, total, nil
-}
-
-func (d *HTTP) probeWithRangedGet(ctx context.Context, rawURL string, auth *task.AuthConfig, outErr *error) (*download.FileMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		*outErr = err
-		return nil, err
-	}
+	applyAuth(req, auth)
 	req.Header.Set("Range", "bytes=0-0")
-	applyAuthAndHeaders(req, auth)
 
-	resp, err := d.client.Do(req)
+	resp, err := h.client.Do(req)
 	if err != nil {
-		*outErr = err
-		return nil, err
+		return nil, fmt.Errorf("GET %s for file info: %w", rawURL, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusPartialContent && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
-		*outErr = fmt.Errorf("ranged GET returned status %d", resp.StatusCode)
-		return nil, *outErr
+	if resp.StatusCode != http.StatusOK &&
+		resp.StatusCode != http.StatusPartialContent {
+		return nil, fmt.Errorf("GET %s: unexpected status %s", rawURL, resp.Status)
 	}
 
-	// Try to infer total size from Content-Range: bytes 0-0/12345
-	total := int64(-1)
-	if cr := resp.Header.Get("Content-Range"); cr != "" {
-		if n, ok := parseTotalFromContentRange(cr); ok {
-			total = n
-		}
-	}
-
-	filename := pickFileName(resp.Header.Get("Content-Disposition"), rawURL)
-
-	return &download.FileMetadata{
-		FileName:    filename,
-		FileSize:    total,
-		ContentType: resp.Header.Get("Content-Type"),
-		Headers:     cloneHeader(resp.Header),
-	}, nil
+	return buildMetadata(rawURL, resp.Header), nil
 }
 
-func pickFileName(contentDisp, rawURL string) string {
-	// Content-Disposition: attachment; filename="name.ext"; filename*=UTF-8''name.ext
-	if contentDisp != "" {
-		// Attempt RFC 5987 filename* first
-		if i := strings.Index(strings.ToLower(contentDisp), "filename*="); i >= 0 {
-			v := contentDisp[i+10:]
-			if j := strings.Index(v, ";"); j >= 0 {
-				v = v[:j]
-			}
-			// Expect UTF-8''encoded
-			if k := strings.Index(v, "''"); k >= 0 && k+2 < len(v) {
-				decoded, err := url.QueryUnescape(strings.Trim(v[k+2:], "\""))
-				if err == nil && decoded != "" {
-					return decoded
-				}
-			}
-		}
-		// Fallback to filename=
-		if i := strings.Index(strings.ToLower(contentDisp), "filename="); i >= 0 {
-			v := strings.TrimSpace(contentDisp[i+9:])
-			v = strings.Trim(v, "\"")
-			if v != "" {
-				return v
-			}
-		}
-	}
-	// Fallback to URL path base
-	u, err := url.Parse(rawURL)
+// Download starts the HTTP download and returns a ReadCloser over the response
+// body.  When auth.MaxSpeed is set a token-bucket limiter is wrapped around
+// the body reader to honour the bytes-per-second cap.
+func (h *HTTPDownloader) Download(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+	opts download.DownloadOptions,
+) (io.ReadCloser, int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "download"
+		return nil, 0, fmt.Errorf("build GET request: %w", err)
 	}
-	base := path.Base(u.Path)
-	if base == "" || base == "/" || base == "." {
-		return "download"
+
+	applyAuth(req, auth)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("GET %s: %w", rawURL, err)
 	}
-	// strip query suffix like "?x=y"
-	if idx := strings.IndexByte(base, '?'); idx >= 0 {
-		base = base[:idx]
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		return nil, 0, fmt.Errorf("GET %s: unexpected status %s", rawURL, resp.Status)
 	}
-	return base
+
+	var reader io.ReadCloser = resp.Body
+
+	// Wrap with a rate-limiter when MaxSpeed is configured.
+	if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
+		reader = newRateLimitedReader(ctx, resp.Body, *opts.MaxSpeed)
+	}
+
+	return reader, resp.ContentLength, nil
 }
 
-func parseTotalFromContentRange(v string) (int64, bool) {
-	// Example: "bytes 0-0/12345"
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(v)), "bytes") {
-		return -1, false
-	}
-	if idx := strings.LastIndex(v, "/"); idx >= 0 && idx+1 < len(v) {
-		n, err := strconv.ParseInt(v[idx+1:], 10, 64)
-		if err == nil {
-			return n, true
-		}
-	}
-	return -1, false
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
-func applyAuthAndHeaders(req *http.Request, auth *task.AuthConfig) {
+// applyAuth decorates a request with credentials from AuthConfig.
+func applyAuth(req *http.Request, auth *download.AuthConfig) {
 	if auth == nil {
 		return
 	}
+
+	switch strings.ToLower(auth.Type) {
+	case "basic":
+		req.SetBasicAuth(auth.Username, auth.Password)
+	case "bearer", "token":
+		req.Header.Set("Authorization", "Bearer "+auth.Token)
+	}
+
 	for k, v := range auth.Headers {
-		if k == "" || v == "" {
-			continue
-		}
 		req.Header.Set(k, v)
 	}
-	typ := strings.ToLower(strings.TrimSpace(auth.Type))
-	switch typ {
-	case "basic":
-		if auth.Username != "" || auth.Password != "" {
-			req.SetBasicAuth(auth.Username, auth.Password)
-		}
-	case "bearer", "token":
-		if auth.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+auth.Token)
-		}
-	default:
-		// If only username/password is set, assume basic
-		if auth.Username != "" || auth.Password != "" {
-			req.SetBasicAuth(auth.Username, auth.Password)
-		}
-		// If only token is set, assume bearer
-		if req.Header.Get("Authorization") == "" && auth.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+auth.Token)
-		}
-	}
 }
 
-func cloneHeader(h http.Header) map[string]string {
-	out := make(map[string]string, len(h))
-	for k, vv := range h {
-		if len(vv) > 0 {
-			out[k] = vv[0]
+// buildMetadata extracts file metadata from HTTP response headers.
+func buildMetadata(rawURL string, h http.Header) *download.FileMetadata {
+	meta := &download.FileMetadata{
+		ContentType: h.Get("Content-Type"),
+		Headers:     map[string]string{},
+	}
+
+	// For partial responses (206) the true total is in Content-Range.
+	// e.g. "bytes 0-0/12345" → total = 12345
+	if cr := h.Get("Content-Range"); cr != "" {
+		if idx := strings.LastIndex(cr, "/"); idx >= 0 {
+			if n, err := strconv.ParseInt(cr[idx+1:], 10, 64); err == nil {
+				meta.FileSize = n
+			}
 		}
 	}
-	return out
+
+	// Full responses carry the total in Content-Length.
+	if meta.FileSize == 0 {
+		if cl := h.Get("Content-Length"); cl != "" {
+			if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+				meta.FileSize = n
+			}
+		}
+	}
+
+	// Filename: prefer Content-Disposition, fall back to URL path.
+	meta.FileName = filenameFromHeader(h.Get("Content-Disposition"))
+	if meta.FileName == "" {
+		meta.FileName = filenameFromURL(rawURL)
+	}
+
+	// Copy selected headers for callers that need them.
+	for _, key := range []string{
+		"Last-Modified", "ETag", "Accept-Ranges", "Content-Encoding",
+	} {
+		if v := h.Get(key); v != "" {
+			meta.Headers[key] = v
+		}
+	}
+
+	return meta
 }
 
-type rateLimitedReadCloser struct {
-	rc      io.ReadCloser
-	bps     int64 // Bytes per second rate limit
+// filenameFromHeader parses the filename from a Content-Disposition header.
+// e.g. "attachment; filename=\"report.pdf\""
+func filenameFromHeader(header string) string {
+	if header == "" {
+		return ""
+	}
+	_, params, err := mime.ParseMediaType(header)
+	if err != nil {
+		return ""
+	}
+	return params["filename"]
+}
+
+// filenameFromURL extracts the last path segment from a URL.
+func filenameFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	name := path.Base(u.Path)
+	if name == "." || name == "/" {
+		return ""
+	}
+	return name
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rate-limited reader
+// ─────────────────────────────────────────────────────────────────────────────
+
+// rateLimitedReader wraps an io.ReadCloser and throttles reads to maxBytesPerSec.
+type rateLimitedReader struct {
+	ctx     context.Context
+	inner   io.ReadCloser
 	limiter *rate.Limiter
 }
 
-func newRateLimitedReadCloser(rc io.ReadCloser, bps int64) *rateLimitedReadCloser {
-	return &rateLimitedReadCloser{
-		rc:      rc,
-		bps:     bps,
-		limiter: rate.NewLimiter(rate.Limit(bps), int(bps)),
+// newRateLimitedReader creates a reader that caps throughput to maxBytesPerSec.
+// The token bucket is initialised with a burst of up to 64 KB so small reads
+// are served immediately while the long-run average is honoured.
+func newRateLimitedReader(ctx context.Context, r io.ReadCloser, maxBytesPerSec int64) *rateLimitedReader {
+	const maxBurst = 64 * 1024 // 64 KB burst
+	burst := int(maxBytesPerSec)
+	if burst > maxBurst {
+		burst = maxBurst
+	}
+	return &rateLimitedReader{
+		ctx:     ctx,
+		inner:   r,
+		limiter: rate.NewLimiter(rate.Limit(maxBytesPerSec), burst),
 	}
 }
 
-func (r *rateLimitedReadCloser) Read(p []byte) (int, error) {
-	if r.bps <= 0 {
-		return r.rc.Read(p)
+func (r *rateLimitedReader) Read(p []byte) (int, error) {
+	// Reserve the bytes we are about to read; wait if the bucket is empty.
+	if err := r.limiter.WaitN(r.ctx, len(p)); err != nil {
+		return 0, err
 	}
-
-	// Limit chunk size to roughly 1/10 second worth to smooth throughput
-	maxChunk := r.bps / 10
-	if maxChunk <= 0 {
-		maxChunk = 1
-	}
-
-	if int64(len(p)) > maxChunk {
-		p = p[:maxChunk]
-	}
-
-	n, err := r.rc.Read(p)
-
-	if n > 0 && err == nil {
-		if err := r.limiter.WaitN(context.Background(), n); err != nil {
-			return n, err
-		}
-	}
-
-	return n, err
+	return r.inner.Read(p)
 }
 
-func (r *rateLimitedReadCloser) Close() error {
-	return r.rc.Close()
+func (r *rateLimitedReader) Close() error {
+	return r.inner.Close()
 }
