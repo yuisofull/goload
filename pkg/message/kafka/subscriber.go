@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/hashicorp/go-multierror"
-	"github.com/yuisofull/goload/pkg/message"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hashicorp/go-multierror"
+
+	"github.com/yuisofull/goload/pkg/message"
 
 	"github.com/IBM/sarama"
 )
@@ -203,7 +205,10 @@ func (c *consumerGroupHandler) Cleanup(session sarama.ConsumerGroupSession) erro
 	return nil
 }
 
-func (c *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+func (c *consumerGroupHandler) ConsumeClaim(
+	session sarama.ConsumerGroupSession,
+	claim sarama.ConsumerGroupClaim,
+) error {
 	baseCtx := c.ctx
 	for kafkaMsg := range claim.Messages() {
 		ctx := setPartitionToCtx(baseCtx, kafkaMsg.Partition)
@@ -230,7 +235,11 @@ func (c *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 	return nil
 }
 
-func (c *consumerGroupHandler) send(msgCtx context.Context, session sarama.ConsumerGroupSession, msg *message.Message) error {
+func (c *consumerGroupHandler) send(
+	msgCtx context.Context,
+	session sarama.ConsumerGroupSession,
+	msg *message.Message,
+) error {
 	for {
 		select {
 		case c.out <- msg:
@@ -263,7 +272,28 @@ func (s *Subscriber) SubscribeInitialize(topic string) (err error) {
 		return errors.New("s.config.InitializeTopicDetails is empty, cannot SubscribeInitialize")
 	}
 
-	clusterAdmin, err := sarama.NewClusterAdmin(s.config.Brokers, s.sconfig)
+	// Build a dedicated admin config: disable background metadata refresh and
+	// limit retries so we never attempt to reach a stale/previous broker address.
+	adminCfg := *s.sconfig
+	adminCfg.Metadata.RefreshFrequency = 0
+	adminCfg.Metadata.Retry.Max = 5
+	adminCfg.Metadata.Retry.Backoff = 500 * time.Millisecond
+
+	// Kafka may not be fully ready immediately after the port is reachable.
+	// Retry creating the cluster admin with backoff to handle transient startup failures.
+	const maxAttempts = 5
+	retryBackoff := 500 * time.Millisecond
+	var clusterAdmin sarama.ClusterAdmin
+	for i := range maxAttempts {
+		clusterAdmin, err = sarama.NewClusterAdmin(s.config.Brokers, &adminCfg)
+		if err == nil {
+			break
+		}
+		if i < maxAttempts-1 {
+			time.Sleep(retryBackoff)
+			retryBackoff *= 2
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("cannot create cluster admin: %w", err)
 	}
@@ -273,7 +303,12 @@ func (s *Subscriber) SubscribeInitialize(topic string) (err error) {
 		}
 	}()
 
-	if err := clusterAdmin.CreateTopic(topic, s.config.InitializeTopicDetails, false); err != nil && !strings.Contains(err.Error(), "Topic with this name already exists") {
+	if err := clusterAdmin.CreateTopic(
+		topic,
+		s.config.InitializeTopicDetails,
+		false,
+	); err != nil &&
+		!strings.Contains(err.Error(), "Topic with this name already exists") {
 		return fmt.Errorf("cannot create topic: %w", err)
 	}
 

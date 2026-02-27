@@ -2,14 +2,19 @@ package kafka
 
 import (
 	"cmp"
+	"fmt"
+	"sync/atomic"
+
 	"github.com/IBM/sarama"
 	"github.com/pkg/errors"
+
 	"github.com/yuisofull/goload/pkg/message"
 )
 
 type Publisher struct {
 	producer  sarama.SyncProducer
 	marshaler Marshaler
+	closed    atomic.Bool
 }
 
 func NewPublisher(cfg *PublisherConfig) (*Publisher, error) {
@@ -39,7 +44,21 @@ type PublisherConfig struct {
 	Marshaler   Marshaler
 }
 
-func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
+var ErrPublisherClosed = errors.New("publisher is closed")
+
+func (p *Publisher) Publish(topic string, msgs ...*message.Message) (err error) {
+	if p.closed.Load() {
+		return ErrPublisherClosed
+	}
+
+	// Sarama's syncProducer panics with "send on closed channel" when the
+	// producer has been closed. Recover and return it as a proper error.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("producer panic: %v", r)
+		}
+	}()
+
 	for _, msg := range msgs {
 		kafkaMsg, err := p.marshaler.Marshal(topic, msg)
 		if err != nil {
@@ -57,5 +76,6 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 }
 
 func (p *Publisher) Close() error {
+	p.closed.Store(true)
 	return p.producer.Close()
 }
