@@ -206,22 +206,23 @@ func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {
 		grpctransport.ClientBefore(NewLogRequestFunc(logger)),
 		grpctransport.ClientAfter(NewLogResponseFunc(logger)),
 	}
+	svcName := "task.TaskService"
 	return &taskendpoint.Set{
-		CreateTaskEndpoint:            grpctransport.NewClient(conn, "pb.TaskService", "CreateTask", encodeCreateTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		GetTaskEndpoint:               grpctransport.NewClient(conn, "pb.TaskService", "GetTask", encodeGetTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		ListTasksEndpoint:             grpctransport.NewClient(conn, "pb.TaskService", "ListTasks", encodeListTasksRequest, decodeListTasksResponse, pb.ListTasksResponse{}, options...).Endpoint(),
-		DeleteTaskEndpoint:            grpctransport.NewClient(conn, "pb.TaskService", "DeleteTask", encodeDeleteTaskRequest, decodeDeleteTaskResponse, pb.DeleteTaskResponse{}, options...).Endpoint(),
-		PauseTaskEndpoint:             grpctransport.NewClient(conn, "pb.TaskService", "PauseTask", encodePauseTaskRequest, decodePauseTaskResponse, pb.PauseTaskResponse{}, options...).Endpoint(),
-		ResumeTaskEndpoint:            grpctransport.NewClient(conn, "pb.TaskService", "ResumeTask", encodeResumeTaskRequest, decodeResumeTaskResponse, pb.ResumeTaskResponse{}, options...).Endpoint(),
-		CancelTaskEndpoint:            grpctransport.NewClient(conn, "pb.TaskService", "CancelTask", encodeCancelTaskRequest, decodeCancelTaskResponse, pb.CancelTaskResponse{}, options...).Endpoint(),
-		RetryTaskEndpoint:             grpctransport.NewClient(conn, "pb.TaskService", "RetryTask", encodeRetryTaskRequest, decodeRetryTaskResponse, pb.RetryTaskResponse{}, options...).Endpoint(),
-		UpdateTaskStoragePathEndpoint: grpctransport.NewClient(conn, "pb.TaskService", "UpdateTaskStoragePath", encodeUpdateTaskStoragePathRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		UpdateTaskStatusEndpoint:      grpctransport.NewClient(conn, "pb.TaskService", "UpdateTaskStatus", encodeUpdateTaskStatusRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		UpdateTaskProgressEndpoint:    grpctransport.NewClient(conn, "pb.TaskService", "UpdateTaskProgress", encodeUpdateTaskProgressRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		UpdateTaskErrorEndpoint:       grpctransport.NewClient(conn, "pb.TaskService", "UpdateTaskError", encodeUpdateTaskErrorRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		CompleteTaskEndpoint:          grpctransport.NewClient(conn, "pb.TaskService", "CompleteTask", encodeCompleteTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		CheckFileExistsEndpoint:       grpctransport.NewClient(conn, "pb.TaskService", "CheckFileExists", encodeCheckFileExistsRequest, decodeCheckFileExistsResponse, pb.CheckFileExistsResponse{}, options...).Endpoint(),
-		GetTaskProgressEndpoint:       grpctransport.NewClient(conn, "pb.TaskService", "GetTaskProgress", encodeGetTaskProgressRequest, decodeGetTaskProgressResponse, pb.GetTaskProgressResponse{}, options...).Endpoint(),
+		CreateTaskEndpoint:            grpctransport.NewClient(conn, svcName, "CreateTask", encodeCreateTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		GetTaskEndpoint:               grpctransport.NewClient(conn, svcName, "GetTask", encodeGetTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		ListTasksEndpoint:             grpctransport.NewClient(conn, svcName, "ListTasks", encodeListTasksRequest, decodeListTasksResponse, pb.ListTasksResponse{}, options...).Endpoint(),
+		DeleteTaskEndpoint:            grpctransport.NewClient(conn, svcName, "DeleteTask", encodeDeleteTaskRequest, decodeDeleteTaskResponse, pb.DeleteTaskResponse{}, options...).Endpoint(),
+		PauseTaskEndpoint:             grpctransport.NewClient(conn, svcName, "PauseTask", encodePauseTaskRequest, decodePauseTaskResponse, pb.PauseTaskResponse{}, options...).Endpoint(),
+		ResumeTaskEndpoint:            grpctransport.NewClient(conn, svcName, "ResumeTask", encodeResumeTaskRequest, decodeResumeTaskResponse, pb.ResumeTaskResponse{}, options...).Endpoint(),
+		CancelTaskEndpoint:            grpctransport.NewClient(conn, svcName, "CancelTask", encodeCancelTaskRequest, decodeCancelTaskResponse, pb.CancelTaskResponse{}, options...).Endpoint(),
+		RetryTaskEndpoint:             grpctransport.NewClient(conn, svcName, "RetryTask", encodeRetryTaskRequest, decodeRetryTaskResponse, pb.RetryTaskResponse{}, options...).Endpoint(),
+		UpdateTaskStoragePathEndpoint: grpctransport.NewClient(conn, svcName, "UpdateTaskStoragePath", encodeUpdateTaskStoragePathRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		UpdateTaskStatusEndpoint:      grpctransport.NewClient(conn, svcName, "UpdateTaskStatus", encodeUpdateTaskStatusRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		UpdateTaskProgressEndpoint:    grpctransport.NewClient(conn, svcName, "UpdateTaskProgress", encodeUpdateTaskProgressRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		UpdateTaskErrorEndpoint:       grpctransport.NewClient(conn, svcName, "UpdateTaskError", encodeUpdateTaskErrorRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		CompleteTaskEndpoint:          grpctransport.NewClient(conn, svcName, "CompleteTask", encodeCompleteTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
+		CheckFileExistsEndpoint:       grpctransport.NewClient(conn, svcName, "CheckFileExists", encodeCheckFileExistsRequest, decodeCheckFileExistsResponse, pb.CheckFileExistsResponse{}, options...).Endpoint(),
+		GetTaskProgressEndpoint:       grpctransport.NewClient(conn, svcName, "GetTaskProgress", encodeGetTaskProgressRequest, decodeGetTaskProgressResponse, pb.GetTaskProgressResponse{}, options...).Endpoint(),
 	}
 }
 
