@@ -10,10 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/events"
 	"github.com/yuisofull/goload/internal/storage"
-	"golang.org/x/sync/semaphore"
 )
 
 type EventPublisher interface {
@@ -32,6 +33,12 @@ type Service interface {
 	GetActiveTaskCount(ctx context.Context) int
 }
 
+// Registrar is an optional interface implemented by the concrete service that
+// allows callers to register downloaders for specific source types.
+type Registrar interface {
+	RegisterDownloader(sourceType string, downloader Downloader)
+}
+
 type taskExecution struct {
 	task           TaskRequest
 	ctx            context.Context
@@ -44,7 +51,7 @@ type service struct {
 	downloaders        map[string]Downloader
 	storageType        storage.Type
 	storage            storage.Backend
-	publisher          *DownloadEventPublisher
+	publisher          EventPublisher
 	mu                 sync.RWMutex
 	activeTasks        map[uint64]*taskExecution
 	maxConcurrent      int
@@ -78,7 +85,7 @@ func WithErrorHandler(errorHandler ErrorHandler) Option {
 	}
 }
 
-func NewService(storage storage.Backend, publisher *DownloadEventPublisher, opts ...Option) Service {
+func NewService(storage storage.Backend, publisher EventPublisher, opts ...Option) *service {
 	s := &service{
 		downloaders:        make(map[string]Downloader),
 		storage:            storage,
@@ -121,7 +128,12 @@ func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
 	downloader, exists := s.downloaders[req.SourceType]
 	if !exists {
 		s.mu.Unlock()
-		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: fmt.Sprintf("no downloader for source type %s", req.SourceType)}
+		dlErr := &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: fmt.Sprintf("no downloader for source type %s", req.SourceType),
+		}
+		s.markTaskFailed(ctx, req.TaskID, dlErr)
+		return dlErr
 	}
 
 	taskCtx, cancel := context.WithTimeout(ctx, s.taskTimeOut)
@@ -209,7 +221,11 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		// If this was the last attempt, fail
 		if attempt == maxRetries {
 			s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to start download: %w", dlErr))
-			return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to start download", Cause: fmt.Errorf("downloading %s: %w", taskReq.SourceURL, dlErr)}
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to start download",
+				Cause:   fmt.Errorf("downloading %s: %w", taskReq.SourceURL, dlErr),
+			}
 		}
 
 		// _ = s.publisher.PublishTaskRetried(ctx, events.TaskRetriedEvent{
@@ -343,7 +359,10 @@ func (s *service) CancelTask(ctx context.Context, taskID uint64) error {
 func (s *service) StreamFile(ctx context.Context, req FileStreamRequest) (*FileStreamResponse, error) {
 	// NOTE: This method needs to be redesigned for event-driven architecture
 	// as it requires task information that is not available without direct access to task service
-	return nil, &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "StreamFile requires redesign for event-driven architecture"}
+	return nil, &errors.Error{
+		Code:    errors.ErrCodeInvalidInput,
+		Message: "StreamFile requires redesign for event-driven architecture",
+	}
 }
 
 func (s *service) GetActiveTaskCount(ctx context.Context) int {
@@ -362,7 +381,10 @@ func (s *service) markTaskFailed(ctx context.Context, taskID uint64, err error) 
 	}
 
 	if publishErr := s.publisher.PublishTaskFailed(context.Background(), failEvent); publishErr != nil {
-		s.errorHandler(context.Background(), fmt.Errorf("failed to publish task failed event for task %d: %w", taskID, publishErr))
+		s.errorHandler(
+			context.Background(),
+			fmt.Errorf("failed to publish task failed event for task %d: %w", taskID, publishErr),
+		)
 	}
 }
 
