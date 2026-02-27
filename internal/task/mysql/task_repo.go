@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/storage"
 	task "github.com/yuisofull/goload/internal/task"

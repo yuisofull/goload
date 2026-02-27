@@ -46,26 +46,6 @@ protoc \
     --proto_path=api \
     api/auth.proto
 
-# Generate download_task.proto
-#print_info "Generating download_task.proto..."
-#protoc \
-#    --go_out=internal/task/pb \
-#    --go_opt=paths=source_relative \
-#    --go-grpc_out=internal/task/pb \
-#    --go-grpc_opt=paths=source_relative \
-#    --proto_path=api \
-#    api/download_task.proto
-
-# Generate file.proto
-print_info "Generating file.proto..."
-protoc \
-    --go_out=internal/file/pb \
-    --go_opt=paths=source_relative \
-    --go-grpc_out=internal/file/pb \
-    --go-grpc_opt=paths=source_relative \
-    --proto_path=api \
-    api/file.proto
-
 # Generate task.proto
 print_info "Generating task.proto..."
 protoc \
@@ -76,19 +56,7 @@ protoc \
     --proto_path=api \
     api/task.proto
 
-# Generate task.proto
-print_info "Generating download.proto..."
-protoc \
-    --go_out=internal/download/pb \
-    --go_opt=paths=source_relative \
-    --go-grpc_out=internal/download/pb \
-    --go-grpc_opt=paths=source_relative \
-    --proto_path=api \
-    api/download.proto
-
 # Generate SQLC code
 print_info "Generating SQLC code..."
 sqlc generate -f configs/auth_svc_sqlc.yaml
-sqlc generate -f configs/download_task_svc_sqlc.yaml
 sqlc generate -f configs/task_svc_sqlc.yaml
-#sqlc generate -f configs/file_svc_sqlc.yaml

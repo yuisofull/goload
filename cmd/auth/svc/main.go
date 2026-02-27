@@ -6,6 +6,12 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"fmt"
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -21,10 +27,6 @@ import (
 	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 	"github.com/yuisofull/goload/pkg/crypto/bcrypt"
 	"google.golang.org/grpc"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 func main() {
@@ -72,6 +74,16 @@ func main() {
 			level.Error(logger).Log("err", err)
 			os.Exit(1)
 		}
+		// ping to verify connection
+		for i := 0; i < 5; i++ {
+			err = mysqlDB.Ping()
+			if err == nil {
+				break
+			}
+			level.Error(logger).Log("err", err, "msg", "failed to connect to mysql, retrying...")
+			// wait before retrying
+			<-time.After(2 * time.Second)
+		}
 	}
 
 	var store *authmysql.Store
@@ -83,7 +95,7 @@ func main() {
 	var (
 		tokenManager   auth.TokenManager
 		tokenStore     = store.TokenPublicKeyStore
-		publicKeyCache = rediscache.New[authcache.TokenPublicKeyCacheKey, []byte](
+		publicKeyCache = rediscache.New(
 			redisClient,
 			rediscache.WithKeyEncoder[authcache.TokenPublicKeyCacheKey, []byte](
 				rediscache.PrefixKeyEncoder[authcache.TokenPublicKeyCacheKey]{
@@ -113,7 +125,7 @@ func main() {
 	var (
 		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
 		hasher       = auth.NewPasswordHasher(bcryptHasher)
-		nameCache    = rediscache.New[authcache.AccountNameTakenSetKey, string](
+		nameCache    = rediscache.New(
 			redisClient,
 			rediscache.WithKeyEncoder[authcache.AccountNameTakenSetKey, string](
 				rediscache.PrefixKeyEncoder[authcache.AccountNameTakenSetKey]{
@@ -153,10 +165,8 @@ func main() {
 
 	{
 		g.Add(func() error {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			<-ctx.Done()
+			return ctx.Err()
 		}, func(error) {
 		})
 	}

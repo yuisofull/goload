@@ -14,6 +14,7 @@ type Config struct {
 	AuthService         AuthService         `yaml:"authservice"`
 	DownloadTaskService DownloadTaskService `yaml:"downloadtaskservice"`
 	FileService         FileService         `yaml:"fileservice"`
+	Messaging           Messaging           `yaml:"messaging"`
 }
 
 func Load() (*Config, error) {

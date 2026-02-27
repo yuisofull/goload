@@ -1,13 +1,13 @@
 log:
   level: "debug"
 mysql:
-  host: 127.0.0.1
+  host: mysql
   port: 3306
   username: root
   password: example
   database: goload
 redis:
-  address: "127.0.0.1:6379"
+  address: "redis:6379"
   username: ""
   password: ""
 auth:
@@ -22,12 +22,26 @@ auth:
 apigateway:
   http:
     address: "0.0.0.0:8080"
+  token_hmac_secret: "dev-secret-123456"
+  storage:
+    minio:
+      endpoint: "http://minio:9000"
+      access_key: "minioadmin"
+      secret_key: "minioadmin"
+      bucket: "goload"
+      use_ssl: false
 authservice:
   grpc:
-    address: "0.0.0.0:8081"
+    # inside docker-compose, use the service container name so other containers can reach it
+    address: "authsvc:8081"
 downloadtaskservice:
   grpc:
-    address: "0.0.0.0:8082"
+    address: "task:8082"
 fileservice:
   grpc:
-    address: "0.0.0.0:8083"
+    address: "fileservice:8083"
+messaging:
+  kafka:
+    brokers: ["broker:9092"]
+    version: "4.0.0"
+    consumer_group: "download-service-group"
