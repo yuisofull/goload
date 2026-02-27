@@ -3,6 +3,7 @@ package taskendpoint
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"time"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -66,6 +67,10 @@ type GetTaskProgressRequest pb.GetTaskProgressRequest
 
 type GetTaskProgressResponse pb.GetTaskProgressResponse
 
+type GenerateDownloadURLRequest pb.GenerateDownloadURLRequest
+
+type GenerateDownloadURLResponse pb.GenerateDownloadURLResponse
+
 type UpdateTaskChecksumRequest struct {
 	TaskId   uint64
 	Checksum *pb.ChecksumInfo
@@ -79,27 +84,27 @@ type UpdateTaskMetadataRequest struct {
 // Set contains all endpoints for the Task Service
 
 type Set struct {
-	CreateTaskEndpoint endpoint.Endpoint
-	GetTaskEndpoint    endpoint.Endpoint
-	ListTasksEndpoint  endpoint.Endpoint
-	DeleteTaskEndpoint endpoint.Endpoint
-
-	PauseTaskEndpoint  endpoint.Endpoint
-	ResumeTaskEndpoint endpoint.Endpoint
-	CancelTaskEndpoint endpoint.Endpoint
-	RetryTaskEndpoint  endpoint.Endpoint
-
+	// Expose endpoints
+	CreateTaskEndpoint      endpoint.Endpoint
+	GetTaskEndpoint         endpoint.Endpoint
+	ListTasksEndpoint       endpoint.Endpoint
+	DeleteTaskEndpoint      endpoint.Endpoint
+	PauseTaskEndpoint       endpoint.Endpoint
+	ResumeTaskEndpoint      endpoint.Endpoint
+	CancelTaskEndpoint      endpoint.Endpoint
+	RetryTaskEndpoint       endpoint.Endpoint
+	CheckFileExistsEndpoint endpoint.Endpoint
+	GetTaskProgressEndpoint endpoint.Endpoint
+	// GenerateDownloadURLEndpoint is optional and may be nil when not supported.
+	GenerateDownloadURLEndpoint endpoint.Endpoint
+	// Internal endpoints
 	UpdateTaskStoragePathEndpoint endpoint.Endpoint
 	UpdateTaskStatusEndpoint      endpoint.Endpoint
 	UpdateTaskProgressEndpoint    endpoint.Endpoint
 	UpdateTaskErrorEndpoint       endpoint.Endpoint
 	CompleteTaskEndpoint          endpoint.Endpoint
-
-	UpdateTaskChecksumEndpoint endpoint.Endpoint
-	UpdateTaskMetadataEndpoint endpoint.Endpoint
-
-	CheckFileExistsEndpoint endpoint.Endpoint
-	GetTaskProgressEndpoint endpoint.Endpoint
+	UpdateTaskChecksumEndpoint    endpoint.Endpoint
+	UpdateTaskMetadataEndpoint    endpoint.Endpoint
 }
 
 // Implement task.Service on the Set for GRPC client usage
@@ -247,6 +252,15 @@ func (e *Set) UpdateFileName(ctx context.Context, id uint64, fileName string) er
 
 func (e *Set) UpdateStorageInfo(ctx context.Context, id uint64, storageType storage.Type, storagePath string) error {
 	panic("not implemented: UpdateStorageInfo")
+}
+
+// GenerateDownloadURL forwards to the underlying endpoint if available.
+func (e *Set) GenerateDownloadURL(ctx context.Context, taskID uint64, ttl time.Duration, oneTime bool) (string, bool, error) {
+	if e.GenerateDownloadURLEndpoint == nil {
+		return "", false, fmt.Errorf("GenerateDownloadURL endpoint not implemented")
+	}
+	// Not wired up to protobuf; return not implemented for now.
+	return "", false, fmt.Errorf("GenerateDownloadURL not implemented")
 }
 
 // fromPBTask converts a protobuf Task to domain Task
@@ -559,6 +573,19 @@ func MakeGetTaskProgressEndpoint(svc task.Service) endpoint.Endpoint {
 	}
 }
 
+// MakeGenerateDownloadURLEndpoint maps Service.GenerateDownloadURL into an endpoint
+func MakeGenerateDownloadURLEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*GenerateDownloadURLRequest)
+		ttl := time.Duration(req.TtlSeconds) * time.Second
+		url, direct, err := svc.GenerateDownloadURL(ctx, req.TaskId, ttl, req.OneTime)
+		if err != nil {
+			return nil, err
+		}
+		return &GenerateDownloadURLResponse{Url: url, Direct: direct}, nil
+	}
+}
+
 // MakeUpdateTaskChecksumEndpoint updates task checksum
 func MakeUpdateTaskChecksumEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
@@ -629,6 +656,8 @@ func New(svc task.Service) Set {
 	checkFileExistsEndpoint = limiter(checkFileExistsEndpoint)
 	getTaskProgressEndpoint = MakeGetTaskProgressEndpoint(svc)
 	getTaskProgressEndpoint = limiter(getTaskProgressEndpoint)
+	generateDownloadURLEndpoint := MakeGenerateDownloadURLEndpoint(svc)
+	generateDownloadURLEndpoint = limiter(generateDownloadURLEndpoint)
 	updateChecksumEndpoint = MakeUpdateTaskChecksumEndpoint(svc)
 	updateChecksumEndpoint = limiter(updateChecksumEndpoint)
 	updateMetadataEndpoint = MakeUpdateTaskMetadataEndpoint(svc)
@@ -650,6 +679,7 @@ func New(svc task.Service) Set {
 		CompleteTaskEndpoint:          completeTaskEndpoint,
 		CheckFileExistsEndpoint:       checkFileExistsEndpoint,
 		GetTaskProgressEndpoint:       getTaskProgressEndpoint,
+		GenerateDownloadURLEndpoint:   generateDownloadURLEndpoint,
 		UpdateTaskChecksumEndpoint:    updateChecksumEndpoint,
 		UpdateTaskMetadataEndpoint:    updateMetadataEndpoint,
 	}
