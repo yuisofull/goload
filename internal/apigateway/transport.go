@@ -3,52 +3,56 @@ package apigateway
 import (
 	"context"
 	"encoding/json"
-	"github.com/go-kit/kit/transport"
-	"github.com/go-kit/log/level"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/go-kit/kit/transport"
+	"github.com/go-kit/log/level"
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
+	"github.com/yuisofull/goload/internal/storage"
+	"github.com/yuisofull/goload/internal/task"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-type HTTPGetDownloadTaskListRequest struct {
+type HTTPListTasksRequest struct {
 	Offset uint64 `json:"offset"`
 	Limit  uint64 `json:"limit"`
 }
 
-type HTTPGetDownloadTaskListResponse struct {
-	DownloadTasks []*HTTPDownloadTask `json:"download_tasks"`
-	TotalCount    uint64              `json:"total_count"`
+type HTTPListTasksResponse struct {
+	Tasks      []*HTTPTask `json:"download_tasks"`
+	TotalCount uint64      `json:"total_count"`
 }
 
-type HTTPUpdateDownloadTaskRequest struct {
-	DownloadTaskID uint64 `json:"download_task_id"`
-	URL            string `json:"url"`
-}
-
-type HTTPUpdateDownloadTaskResponse struct {
-	DownloadTask *HTTPDownloadTask `json:"download_task"`
-}
-
-type HTTPDeleteDownloadTaskRequest struct {
-	DownloadTaskID uint64 `json:"download_task_id"`
-}
-
-type HTTPDeleteDownloadTaskResponse struct{}
-
-type HTTPDownloadTask struct {
-	ID             uint64 `json:"id"`
-	OfAccountID    uint64 `json:"of_account_id"`
-	DownloadType   int    `json:"download_type"`
-	URL            string `json:"url"`
-	DownloadStatus int    `json:"download_status"`
+type HTTPTask struct {
+	ID              uint64         `json:"id,omitempty"`
+	OfAccountID     uint64         `json:"of_account_id,omitempty"`
+	FileName        string         `json:"file_name,omitempty"`
+	SourceUrl       string         `json:"source_url,omitempty"`
+	SourceType      string         `json:"source_type,omitempty"`
+	ChecksumType    *string        `json:"checksum_type,omitempty"`
+	ChecksumValue   *string        `json:"checksum_value,omitempty"`
+	Status          string         `json:"status,omitempty"`
+	Progress        *float64       `json:"progress,omitempty"`
+	DownloadedBytes *int64         `json:"downloaded_bytes,omitempty"`
+	TotalBytes      *int64         `json:"total_bytes,omitempty"`
+	ErrorMessage    *string        `json:"error_message,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	CreatedAt       *time.Time     `json:"created_at,omitempty"`
+	UpdatedAt       *time.Time     `json:"updated_at,omitempty"`
+	CompletedAt     *time.Time     `json:"completed_at,omitempty"`
 }
 
 // NewHTTPHandler creates HTTP handlers for all gateway endpoints
+// NewHTTPHandler creates HTTP handlers for all gateway endpoints
+// If authCreate and authSession endpoints are non-nil, register auth handlers.
 func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler {
 	options := []httptransport.ServerOption{
 		httptransport.ServerErrorEncoder(encodeError),
@@ -57,43 +61,60 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 
 	mux := http.NewServeMux()
 
-	// Download Task Service endpoints
-	createHandler := httptransport.NewServer(
-		endpoints.CreateDownloadTask,
-		decodeHTTPCreateDownloadTaskRequest,
-		encodeHTTPResponse,
-		options...,
-	)
-	mux.Handle("/api/v1/download-tasks", addTokenToContext(createHandler))
-
 	listHandler := httptransport.NewServer(
-		endpoints.GetDownloadTaskList,
-		decodeHTTPGetDownloadTaskListRequest,
+		endpoints.ListTasksEndpoint,
+		decodeHTTPListTaskRequest,
 		encodeHTTPResponse,
 		options...,
 	)
 	mux.Handle("/api/v1/download-tasks/list", addTokenToContext(listHandler))
 
-	updateHandler := httptransport.NewServer(
-		endpoints.UpdateDownloadTask,
-		decodeHTTPUpdateDownloadTaskRequest,
+	// Create
+	createHandler := httptransport.NewServer(
+		endpoints.CreateTaskEndpoint,
+		decodeHTTPCreateRequest,
 		encodeHTTPResponse,
 		options...,
 	)
-	mux.Handle("/api/v1/download-tasks/update", addTokenToContext(updateHandler))
+	mux.Handle("/api/v1/download-tasks/create", addTokenToContext(createHandler))
 
+	// Get
+	getHandler := httptransport.NewServer(
+		endpoints.GetTaskEndpoint,
+		decodeHTTPGetRequest,
+		encodeHTTPResponse,
+		options...,
+	)
+	mux.Handle("/api/v1/download-tasks/get", addTokenToContext(getHandler))
+
+	// Delete
 	deleteHandler := httptransport.NewServer(
-		endpoints.DeleteDownloadTask,
-		decodeHTTPDeleteDownloadTaskRequest,
+		endpoints.DeleteTaskEndpoint,
+		decodeHTTPIDRequest,
 		encodeHTTPResponse,
 		options...,
 	)
 	mux.Handle("/api/v1/download-tasks/delete", addTokenToContext(deleteHandler))
 
-	// Future service endpoints can be added here:
-	// Auth Service endpoints
-	// mux.Handle("/api/v1/auth/login", loginHandler)
-	// mux.Handle("/api/v1/auth/register", registerHandler)
+	// Pause/Resume/Cancel/Retry
+	pauseHandler := httptransport.NewServer(endpoints.PauseTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	mux.Handle("/api/v1/download-tasks/pause", addTokenToContext(pauseHandler))
+	resumeHandler := httptransport.NewServer(endpoints.ResumeTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	mux.Handle("/api/v1/download-tasks/resume", addTokenToContext(resumeHandler))
+	cancelHandler := httptransport.NewServer(endpoints.CancelTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	mux.Handle("/api/v1/download-tasks/cancel", addTokenToContext(cancelHandler))
+	retryHandler := httptransport.NewServer(endpoints.RetryTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	mux.Handle("/api/v1/download-tasks/retry", addTokenToContext(retryHandler))
+
+	// Check exists
+	existsHandler := httptransport.NewServer(endpoints.CheckFileExistsEndpoint, decodeHTTPIDRequestName("task_id"), encodeHTTPResponse, options...)
+	mux.Handle("/api/v1/download-tasks/exists", addTokenToContext(existsHandler))
+
+	// Progress
+	progressHandler := httptransport.NewServer(endpoints.GetTaskProgressEndpoint, decodeHTTPIDRequestName("task_id"), encodeHTTPResponse, options...)
+	mux.Handle("/api/v1/download-tasks/progress", addTokenToContext(progressHandler))
+
+	// optional auth endpoints from endpoints struct
 
 	{
 		createHandler := httptransport.NewServer(
@@ -270,35 +291,14 @@ func addTokenToContext(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add token to request context
 		ctx := context.WithValue(r.Context(), tokenKey, token)
 		r = r.WithContext(ctx)
 
-		// Call next handler
 		next.ServeHTTP(w, r)
 	})
 }
 
-// HTTP request decoders
-func decodeHTTPCreateDownloadTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
-	var req HTTPCreateDownloadTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return nil, err
-	}
-
-	userID, ok := UserIDFromContext(r.Context())
-	if !ok {
-		return nil, http.ErrNoCookie // This should not happen if middleware works correctly
-	}
-
-	return &CreateDownloadTaskRequest{
-		UserID:       userID,
-		DownloadType: file.DownloadType(req.DownloadType),
-		URL:          req.URL,
-	}, nil
-}
-
-func decodeHTTPGetDownloadTaskListRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPListTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
 	offsetStr := r.URL.Query().Get("offset")
 	limitStr := r.URL.Query().Get("limit")
 
@@ -317,64 +317,69 @@ func decodeHTTPGetDownloadTaskListRequest(_ context.Context, r *http.Request) (i
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		limit = 10 // default limit
 	}
 
-	userID, ok := UserIDFromContext(r.Context())
-	if !ok {
-		return nil, http.ErrNoCookie
-	}
-
-	return &GetDownloadTaskListRequest{
-		UserID: userID,
-		Offset: offset,
-		Limit:  limit,
+	// NOTE: authentication is handled by endpoint middleware. Decoders run
+	// before middleware, so don't rely on context having the user ID here.
+	// We return a request without the filter populated; the endpoint will
+	// populate the OfAccountID from the context once the auth middleware
+	// has run.
+	return &ListTasksRequest{
+		Filter: &struct{ OfAccountID uint64 }{},
+		Offset: int32(offset),
+		Limit:  int32(limit),
 	}, nil
 }
 
-func decodeHTTPUpdateDownloadTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
-	var req HTTPUpdateDownloadTaskRequest
+func decodeHTTPCreateRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	var req CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, err
 	}
-
-	userID, ok := UserIDFromContext(r.Context())
-	if !ok {
-		return nil, http.ErrNoCookie
-	}
-
-	return &UpdateDownloadTaskRequest{
-		UserID:         userID,
-		DownloadTaskID: req.DownloadTaskID,
-		URL:            req.URL,
-	}, nil
+	return &req, nil
 }
 
-func decodeHTTPDeleteDownloadTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
-	var req HTTPDeleteDownloadTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+func decodeHTTPGetRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		return nil, http.ErrMissingFile
+	}
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
 		return nil, err
 	}
-
-	userID, ok := UserIDFromContext(r.Context())
-	if !ok {
-		return nil, http.ErrNoCookie
-	}
-
-	return &DeleteDownloadTaskRequest{
-		UserID:         userID,
-		DownloadTaskID: req.DownloadTaskID,
-	}, nil
+	return &GetTaskRequest{ID: id}, nil
 }
 
-// HTTP response encoder
+func decodeHTTPIDRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	return decodeHTTPIDRequestName("id")(context.Background(), r)
+}
+
+func decodeHTTPIDRequestName(name string) func(ctx context.Context, r *http.Request) (interface{}, error) {
+	return func(_ context.Context, r *http.Request) (interface{}, error) {
+		idStr := r.URL.Query().Get(name)
+		if idStr == "" {
+			return nil, http.ErrMissingFile
+		}
+		id, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		// determine which request type to return based on name
+		switch name {
+		case "task_id":
+			return &CheckFileExistsRequest{TaskId: id}, nil
+		default:
+			return &DeleteTaskRequest{ID: id}, nil
+		}
+	}
+}
+
 func encodeHTTPResponse(_ context.Context, w http.ResponseWriter, response interface{}) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	return json.NewEncoder(w).Encode(response)
 }
 
-// HTTP error encoder
 func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
@@ -415,6 +420,9 @@ func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 		}
 	}
 
+	if statusCode == 0 {
+		statusCode = http.StatusInternalServerError
+	}
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"error": err.Error(),
