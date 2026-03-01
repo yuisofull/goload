@@ -10,6 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/yuisofull/goload/pkg/message"
@@ -28,6 +31,7 @@ type Subscriber struct {
 	closed       atomic.Bool
 	wg           sync.WaitGroup
 	errorHandler ErrorHandler
+	logger       log.Logger
 }
 
 type SubscriberOption func(*Subscriber)
@@ -35,6 +39,12 @@ type SubscriberOption func(*Subscriber)
 func WithErrorHandler(handler ErrorHandler) SubscriberOption {
 	return func(s *Subscriber) {
 		s.errorHandler = handler
+	}
+}
+
+func WithLog(logger log.Logger) SubscriberOption {
+	return func(s *Subscriber) {
+		s.logger = logger
 	}
 }
 
@@ -112,6 +122,12 @@ func (s *Subscriber) Subscribe(baseCtx context.Context, topic string) (<-chan *m
 		return nil, errors.New("subscriber is closed")
 	}
 
+	logger := log.With(s.logger, "provider", "kafka",
+		"topic", topic,
+		"consumerGroup", s.config.ConsumerGroup,
+		"kafka_consumer_uuid", uuid.New())
+
+	level.Info(logger).Log("msg", "Subscribing to Kafka topic")
 	out := make(chan *message.Message)
 
 	client, err := sarama.NewClient(s.config.Brokers, s.sconfig)
@@ -125,8 +141,11 @@ func (s *Subscriber) Subscribe(baseCtx context.Context, topic string) (<-chan *m
 		defer s.wg.Done()
 		select {
 		case <-s.closing:
+			level.Info(logger).Log("msg", "Subscriber is closing")
 		case <-baseCtx.Done():
+			level.Info(logger).Log("msg", "Context canceled")
 		case <-ctx.Done():
+			level.Info(logger).Log("msg", "Context canceled")
 			return
 		}
 		cancel()
@@ -134,6 +153,10 @@ func (s *Subscriber) Subscribe(baseCtx context.Context, topic string) (<-chan *m
 
 	s.wg.Add(1)
 	grp, err := sarama.NewConsumerGroupFromClient(s.config.ConsumerGroup, client)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("cannot create consumer group: %w", err)
+	}
 	go func() {
 		defer s.wg.Done()
 		for {
@@ -157,6 +180,7 @@ func (s *Subscriber) Subscribe(baseCtx context.Context, topic string) (<-chan *m
 		out:             out,
 		unmarshaler:     s.config.Unmarshaler,
 		nackResendSleep: s.config.NackResendSleep,
+		logger:          logger,
 	}
 
 	s.wg.Add(1)
@@ -195,6 +219,7 @@ type consumerGroupHandler struct {
 	out             chan *message.Message
 	unmarshaler     Unmarshaler
 	nackResendSleep time.Duration
+	logger          log.Logger
 }
 
 func (c *consumerGroupHandler) Setup(session sarama.ConsumerGroupSession) error {
@@ -211,6 +236,9 @@ func (c *consumerGroupHandler) ConsumeClaim(
 ) error {
 	baseCtx := c.ctx
 	for kafkaMsg := range claim.Messages() {
+		logger := log.With(c.logger, "kafka_partition_offset", kafkaMsg.Offset, "kafka_partition", kafkaMsg.Partition)
+		level.Debug(logger).Log("msg", "Received message from Kafka")
+
 		ctx := setPartitionToCtx(baseCtx, kafkaMsg.Partition)
 		ctx = setPartitionOffsetToCtx(ctx, kafkaMsg.Offset)
 		ctx = setMessageTimestampToCtx(ctx, kafkaMsg.Timestamp)
@@ -223,7 +251,7 @@ func (c *consumerGroupHandler) ConsumeClaim(
 
 		msg.SetContext(ctx)
 
-		if err := c.send(ctx, session, msg); err != nil {
+		if err := c.send(ctx, session, msg, logger); err != nil {
 			return err
 		}
 		session.MarkMessage(kafkaMsg, "")
@@ -239,10 +267,12 @@ func (c *consumerGroupHandler) send(
 	msgCtx context.Context,
 	session sarama.ConsumerGroupSession,
 	msg *message.Message,
+	logger log.Logger,
 ) error {
 	for {
 		select {
 		case c.out <- msg:
+			level.Debug(logger).Log("msg", "Message sent to Consumer")
 		case <-c.ctx.Done():
 			return fmt.Errorf("context canceled before sending message: %w", c.ctx.Err())
 		case <-session.Context().Done():
@@ -254,6 +284,7 @@ func (c *consumerGroupHandler) send(
 		case <-session.Context().Done():
 			return fmt.Errorf("session context canceled before acking message: %w", session.Context().Err())
 		case <-msg.Acked():
+			level.Debug(logger).Log("msg", "Message acked")
 			return nil
 		case <-msg.Nacked():
 			// reset acks, etc.
@@ -311,6 +342,98 @@ func (s *Subscriber) SubscribeInitialize(topic string) (err error) {
 		!strings.Contains(err.Error(), "Topic with this name already exists") {
 		return fmt.Errorf("cannot create topic: %w", err)
 	}
+	level.Info(s.logger).Log("msg", "Created Kafka topic", "topic", topic)
 
 	return nil
+}
+
+func (s *Subscriber) waitForTopicCreation(ctx context.Context, clusterAdmin sarama.ClusterAdmin, topic string) error {
+	logger := log.With(s.logger, "topic", topic)
+	level.Debug(logger).Log("msg", "Waiting for topic creation to be confirmed")
+	pollInterval := 500 * time.Millisecond
+	attempt := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for topic creation: %w", ctx.Err())
+		default:
+		}
+
+		topics, err := clusterAdmin.ListTopics()
+		if err != nil {
+			level.Debug(logger).Log("msg", "Failed to list topics", "attempt", attempt+1, "err", err)
+		} else {
+			if topicDetail, exists := topics[topic]; exists {
+				if s.verifyPartitionsReady(clusterAdmin, topic, topicDetail, logger, attempt) {
+					level.Debug(logger).Log("msg", "Topic and partitions creation confirmed", "attempt", attempt+1)
+					return nil
+				}
+			}
+		}
+
+		level.Debug(logger).
+			Log("msg", "Topic not yet available, retrying", "attempt", attempt+1, "retry_in", pollInterval.String())
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("context cancelled while waiting for topic creation: %w", ctx.Err())
+		case <-timer.C:
+			// Continue to next attempt
+		}
+
+		attempt++
+	}
+}
+
+func (s *Subscriber) verifyPartitionsReady(
+	clusterAdmin sarama.ClusterAdmin,
+	topic string,
+	topicDetail sarama.TopicDetail,
+	logger log.Logger,
+	attempt int,
+) bool {
+	metadata, err := clusterAdmin.DescribeTopics([]string{topic})
+	if err != nil {
+		level.Debug(logger).Log("msg", "Failed to describe topic", "attempt", attempt+1, "error", err.Error())
+		return false
+	}
+
+	if len(metadata) == 0 {
+		level.Debug(logger).Log("msg", "No topic metadata returned", "attempt", attempt+1)
+		return false
+	}
+
+	topicMeta := metadata[0]
+	if !errors.Is(topicMeta.Err, sarama.ErrNoError) {
+		level.Debug(logger).
+			Log("msg", "Topic metadata contains error", "attempt", attempt+1, "error", topicMeta.Err.Error())
+		return false
+	}
+
+	// Check that all expected partitions exist and have leaders
+	expectedPartitions := topicDetail.NumPartitions
+	if int32(len(topicMeta.Partitions)) < expectedPartitions {
+		level.Debug(logger).
+			Log("msg", "Not all partitions available yet", "attempt", attempt+1, "expected_partitions", expectedPartitions, "available_partitions", len(topicMeta.Partitions))
+		return false
+	}
+
+	// Verify each partition has a leader
+	for _, partition := range topicMeta.Partitions {
+		if !errors.Is(partition.Err, sarama.ErrNoError) {
+			level.Debug(logger).
+				Log("msg", "Partition has error", "attempt", attempt+1, "partition", partition.ID, "error", partition.Err.Error())
+			return false
+		}
+		if partition.Leader == -1 {
+			level.Debug(logger).
+				Log("msg", "Partition has no leader", "attempt", attempt+1, "partition", partition.ID)
+			return false
+		}
+	}
+
+	return true
 }

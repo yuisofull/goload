@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 
 	"github.com/IBM/sarama"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/pkg/errors"
 
 	"github.com/yuisofull/goload/pkg/message"
@@ -15,13 +17,14 @@ type Publisher struct {
 	producer  sarama.SyncProducer
 	marshaler Marshaler
 	closed    atomic.Bool
+	logger    log.Logger
 }
 
-func NewPublisher(cfg *PublisherConfig) (*Publisher, error) {
+func NewPublisher(cfg *PublisherConfig, options ...PublisherOption) (*Publisher, error) {
 	var err error
 	p := &Publisher{}
 
-	p.marshaler = cmp.Or[Marshaler](cfg.Marshaler, DefaultMarshaler{})
+	p.marshaler = DefaultMarshaler{}
 
 	sconfig := sarama.NewConfig()
 	{
@@ -31,7 +34,12 @@ func NewPublisher(cfg *PublisherConfig) (*Publisher, error) {
 		sconfig.Version = cmp.Or(cfg.Version, sarama.V2_0_0_0)
 		sconfig.ClientID = cmp.Or(cfg.ClientID, "watermill")
 	}
+
 	p.producer, err = sarama.NewSyncProducer(cfg.BrokerHosts, sconfig)
+
+	for _, option := range options {
+		option(p)
+	}
 
 	return p, err
 }
@@ -41,7 +49,19 @@ type PublisherConfig struct {
 	Version     sarama.KafkaVersion
 	ClientID    string
 	MaxRetry    int
-	Marshaler   Marshaler
+}
+type PublisherOption func(*Publisher)
+
+func WithLogger(logger log.Logger) PublisherOption {
+	return func(pub *Publisher) {
+		pub.logger = logger
+	}
+}
+
+func WithMarshaler(m Marshaler) PublisherOption {
+	return func(pub *Publisher) {
+		pub.marshaler = m
+	}
 }
 
 var ErrPublisherClosed = errors.New("publisher is closed")
@@ -60,16 +80,26 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) (err error) 
 	}()
 
 	for _, msg := range msgs {
+		level.Info(p.logger).Log(
+			"msg", "Sending message to Kafka",
+			"topic", topic,
+			"message_uuid", msg.UUID,
+		)
 		kafkaMsg, err := p.marshaler.Marshal(topic, msg)
 		if err != nil {
 			return errors.Wrapf(err, "cannot marshal message %s", msg.UUID)
 		}
 
-		// TODO: handle returned partition and offset
-		_, _, err = p.producer.SendMessage(kafkaMsg)
+		partition, offset, err := p.producer.SendMessage(kafkaMsg)
 		if err != nil {
 			return errors.Wrapf(err, "cannot produce message %s", msg.UUID)
 		}
+		level.Info(p.logger).Log("msg", "Message sent to Kafka",
+			"partition", partition,
+			"offset", offset,
+			"topic", topic,
+			"message_uuid", msg.UUID,
+		)
 	}
 
 	return nil
