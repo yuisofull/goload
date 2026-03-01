@@ -87,11 +87,33 @@ func (m *Minio) GetWithRange(ctx context.Context, key string, start, end int64) 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := obj.Stat(); err != nil {
+	// Do NOT call obj.Stat() here: for range GETs the minio client lazily issues
+	// the HTTP request on first Read; calling Stat() first re-issues a HEAD
+	// (without the Range header), resetting the object to a full read.
+	// Trigger the actual request by reading 1 byte into a peek buffer.
+	buf := make([]byte, 1)
+	n, peekErr := obj.Read(buf)
+	if peekErr != nil && peekErr != io.EOF {
 		obj.Close()
-		return nil, err
+		return nil, peekErr
 	}
-	return obj, nil
+	return &prependReader{prefix: buf[:n], ReadCloser: obj}, nil
+}
+
+// prependReader wraps a ReadCloser and prepends already-read bytes.
+type prependReader struct {
+	prefix []byte
+	pos    int
+	io.ReadCloser
+}
+
+func (p *prependReader) Read(b []byte) (int, error) {
+	if p.pos < len(p.prefix) {
+		n := copy(b, p.prefix[p.pos:])
+		p.pos += n
+		return n, nil
+	}
+	return p.ReadCloser.Read(b)
 }
 
 func (m *Minio) GetInfo(ctx context.Context, key string) (*FileMetadata, error) {
