@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-kit/kit/endpoint"
+
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/task"
 )

@@ -3,6 +3,7 @@ package authcache
 import (
 	"context"
 	"fmt"
+
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/pkg/cache"
@@ -16,7 +17,11 @@ type accountStoreCache struct {
 
 type AccountNameTakenSetKey struct{}
 
-func NewAccountStore(nameCache cache.SetCache[AccountNameTakenSetKey, string], next auth.AccountStore, cacheErrorHandler CacheErrorHandler) auth.AccountStore {
+func NewAccountStore(
+	nameCache cache.SetCache[AccountNameTakenSetKey, string],
+	next auth.AccountStore,
+	cacheErrorHandler CacheErrorHandler,
+) auth.AccountStore {
 	return &accountStoreCache{
 		nameCache:         nameCache,
 		next:              next,

@@ -16,12 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	version = sarama.V4_0_0_0
+)
+
 // startKafka starts a Kafka container and returns the broker address and a cleanup function.
 func startKafka(t *testing.T) (brokers []string, cleanup func()) {
 	t.Helper()
 	ctx := context.Background()
 
-	kafkaContainer, err := tckafka.Run(ctx, "confluentinc/confluent-local:7.7.1")
+	kafkaContainer, err := tckafka.Run(ctx, "confluentinc/confluent-local:8.0.4")
 	require.NoError(t, err, "failed to start Kafka container")
 
 	brokerAddr, err := kafkaContainer.Brokers(ctx)
@@ -51,7 +55,7 @@ func TestPublishSubscribe(t *testing.T) {
 	sub, err := kafka.NewSubscriber(&kafka.SubscriberConfig{
 		Brokers:             brokers,
 		ConsumerGroup:       consumerGroup,
-		Version:             sarama.V3_0_0_0,
+		Version:             version,
 		NackResendSleep:     50 * time.Millisecond,
 		ReconnectRetrySleep: 200 * time.Millisecond,
 		InitializeTopicDetails: &sarama.TopicDetail{
@@ -113,7 +117,7 @@ func TestPublishMultipleMessages(t *testing.T) {
 	sub, err := kafka.NewSubscriber(&kafka.SubscriberConfig{
 		Brokers:             brokers,
 		ConsumerGroup:       consumerGroup,
-		Version:             sarama.V3_0_0_0,
+		Version:             version,
 		NackResendSleep:     50 * time.Millisecond,
 		ReconnectRetrySleep: 200 * time.Millisecond,
 		InitializeTopicDetails: &sarama.TopicDetail{
@@ -134,7 +138,7 @@ func TestPublishMultipleMessages(t *testing.T) {
 
 	pub, err := kafka.NewPublisher(&kafka.PublisherConfig{
 		BrokerHosts: brokers,
-		Version:     sarama.V3_0_0_0,
+		Version:     version,
 		MaxRetry:    3,
 	})
 	require.NoError(t, err)
@@ -175,7 +179,7 @@ func TestNackRedelivery(t *testing.T) {
 	sub, err := kafka.NewSubscriber(&kafka.SubscriberConfig{
 		Brokers:             brokers,
 		ConsumerGroup:       consumerGroup,
-		Version:             sarama.V3_0_0_0,
+		Version:             version,
 		NackResendSleep:     10 * time.Millisecond, // fast resend for tests
 		ReconnectRetrySleep: 200 * time.Millisecond,
 		InitializeTopicDetails: &sarama.TopicDetail{
@@ -196,7 +200,7 @@ func TestNackRedelivery(t *testing.T) {
 
 	pub, err := kafka.NewPublisher(&kafka.PublisherConfig{
 		BrokerHosts: brokers,
-		Version:     sarama.V3_0_0_0,
+		Version:     version,
 		MaxRetry:    3,
 	})
 	require.NoError(t, err)
@@ -237,7 +241,7 @@ func TestPublisherClose(t *testing.T) {
 
 	pub, err := kafka.NewPublisher(&kafka.PublisherConfig{
 		BrokerHosts: brokers,
-		Version:     sarama.V3_0_0_0,
+		Version:     version,
 	})
 	require.NoError(t, err)
 
@@ -264,7 +268,7 @@ func TestSubscriberCloseStopsChannel(t *testing.T) {
 	sub, err := kafka.NewSubscriber(&kafka.SubscriberConfig{
 		Brokers:             brokers,
 		ConsumerGroup:       consumerGroup,
-		Version:             sarama.V3_0_0_0,
+		Version:             version,
 		NackResendSleep:     50 * time.Millisecond,
 		ReconnectRetrySleep: 200 * time.Millisecond,
 		InitializeTopicDetails: &sarama.TopicDetail{
@@ -316,7 +320,7 @@ func TestMessageMetadataRoundtrip(t *testing.T) {
 	sub, err := kafka.NewSubscriber(&kafka.SubscriberConfig{
 		Brokers:             brokers,
 		ConsumerGroup:       consumerGroup,
-		Version:             sarama.V3_0_0_0,
+		Version:             version,
 		NackResendSleep:     50 * time.Millisecond,
 		ReconnectRetrySleep: 200 * time.Millisecond,
 		InitializeTopicDetails: &sarama.TopicDetail{
@@ -337,7 +341,7 @@ func TestMessageMetadataRoundtrip(t *testing.T) {
 
 	pub, err := kafka.NewPublisher(&kafka.PublisherConfig{
 		BrokerHosts: brokers,
-		Version:     sarama.V3_0_0_0,
+		Version:     version,
 	})
 	require.NoError(t, err)
 	defer pub.Close()
@@ -377,7 +381,7 @@ func TestContextValuesInjected(t *testing.T) {
 	sub, err := kafka.NewSubscriber(&kafka.SubscriberConfig{
 		Brokers:             brokers,
 		ConsumerGroup:       consumerGroup,
-		Version:             sarama.V3_0_0_0,
+		Version:             version,
 		NackResendSleep:     50 * time.Millisecond,
 		ReconnectRetrySleep: 200 * time.Millisecond,
 		InitializeTopicDetails: &sarama.TopicDetail{
@@ -398,7 +402,7 @@ func TestContextValuesInjected(t *testing.T) {
 
 	pub, err := kafka.NewPublisher(&kafka.PublisherConfig{
 		BrokerHosts: brokers,
-		Version:     sarama.V3_0_0_0,
+		Version:     version,
 	})
 	require.NoError(t, err)
 	defer pub.Close()

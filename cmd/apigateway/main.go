@@ -44,7 +44,10 @@ func main() {
 	// Connect to Auth Service via gRPC
 	var authService auth.Service
 	{
-		conn, err := grpc.NewClient(config.AuthService.GRPC.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(
+			config.AuthService.GRPC.Address,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
 		if err != nil {
 			level.Error(logger).Log("err", err, "msg", "failed to connect to auth service")
 			os.Exit(1)
@@ -57,7 +60,10 @@ func main() {
 	// Connect to Download Task Service via gRPC
 	var downloadTaskService taskpkg.Service
 	{
-		conn, err := grpc.NewClient(config.DownloadTaskService.GRPC.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(
+			config.DownloadTaskService.GRPC.Address,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
 		if err != nil {
 			level.Error(logger).Log("err", err, "msg", "failed to connect to download task service")
 			os.Exit(1)
@@ -79,7 +85,13 @@ func main() {
 	// Create redis client and token store
 	var tokenStore taskpkg.TokenStore
 	{
-		redisClient := redis.NewClient(&redis.Options{Addr: config.Redis.Address, Username: config.Redis.Username, Password: config.Redis.Password})
+		redisClient := redis.NewClient(
+			&redis.Options{
+				Addr:     config.Redis.Address,
+				Username: config.Redis.Username,
+				Password: config.Redis.Password,
+			},
+		)
 		secret := []byte(config.APIGateway.TokenHMACSecret)
 		if len(secret) == 0 {
 			secret = []byte("default-secret-change-me")
@@ -94,7 +106,13 @@ func main() {
 	{
 		minioCfg := config.APIGateway.Storage.Minio
 		if minioCfg.Endpoint != "" && minioCfg.AccessKey != "" && minioCfg.SecretKey != "" && minioCfg.Bucket != "" {
-			if m, err := storage.NewMinioBackend(minioCfg.Endpoint, minioCfg.AccessKey, minioCfg.SecretKey, minioCfg.UseSSL, minioCfg.Bucket); err == nil {
+			if m, err := storage.NewMinioBackend(
+				minioCfg.Endpoint,
+				minioCfg.AccessKey,
+				minioCfg.SecretKey,
+				minioCfg.UseSSL,
+				minioCfg.Bucket,
+			); err == nil {
 				storageBackend = m
 			} else {
 				level.Error(logger).Log("msg", "failed to initialize minio backend", "err", err)

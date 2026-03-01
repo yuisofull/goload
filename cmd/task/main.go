@@ -14,9 +14,12 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
+
 	"github.com/yuisofull/goload/internal/configs"
 
 	"github.com/IBM/sarama"
+	"google.golang.org/grpc"
+
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
 	taskmysql "github.com/yuisofull/goload/internal/task/mysql"
@@ -24,7 +27,6 @@ import (
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
-	"google.golang.org/grpc"
 )
 
 func main() {
@@ -83,11 +85,14 @@ func main() {
 			level.Error(logger).Log("msg", "failed to parse kafka version, falling back", "err", err)
 			kv = sarama.V2_0_0_0
 		}
-		pubCfg := &kafkapkg.PublisherConfig{BrokerHosts: config.Messaging.Kafka.Brokers, Version: kv}
-		if p, err := kafkapkg.NewPublisher(pubCfg); err == nil {
-			pub = p
-		} else {
+		pubCfg := &kafkapkg.PublisherConfig{
+			BrokerHosts: config.Messaging.Kafka.Brokers,
+			Version:     kv,
+			MaxRetry:    config.Messaging.Kafka.MaxRetry,
+		}
+		if pub, err = kafkapkg.NewPublisher(pubCfg, kafkapkg.WithLogger(logger)); err != nil {
 			level.Error(logger).Log("msg", "failed to create kafka publisher", "err", err)
+			os.Exit(1)
 		}
 	}
 

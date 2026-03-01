@@ -15,10 +15,11 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
-	"github.com/yuisofull/goload/internal/storage"
-	"github.com/yuisofull/goload/internal/task"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/yuisofull/goload/internal/storage"
+	"github.com/yuisofull/goload/internal/task"
 )
 
 type HTTPListTasksRequest struct {
@@ -97,21 +98,45 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 	mux.Handle("/api/v1/download-tasks/delete", addTokenToContext(deleteHandler))
 
 	// Pause/Resume/Cancel/Retry
-	pauseHandler := httptransport.NewServer(endpoints.PauseTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	pauseHandler := httptransport.NewServer(
+		endpoints.PauseTaskEndpoint,
+		decodeHTTPIDRequest,
+		encodeHTTPResponse,
+		options...)
 	mux.Handle("/api/v1/download-tasks/pause", addTokenToContext(pauseHandler))
-	resumeHandler := httptransport.NewServer(endpoints.ResumeTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	resumeHandler := httptransport.NewServer(
+		endpoints.ResumeTaskEndpoint,
+		decodeHTTPIDRequest,
+		encodeHTTPResponse,
+		options...)
 	mux.Handle("/api/v1/download-tasks/resume", addTokenToContext(resumeHandler))
-	cancelHandler := httptransport.NewServer(endpoints.CancelTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	cancelHandler := httptransport.NewServer(
+		endpoints.CancelTaskEndpoint,
+		decodeHTTPIDRequest,
+		encodeHTTPResponse,
+		options...)
 	mux.Handle("/api/v1/download-tasks/cancel", addTokenToContext(cancelHandler))
-	retryHandler := httptransport.NewServer(endpoints.RetryTaskEndpoint, decodeHTTPIDRequest, encodeHTTPResponse, options...)
+	retryHandler := httptransport.NewServer(
+		endpoints.RetryTaskEndpoint,
+		decodeHTTPIDRequest,
+		encodeHTTPResponse,
+		options...)
 	mux.Handle("/api/v1/download-tasks/retry", addTokenToContext(retryHandler))
 
 	// Check exists
-	existsHandler := httptransport.NewServer(endpoints.CheckFileExistsEndpoint, decodeHTTPIDRequestName("task_id"), encodeHTTPResponse, options...)
+	existsHandler := httptransport.NewServer(
+		endpoints.CheckFileExistsEndpoint,
+		decodeHTTPIDRequestName("task_id"),
+		encodeHTTPResponse,
+		options...)
 	mux.Handle("/api/v1/download-tasks/exists", addTokenToContext(existsHandler))
 
 	// Progress
-	progressHandler := httptransport.NewServer(endpoints.GetTaskProgressEndpoint, decodeHTTPIDRequestName("task_id"), encodeHTTPResponse, options...)
+	progressHandler := httptransport.NewServer(
+		endpoints.GetTaskProgressEndpoint,
+		decodeHTTPIDRequestName("task_id"),
+		encodeHTTPResponse,
+		options...)
 	mux.Handle("/api/v1/download-tasks/progress", addTokenToContext(progressHandler))
 
 	// optional auth endpoints from endpoints struct
@@ -154,7 +179,12 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 // NewHTTPHandlerWithDownload builds the same handlers as NewHTTPHandler and also
 // registers a /download handler that consumes tokens from the provided
 // TokenStore and streams files from the provided storage backend.
-func NewHTTPHandlerWithDownload(endpoints GatewayEndpoints, logger log.Logger, store storage.Reader, tokenStore task.TokenStore) http.Handler {
+func NewHTTPHandlerWithDownload(
+	endpoints GatewayEndpoints,
+	logger log.Logger,
+	store storage.Reader,
+	tokenStore task.TokenStore,
+) http.Handler {
 	// call NewHTTPHandler which will pick up auth endpoints from the endpoints struct
 	mux := NewHTTPHandler(endpoints, logger).(*http.ServeMux)
 

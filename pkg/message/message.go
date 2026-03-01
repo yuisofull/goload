@@ -1,7 +1,3 @@
-// Package message
-// Code adapted from Watermill (https://github.com/ThreeDotsLabs/watermill)
-// Copyright (c) Three Dots Labs
-// Licensed under the Apache License 2.0
 package message
 
 import (
@@ -10,11 +6,11 @@ import (
 	"sync"
 )
 
-var closedchan = make(chan struct{})
-
-func init() {
-	close(closedchan)
-}
+var closedChan = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
 
 // Payload is the Message's payload.
 type Payload []byte
@@ -108,7 +104,7 @@ func (m *Message) Ack() bool {
 
 	m.ackSentType = ack
 	if m.ack == nil {
-		m.ack = closedchan
+		m.ack = closedChan
 	} else {
 		close(m.ack)
 	}
@@ -135,7 +131,7 @@ func (m *Message) Nack() bool {
 	m.ackSentType = nack
 
 	if m.noAck == nil {
-		m.noAck = closedchan
+		m.noAck = closedChan
 	} else {
 		close(m.noAck)
 	}

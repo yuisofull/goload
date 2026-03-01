@@ -4,6 +4,7 @@ import (
 	"context"
 	stdErrors "errors"
 	"fmt"
+
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/pkg/cache"
 )
@@ -20,7 +21,11 @@ type TokenPublicKeyCacheKey struct {
 	kid uint64
 }
 
-func NewTokenPublicKeyStore(cache cache.Cache[TokenPublicKeyCacheKey, []byte], next auth.TokenPublicKeyStore, cacheErrorHandler CacheErrorHandler) auth.TokenPublicKeyStore {
+func NewTokenPublicKeyStore(
+	cache cache.Cache[TokenPublicKeyCacheKey, []byte],
+	next auth.TokenPublicKeyStore,
+	cacheErrorHandler CacheErrorHandler,
+) auth.TokenPublicKeyStore {
 	return &tokenPublicKeyStoreCache{
 		cache:             cache,
 		next:              next,
@@ -28,7 +33,10 @@ func NewTokenPublicKeyStore(cache cache.Cache[TokenPublicKeyCacheKey, []byte], n
 	}
 }
 
-func (t *tokenPublicKeyStoreCache) CreateTokenPublicKey(ctx context.Context, tokenPublicKey *auth.TokenPublicKey) (kid uint64, err error) {
+func (t *tokenPublicKeyStoreCache) CreateTokenPublicKey(
+	ctx context.Context,
+	tokenPublicKey *auth.TokenPublicKey,
+) (kid uint64, err error) {
 	if err := t.cache.Set(ctx, TokenPublicKeyCacheKey{kid: kid}, tokenPublicKey.PublicKey, 0); err != nil {
 		t.cacheErrorHandler(ctx, fmt.Errorf("failed to set token public key to cache: %w", err))
 	}

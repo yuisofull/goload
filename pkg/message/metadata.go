@@ -1,7 +1,3 @@
-// Package message
-// Code adapted from Watermill (https://github.com/ThreeDotsLabs/watermill)
-// Copyright (c) Three Dots Labs
-// Licensed under the Apache License 2.0
 package message
 
 // Metadata is sent with every message to provide extra context without unmarshaling the message payload.

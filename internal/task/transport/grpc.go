@@ -7,11 +7,12 @@ import (
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"google.golang.org/grpc"
+
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/task"
 	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
 	pb "github.com/yuisofull/goload/internal/task/pb"
-	"google.golang.org/grpc"
 )
 
 type grpcServer struct {
@@ -51,7 +52,10 @@ func (s *grpcServer) GetTask(ctx context.Context, req *pb.GetTaskRequest) (*pb.T
 	return resp.(*pb.TaskResponse), nil
 }
 
-func (s *grpcServer) UpdateTaskStoragePath(ctx context.Context, req *pb.UpdateTaskStoragePathRequest) (*pb.UpdateTaskResponse, error) {
+func (s *grpcServer) UpdateTaskStoragePath(
+	ctx context.Context,
+	req *pb.UpdateTaskStoragePathRequest,
+) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskStoragePath.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
@@ -59,7 +63,10 @@ func (s *grpcServer) UpdateTaskStoragePath(ctx context.Context, req *pb.UpdateTa
 	return resp.(*pb.UpdateTaskResponse), nil
 }
 
-func (s *grpcServer) UpdateTaskStatus(ctx context.Context, req *pb.UpdateTaskStatusRequest) (*pb.UpdateTaskResponse, error) {
+func (s *grpcServer) UpdateTaskStatus(
+	ctx context.Context,
+	req *pb.UpdateTaskStatusRequest,
+) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskStatus.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
@@ -67,7 +74,10 @@ func (s *grpcServer) UpdateTaskStatus(ctx context.Context, req *pb.UpdateTaskSta
 	return resp.(*pb.UpdateTaskResponse), nil
 }
 
-func (s *grpcServer) UpdateTaskProgress(ctx context.Context, req *pb.UpdateTaskProgressRequest) (*pb.UpdateTaskResponse, error) {
+func (s *grpcServer) UpdateTaskProgress(
+	ctx context.Context,
+	req *pb.UpdateTaskProgressRequest,
+) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskProgress.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
@@ -75,7 +85,10 @@ func (s *grpcServer) UpdateTaskProgress(ctx context.Context, req *pb.UpdateTaskP
 	return resp.(*pb.UpdateTaskResponse), nil
 }
 
-func (s *grpcServer) UpdateTaskError(ctx context.Context, req *pb.UpdateTaskErrorRequest) (*pb.UpdateTaskResponse, error) {
+func (s *grpcServer) UpdateTaskError(
+	ctx context.Context,
+	req *pb.UpdateTaskErrorRequest,
+) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskError.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
@@ -139,7 +152,10 @@ func (s *grpcServer) RetryTask(ctx context.Context, req *pb.RetryTaskRequest) (*
 	return resp.(*pb.RetryTaskResponse), nil
 }
 
-func (s *grpcServer) CheckFileExists(ctx context.Context, req *pb.CheckFileExistsRequest) (*pb.CheckFileExistsResponse, error) {
+func (s *grpcServer) CheckFileExists(
+	ctx context.Context,
+	req *pb.CheckFileExistsRequest,
+) (*pb.CheckFileExistsResponse, error) {
 	_, resp, err := s.checkFileExists.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, encodeError(ctx, err)
@@ -147,7 +163,10 @@ func (s *grpcServer) CheckFileExists(ctx context.Context, req *pb.CheckFileExist
 	return resp.(*pb.CheckFileExistsResponse), nil
 }
 
-func (s *grpcServer) GetTaskProgress(ctx context.Context, req *pb.GetTaskProgressRequest) (*pb.GetTaskProgressResponse, error) {
+func (s *grpcServer) GetTaskProgress(
+	ctx context.Context,
+	req *pb.GetTaskProgressRequest,
+) (*pb.GetTaskProgressResponse, error) {
 	_, resp, err := s.getTaskProgress.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, encodeError(ctx, err)
@@ -155,7 +174,10 @@ func (s *grpcServer) GetTaskProgress(ctx context.Context, req *pb.GetTaskProgres
 	return resp.(*pb.GetTaskProgressResponse), nil
 }
 
-func (s *grpcServer) UpdateTaskChecksum(ctx context.Context, req *pb.UpdateTaskChecksumRequest) (*pb.UpdateTaskResponse, error) {
+func (s *grpcServer) UpdateTaskChecksum(
+	ctx context.Context,
+	req *pb.UpdateTaskChecksumRequest,
+) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskChecksum.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
@@ -163,7 +185,10 @@ func (s *grpcServer) UpdateTaskChecksum(ctx context.Context, req *pb.UpdateTaskC
 	return resp.(*pb.UpdateTaskResponse), nil
 }
 
-func (s *grpcServer) UpdateTaskMetadata(ctx context.Context, req *pb.UpdateTaskMetadataRequest) (*pb.UpdateTaskResponse, error) {
+func (s *grpcServer) UpdateTaskMetadata(
+	ctx context.Context,
+	req *pb.UpdateTaskMetadataRequest,
+) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskMetadata.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
@@ -181,23 +206,91 @@ func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger) pb.TaskService
 	}
 
 	return &grpcServer{
-		createTask:            grpctransport.NewServer(endpoints.CreateTaskEndpoint, decodeCreateTaskRequest, encodeTaskResponse, options...),
-		getTask:               grpctransport.NewServer(endpoints.GetTaskEndpoint, decodeGetTaskRequest, encodeTaskResponse, options...),
-		listTasks:             grpctransport.NewServer(endpoints.ListTasksEndpoint, decodeListTasksRequest, encodeListTasksResponse, options...),
-		deleteTask:            grpctransport.NewServer(endpoints.DeleteTaskEndpoint, decodeDeleteTaskRequest, encodeDeleteTaskResponse, options...),
-		pauseTask:             grpctransport.NewServer(endpoints.PauseTaskEndpoint, decodePauseTaskRequest, encodePauseTaskResponse, options...),
-		resumeTask:            grpctransport.NewServer(endpoints.ResumeTaskEndpoint, decodeResumeTaskRequest, encodeResumeTaskResponse, options...),
-		cancelTask:            grpctransport.NewServer(endpoints.CancelTaskEndpoint, decodeCancelTaskRequest, encodeCancelTaskResponse, options...),
-		retryTask:             grpctransport.NewServer(endpoints.RetryTaskEndpoint, decodeRetryTaskRequest, encodeRetryTaskResponse, options...),
-		updateTaskStoragePath: grpctransport.NewServer(endpoints.UpdateTaskStoragePathEndpoint, decodeUpdateTaskStoragePathRequest, encodeTaskResponse, options...),
-		updateTaskStatus:      grpctransport.NewServer(endpoints.UpdateTaskStatusEndpoint, decodeUpdateTaskStatusRequest, encodeTaskResponse, options...),
-		updateTaskProgress:    grpctransport.NewServer(endpoints.UpdateTaskProgressEndpoint, decodeUpdateTaskProgressRequest, encodeTaskResponse, options...),
-		updateTaskError:       grpctransport.NewServer(endpoints.UpdateTaskErrorEndpoint, decodeUpdateTaskErrorRequest, encodeTaskResponse, options...),
-		completeTask:          grpctransport.NewServer(endpoints.CompleteTaskEndpoint, decodeCompleteTaskRequest, encodeTaskResponse, options...),
-		updateTaskChecksum:    grpctransport.NewServer(endpoints.UpdateTaskChecksumEndpoint, decodeUpdateTaskChecksumRequest, encodeTaskResponse, options...),
-		updateTaskMetadata:    grpctransport.NewServer(endpoints.UpdateTaskMetadataEndpoint, decodeUpdateTaskMetadataRequest, encodeTaskResponse, options...),
-		checkFileExists:       grpctransport.NewServer(endpoints.CheckFileExistsEndpoint, decodeCheckFileExistsRequest, encodeCheckFileExistsResponse, options...),
-		getTaskProgress:       grpctransport.NewServer(endpoints.GetTaskProgressEndpoint, decodeGetTaskProgressRequest, encodeGetTaskProgressResponse, options...),
+		createTask: grpctransport.NewServer(
+			endpoints.CreateTaskEndpoint,
+			decodeCreateTaskRequest,
+			encodeTaskResponse,
+			options...),
+		getTask: grpctransport.NewServer(
+			endpoints.GetTaskEndpoint,
+			decodeGetTaskRequest,
+			encodeTaskResponse,
+			options...),
+		listTasks: grpctransport.NewServer(
+			endpoints.ListTasksEndpoint,
+			decodeListTasksRequest,
+			encodeListTasksResponse,
+			options...),
+		deleteTask: grpctransport.NewServer(
+			endpoints.DeleteTaskEndpoint,
+			decodeDeleteTaskRequest,
+			encodeDeleteTaskResponse,
+			options...),
+		pauseTask: grpctransport.NewServer(
+			endpoints.PauseTaskEndpoint,
+			decodePauseTaskRequest,
+			encodePauseTaskResponse,
+			options...),
+		resumeTask: grpctransport.NewServer(
+			endpoints.ResumeTaskEndpoint,
+			decodeResumeTaskRequest,
+			encodeResumeTaskResponse,
+			options...),
+		cancelTask: grpctransport.NewServer(
+			endpoints.CancelTaskEndpoint,
+			decodeCancelTaskRequest,
+			encodeCancelTaskResponse,
+			options...),
+		retryTask: grpctransport.NewServer(
+			endpoints.RetryTaskEndpoint,
+			decodeRetryTaskRequest,
+			encodeRetryTaskResponse,
+			options...),
+		updateTaskStoragePath: grpctransport.NewServer(
+			endpoints.UpdateTaskStoragePathEndpoint,
+			decodeUpdateTaskStoragePathRequest,
+			encodeTaskResponse,
+			options...),
+		updateTaskStatus: grpctransport.NewServer(
+			endpoints.UpdateTaskStatusEndpoint,
+			decodeUpdateTaskStatusRequest,
+			encodeTaskResponse,
+			options...),
+		updateTaskProgress: grpctransport.NewServer(
+			endpoints.UpdateTaskProgressEndpoint,
+			decodeUpdateTaskProgressRequest,
+			encodeTaskResponse,
+			options...),
+		updateTaskError: grpctransport.NewServer(
+			endpoints.UpdateTaskErrorEndpoint,
+			decodeUpdateTaskErrorRequest,
+			encodeTaskResponse,
+			options...),
+		completeTask: grpctransport.NewServer(
+			endpoints.CompleteTaskEndpoint,
+			decodeCompleteTaskRequest,
+			encodeTaskResponse,
+			options...),
+		updateTaskChecksum: grpctransport.NewServer(
+			endpoints.UpdateTaskChecksumEndpoint,
+			decodeUpdateTaskChecksumRequest,
+			encodeTaskResponse,
+			options...),
+		updateTaskMetadata: grpctransport.NewServer(
+			endpoints.UpdateTaskMetadataEndpoint,
+			decodeUpdateTaskMetadataRequest,
+			encodeTaskResponse,
+			options...),
+		checkFileExists: grpctransport.NewServer(
+			endpoints.CheckFileExistsEndpoint,
+			decodeCheckFileExistsRequest,
+			encodeCheckFileExistsResponse,
+			options...),
+		getTaskProgress: grpctransport.NewServer(
+			endpoints.GetTaskProgressEndpoint,
+			decodeGetTaskProgressRequest,
+			encodeGetTaskProgressResponse,
+			options...),
 	}
 }
 
@@ -208,21 +301,36 @@ func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {
 	}
 	svcName := "task.TaskService"
 	return &taskendpoint.Set{
-		CreateTaskEndpoint:            grpctransport.NewClient(conn, svcName, "CreateTask", encodeCreateTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		GetTaskEndpoint:               grpctransport.NewClient(conn, svcName, "GetTask", encodeGetTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		ListTasksEndpoint:             grpctransport.NewClient(conn, svcName, "ListTasks", encodeListTasksRequest, decodeListTasksResponse, pb.ListTasksResponse{}, options...).Endpoint(),
-		DeleteTaskEndpoint:            grpctransport.NewClient(conn, svcName, "DeleteTask", encodeDeleteTaskRequest, decodeDeleteTaskResponse, pb.DeleteTaskResponse{}, options...).Endpoint(),
-		PauseTaskEndpoint:             grpctransport.NewClient(conn, svcName, "PauseTask", encodePauseTaskRequest, decodePauseTaskResponse, pb.PauseTaskResponse{}, options...).Endpoint(),
-		ResumeTaskEndpoint:            grpctransport.NewClient(conn, svcName, "ResumeTask", encodeResumeTaskRequest, decodeResumeTaskResponse, pb.ResumeTaskResponse{}, options...).Endpoint(),
-		CancelTaskEndpoint:            grpctransport.NewClient(conn, svcName, "CancelTask", encodeCancelTaskRequest, decodeCancelTaskResponse, pb.CancelTaskResponse{}, options...).Endpoint(),
-		RetryTaskEndpoint:             grpctransport.NewClient(conn, svcName, "RetryTask", encodeRetryTaskRequest, decodeRetryTaskResponse, pb.RetryTaskResponse{}, options...).Endpoint(),
-		UpdateTaskStoragePathEndpoint: grpctransport.NewClient(conn, svcName, "UpdateTaskStoragePath", encodeUpdateTaskStoragePathRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		UpdateTaskStatusEndpoint:      grpctransport.NewClient(conn, svcName, "UpdateTaskStatus", encodeUpdateTaskStatusRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		UpdateTaskProgressEndpoint:    grpctransport.NewClient(conn, svcName, "UpdateTaskProgress", encodeUpdateTaskProgressRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		UpdateTaskErrorEndpoint:       grpctransport.NewClient(conn, svcName, "UpdateTaskError", encodeUpdateTaskErrorRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		CompleteTaskEndpoint:          grpctransport.NewClient(conn, svcName, "CompleteTask", encodeCompleteTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).Endpoint(),
-		CheckFileExistsEndpoint:       grpctransport.NewClient(conn, svcName, "CheckFileExists", encodeCheckFileExistsRequest, decodeCheckFileExistsResponse, pb.CheckFileExistsResponse{}, options...).Endpoint(),
-		GetTaskProgressEndpoint:       grpctransport.NewClient(conn, svcName, "GetTaskProgress", encodeGetTaskProgressRequest, decodeGetTaskProgressResponse, pb.GetTaskProgressResponse{}, options...).Endpoint(),
+		CreateTaskEndpoint: grpctransport.NewClient(conn, svcName, "CreateTask", encodeCreateTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		GetTaskEndpoint: grpctransport.NewClient(conn, svcName, "GetTask", encodeGetTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		ListTasksEndpoint: grpctransport.NewClient(conn, svcName, "ListTasks", encodeListTasksRequest, decodeListTasksResponse, pb.ListTasksResponse{}, options...).
+			Endpoint(),
+		DeleteTaskEndpoint: grpctransport.NewClient(conn, svcName, "DeleteTask", encodeDeleteTaskRequest, decodeDeleteTaskResponse, pb.DeleteTaskResponse{}, options...).
+			Endpoint(),
+		PauseTaskEndpoint: grpctransport.NewClient(conn, svcName, "PauseTask", encodePauseTaskRequest, decodePauseTaskResponse, pb.PauseTaskResponse{}, options...).
+			Endpoint(),
+		ResumeTaskEndpoint: grpctransport.NewClient(conn, svcName, "ResumeTask", encodeResumeTaskRequest, decodeResumeTaskResponse, pb.ResumeTaskResponse{}, options...).
+			Endpoint(),
+		CancelTaskEndpoint: grpctransport.NewClient(conn, svcName, "CancelTask", encodeCancelTaskRequest, decodeCancelTaskResponse, pb.CancelTaskResponse{}, options...).
+			Endpoint(),
+		RetryTaskEndpoint: grpctransport.NewClient(conn, svcName, "RetryTask", encodeRetryTaskRequest, decodeRetryTaskResponse, pb.RetryTaskResponse{}, options...).
+			Endpoint(),
+		UpdateTaskStoragePathEndpoint: grpctransport.NewClient(conn, svcName, "UpdateTaskStoragePath", encodeUpdateTaskStoragePathRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		UpdateTaskStatusEndpoint: grpctransport.NewClient(conn, svcName, "UpdateTaskStatus", encodeUpdateTaskStatusRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		UpdateTaskProgressEndpoint: grpctransport.NewClient(conn, svcName, "UpdateTaskProgress", encodeUpdateTaskProgressRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		UpdateTaskErrorEndpoint: grpctransport.NewClient(conn, svcName, "UpdateTaskError", encodeUpdateTaskErrorRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		CompleteTaskEndpoint: grpctransport.NewClient(conn, svcName, "CompleteTask", encodeCompleteTaskRequest, decodeTaskResponse, pb.TaskResponse{}, options...).
+			Endpoint(),
+		CheckFileExistsEndpoint: grpctransport.NewClient(conn, svcName, "CheckFileExists", encodeCheckFileExistsRequest, decodeCheckFileExistsResponse, pb.CheckFileExistsResponse{}, options...).
+			Endpoint(),
+		GetTaskProgressEndpoint: grpctransport.NewClient(conn, svcName, "GetTaskProgress", encodeGetTaskProgressRequest, decodeGetTaskProgressResponse, pb.GetTaskProgressResponse{}, options...).
+			Endpoint(),
 	}
 }
 
