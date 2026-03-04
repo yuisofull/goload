@@ -111,18 +111,21 @@ type Set struct {
 // Implement task.Service on the Set for GRPC client usage
 
 func (e *Set) CreateTask(ctx context.Context, param *task.CreateTaskParam) (*task.Task, error) {
-	resp, err := e.CreateTaskEndpoint(ctx, &CreateTaskRequest{
+	req := &CreateTaskRequest{
 		OfAccountId: param.OfAccountID,
 		FileName:    param.FileName,
 		SourceUrl:   param.SourceURL,
 		SourceType:  pb.SourceType(pb.SourceType_value[string(param.SourceType)]),
 		SourceAuth:  toPBAuthConfig(param.SourceAuth),
-		Checksum: &pb.ChecksumInfo{
+		Metadata:    toPBStruct(param.Metadata),
+	}
+	if param.Checksum != nil {
+		req.Checksum = &pb.ChecksumInfo{
 			ChecksumType:  param.Checksum.ChecksumType,
 			ChecksumValue: param.Checksum.ChecksumValue,
-		},
-		Metadata: toPBStruct(param.Metadata),
-	})
+		}
+	}
+	resp, err := e.CreateTaskEndpoint(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +192,10 @@ func (e *Set) UpdateTaskStoragePath(ctx context.Context, id uint64, storagePath 
 }
 
 func (e *Set) UpdateTaskStatus(ctx context.Context, id uint64, status task.TaskStatus) error {
-	_, err := e.UpdateTaskStatusEndpoint(ctx, &UpdateTaskStatusRequest{Id: id, Status: pb.TaskStatus(pb.TaskStatus_value[string(status)])})
+	_, err := e.UpdateTaskStatusEndpoint(
+		ctx,
+		&UpdateTaskStatusRequest{Id: id, Status: pb.TaskStatus(pb.TaskStatus_value[string(status)])},
+	)
 	return err
 }
 
