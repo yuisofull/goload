@@ -1,11 +1,11 @@
 -- +migrate Down
-DROP TABLE IF EXISTS download_tasks;
-
-DROP TABLE IF EXISTS token_public_keys;
-
-DROP TABLE IF EXISTS account_passwords;
-
-DROP TABLE IF EXISTS accounts;
+# DROP TABLE IF EXISTS tasks;
+#
+# DROP TABLE IF EXISTS token_public_keys;
+#
+# DROP TABLE IF EXISTS account_passwords;
+#
+# DROP TABLE IF EXISTS accounts;
 
 -- +migrate Up
 CREATE TABLE
@@ -31,7 +31,7 @@ CREATE TABLE
     );
 
 CREATE TABLE
-    tasks (
+    IF NOT EXISTS tasks (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         of_account_id BIGINT UNSIGNED NOT NULL,
         file_name TEXT NOT NULL,
