@@ -8,7 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/google/uuid"
+
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/storage"
 )
@@ -72,6 +75,7 @@ type service struct {
 	presigner storage.Presigner
 	// token store for one-time tokens fallback
 	tokenStore TokenStore
+	logger     log.Logger
 }
 
 // TokenStore stores one-time or short-lived tokens for server-side download URLs.
@@ -80,14 +84,22 @@ type TokenStore interface {
 	ConsumeToken(ctx context.Context, token string) (*storage.TokenMetadata, error)
 }
 
+// ServiceOption is a functional option for configuring the task service.
+type ServiceOption func(*service)
+
 // WithPresigner configures the task service with a storage presigner (optional).
-func WithPresigner(p storage.Presigner) func(*service) {
+func WithPresigner(p storage.Presigner) ServiceOption {
 	return func(s *service) { s.presigner = p }
 }
 
 // WithTokenStore configures the task service with a TokenStore (optional).
-func WithTokenStore(ts TokenStore) func(*service) {
+func WithTokenStore(ts TokenStore) ServiceOption {
 	return func(s *service) { s.tokenStore = ts }
+}
+
+// WithLogger configures the task service with a logger.
+func WithLogger(l log.Logger) ServiceOption {
+	return func(s *service) { s.logger = l }
 }
 
 // in-memory token store for tests or simple setups
@@ -124,11 +136,15 @@ func (m *inmemTokenStore) ConsumeToken(ctx context.Context, token string) (*stor
 	return &meta, nil
 }
 
-func NewService(repo Repository, pub Publisher, tx TxManager) Service {
+func NewService(repo Repository, pub Publisher, tx TxManager, opts ...ServiceOption) Service {
 	s := &service{
-		repo: repo,
-		pub:  pub,
-		tx:   tx,
+		repo:   repo,
+		pub:    pub,
+		tx:     tx,
+		logger: log.NewNopLogger(),
+	}
+	for _, o := range opts {
+		o(s)
 	}
 	return s
 }

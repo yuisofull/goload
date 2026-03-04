@@ -197,7 +197,9 @@ func (e *Set) UpdateTaskProgress(ctx context.Context, id uint64, progress task.D
 	_, err := e.UpdateTaskProgressEndpoint(ctx, &UpdateTaskProgressRequest{
 		Id: id,
 		Progress: &pb.DownloadProgress{
-			TotalBytes: progress.TotalBytes,
+			Progress:        progress.Progress,
+			DownloadedBytes: progress.DownloadedBytes,
+			TotalBytes:      progress.TotalBytes,
 		},
 	})
 	return err
@@ -283,6 +285,26 @@ func fromPBTask(pbTask *pb.Task) *task.Task {
 		return nil
 	}
 
+	var checksum *task.ChecksumInfo
+	if pbTask.Checksum != nil {
+		checksum = &task.ChecksumInfo{
+			ChecksumType:  pbTask.Checksum.ChecksumType,
+			ChecksumValue: pbTask.Checksum.ChecksumValue,
+		}
+	}
+
+	var errMsg *string
+	if pbTask.ErrorMessage != "" {
+		s := pbTask.ErrorMessage
+		errMsg = &s
+	}
+
+	var progress *task.DownloadProgress
+	if pbTask.Progress != nil {
+		dp := toDomainProgress(pbTask.Progress)
+		progress = &dp
+	}
+
 	return &task.Task{
 		ID:           pbTask.Id,
 		OfAccountID:  pbTask.OfAccountId,
@@ -326,7 +348,9 @@ func toPBDownloadProgress(progress *task.DownloadProgress) *pb.DownloadProgress 
 		return nil
 	}
 	return &pb.DownloadProgress{
-		TotalBytes: progress.TotalBytes,
+		Progress:        progress.Progress,
+		DownloadedBytes: progress.DownloadedBytes,
+		TotalBytes:      progress.TotalBytes,
 	}
 }
 
@@ -335,7 +359,9 @@ func fromPBDownloadProgress(pbProgress *pb.DownloadProgress) *task.DownloadProgr
 		return nil
 	}
 	return &task.DownloadProgress{
-		TotalBytes: pbProgress.TotalBytes,
+		Progress:        pbProgress.Progress,
+		DownloadedBytes: pbProgress.DownloadedBytes,
+		TotalBytes:      pbProgress.TotalBytes,
 	}
 }
 
@@ -794,7 +820,9 @@ func toDomainProgress(p *pb.DownloadProgress) task.DownloadProgress {
 		return task.DownloadProgress{}
 	}
 	return task.DownloadProgress{
-		TotalBytes: p.TotalBytes,
+		Progress:        p.Progress,
+		DownloadedBytes: p.DownloadedBytes,
+		TotalBytes:      p.TotalBytes,
 	}
 }
 
@@ -803,6 +831,8 @@ func toPBProgress(p *task.DownloadProgress) *pb.DownloadProgress {
 		return nil
 	}
 	return &pb.DownloadProgress{
-		TotalBytes: p.TotalBytes,
+		Progress:        p.Progress,
+		DownloadedBytes: p.DownloadedBytes,
+		TotalBytes:      p.TotalBytes,
 	}
 }
