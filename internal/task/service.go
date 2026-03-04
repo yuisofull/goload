@@ -43,7 +43,12 @@ type Service interface {
 	// GenerateDownloadURL returns a URL clients can use to download the stored file.
 	// If direct is true, the URL is a presigned storage URL. If false, the URL
 	// points to a server-side download endpoint that will validate a token.
-	GenerateDownloadURL(ctx context.Context, taskID uint64, ttl time.Duration, oneTime bool) (url string, direct bool, err error)
+	GenerateDownloadURL(
+		ctx context.Context,
+		taskID uint64,
+		ttl time.Duration,
+		oneTime bool,
+	) (url string, direct bool, err error)
 }
 
 type Repository interface {
@@ -95,7 +100,12 @@ func NewInmemTokenStore() TokenStore {
 	return &inmemTokenStore{store: make(map[string]storage.TokenMetadata)}
 }
 
-func (m *inmemTokenStore) CreateToken(ctx context.Context, token string, meta storage.TokenMetadata, ttl time.Duration) error {
+func (m *inmemTokenStore) CreateToken(
+	ctx context.Context,
+	token string,
+	meta storage.TokenMetadata,
+	ttl time.Duration,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.store[token] = meta
@@ -124,7 +134,12 @@ func NewService(repo Repository, pub Publisher, tx TxManager) Service {
 }
 
 // GenerateDownloadURL returns a presigned URL or server token URL for the task's stored file.
-func (s *service) GenerateDownloadURL(ctx context.Context, taskID uint64, ttl time.Duration, oneTime bool) (string, bool, error) {
+func (s *service) GenerateDownloadURL(
+	ctx context.Context,
+	taskID uint64,
+	ttl time.Duration,
+	oneTime bool,
+) (string, bool, error) {
 	// fetch task and authorization is expected to be handled by caller
 	t, err := s.repo.GetByID(ctx, taskID)
 	if err != nil {
@@ -137,11 +152,13 @@ func (s *service) GenerateDownloadURL(ctx context.Context, taskID uint64, ttl ti
 
 	// Try presigner if available and oneTime == false
 	if s.presigner != nil && !oneTime {
-		urlStr, err := s.presigner.PresignGet(ctx, t.StorageType.String(), t.StoragePath, ttl)
+		urlStr, err := s.presigner.PresignGet(ctx, t.StoragePath, ttl)
 		if err == nil {
 			return urlStr, true, nil
 		}
-		// fallthrough to token path on presign error
+		// log and fallthrough to token path on presign error
+		level.Error(s.logger).
+			Log("msg", "presign failed, falling back to token URL", "storage_path", t.StoragePath, "err", err)
 	}
 
 	if s.tokenStore == nil {
@@ -157,7 +174,11 @@ func (s *service) GenerateDownloadURL(ctx context.Context, taskID uint64, ttl ti
 	}
 
 	if err := s.tokenStore.CreateToken(ctx, token, meta, ttl); err != nil {
-		return "", false, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to create download token", Cause: err}
+		return "", false, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to create download token",
+			Cause:   err,
+		}
 	}
 
 	// server endpoint is assumed to be handled by API gateway; return token URL path
@@ -470,7 +491,12 @@ func (s *service) UpdateTaskStoragePath(ctx context.Context, id uint64, storageP
 	return nil
 }
 
-func (s *service) UpdateStorageInfo(ctx context.Context, id uint64, storageType storage.Type, storagePath string) error {
+func (s *service) UpdateStorageInfo(
+	ctx context.Context,
+	id uint64,
+	storageType storage.Type,
+	storagePath string,
+) error {
 	_, err := s.repo.Update(ctx, &Task{
 		ID:          id,
 		StorageType: storageType,

@@ -11,10 +11,11 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/ratelimit"
+	"golang.org/x/time/rate"
+
 	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
 	pb "github.com/yuisofull/goload/internal/task/pb"
-	"golang.org/x/time/rate"
 )
 
 // Alias protobuf messages to endpoint layer request/response types
@@ -255,12 +256,25 @@ func (e *Set) UpdateStorageInfo(ctx context.Context, id uint64, storageType stor
 }
 
 // GenerateDownloadURL forwards to the underlying endpoint if available.
-func (e *Set) GenerateDownloadURL(ctx context.Context, taskID uint64, ttl time.Duration, oneTime bool) (string, bool, error) {
+func (e *Set) GenerateDownloadURL(
+	ctx context.Context,
+	taskID uint64,
+	ttl time.Duration,
+	oneTime bool,
+) (string, bool, error) {
 	if e.GenerateDownloadURLEndpoint == nil {
 		return "", false, fmt.Errorf("GenerateDownloadURL endpoint not implemented")
 	}
-	// Not wired up to protobuf; return not implemented for now.
-	return "", false, fmt.Errorf("GenerateDownloadURL not implemented")
+	resp, err := e.GenerateDownloadURLEndpoint(ctx, &GenerateDownloadURLRequest{
+		TaskId:     taskID,
+		TtlSeconds: int64(ttl.Seconds()),
+		OneTime:    oneTime,
+	})
+	if err != nil {
+		return "", false, err
+	}
+	out := resp.(*GenerateDownloadURLResponse)
+	return out.Url, out.Direct, nil
 }
 
 // fromPBTask converts a protobuf Task to domain Task
@@ -270,21 +284,21 @@ func fromPBTask(pbTask *pb.Task) *task.Task {
 	}
 
 	return &task.Task{
-		ID:          pbTask.Id,
-		OfAccountID: pbTask.OfAccountId,
-		FileName:    pbTask.FileName,
-		SourceURL:   pbTask.SourceUrl,
-		SourceType:  task.SourceType(pbTask.SourceType),
-		SourceAuth:  fromPBAuthConfig(pbTask.SourceAuth),
-		StorageType: storage.TypeValue(pbTask.StorageType.String()),
-		StoragePath: pbTask.StoragePath,
-		Checksum: &task.ChecksumInfo{
-			ChecksumType:  pbTask.Checksum.ChecksumType,
-			ChecksumValue: pbTask.Checksum.ChecksumValue,
-		},
-		Metadata:  pbTask.Metadata.AsMap(),
-		CreatedAt: pbTask.CreatedAt.AsTime(),
-		UpdatedAt: pbTask.UpdatedAt.AsTime(),
+		ID:           pbTask.Id,
+		OfAccountID:  pbTask.OfAccountId,
+		FileName:     pbTask.FileName,
+		SourceURL:    pbTask.SourceUrl,
+		SourceType:   task.SourceType(pbTask.SourceType.String()),
+		SourceAuth:   fromPBAuthConfig(pbTask.SourceAuth),
+		StorageType:  storage.TypeValue(pbTask.StorageType.String()),
+		StoragePath:  pbTask.StoragePath,
+		Status:       task.TaskStatus(pbTask.Status.String()),
+		Checksum:     checksum,
+		Progress:     progress,
+		ErrorMessage: errMsg,
+		Metadata:     pbTask.Metadata.AsMap(),
+		CreatedAt:    pbTask.CreatedAt.AsTime(),
+		UpdatedAt:    pbTask.UpdatedAt.AsTime(),
 		CompletedAt: func() *time.Time {
 			if pbTask.CompletedAt != nil {
 				t := pbTask.CompletedAt.AsTime()
@@ -690,7 +704,7 @@ func toPBTask(t *task.Task) *pb.Task {
 	if t == nil {
 		return nil
 	}
-	return &pb.Task{
+	pbTask := &pb.Task{
 		Id:          t.ID,
 		FileName:    t.FileName,
 		SourceUrl:   t.SourceURL,
@@ -698,12 +712,10 @@ func toPBTask(t *task.Task) *pb.Task {
 		SourceAuth:  toPBAuthConfig(t.SourceAuth),
 		StorageType: pb.StorageType(pb.StorageType_value[string(t.StorageType)]),
 		StoragePath: t.StoragePath,
-		Checksum: &pb.ChecksumInfo{
-			ChecksumType:  t.Checksum.ChecksumType,
-			ChecksumValue: t.Checksum.ChecksumValue,
-		},
+		Status:      pb.TaskStatus(pb.TaskStatus_value[string(t.Status)]),
 		Metadata:    toPBStruct(t.Metadata),
 		OfAccountId: t.OfAccountID,
+		Progress:    toPBProgress(t.Progress),
 		CreatedAt:   timestamppb.New(t.CreatedAt),
 		UpdatedAt:   timestamppb.New(t.UpdatedAt),
 		CompletedAt: func() *timestamppb.Timestamp {
@@ -713,6 +725,16 @@ func toPBTask(t *task.Task) *pb.Task {
 			return nil
 		}(),
 	}
+	if t.Checksum != nil {
+		pbTask.Checksum = &pb.ChecksumInfo{
+			ChecksumType:  t.Checksum.ChecksumType,
+			ChecksumValue: t.Checksum.ChecksumValue,
+		}
+	}
+	if t.ErrorMessage != nil {
+		pbTask.ErrorMessage = *t.ErrorMessage
+	}
+	return pbTask
 }
 
 func toPBAuthConfig(auth *task.AuthConfig) *pb.AuthConfig {

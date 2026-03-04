@@ -85,16 +85,17 @@ func taskToAPI(t *task.Task) *Task {
 }
 
 type GatewayEndpoints struct {
-	CreateTaskEndpoint      endpoint.Endpoint
-	GetTaskEndpoint         endpoint.Endpoint
-	ListTasksEndpoint       endpoint.Endpoint
-	DeleteTaskEndpoint      endpoint.Endpoint
-	PauseTaskEndpoint       endpoint.Endpoint
-	ResumeTaskEndpoint      endpoint.Endpoint
-	CancelTaskEndpoint      endpoint.Endpoint
-	RetryTaskEndpoint       endpoint.Endpoint
-	CheckFileExistsEndpoint endpoint.Endpoint
-	GetTaskProgressEndpoint endpoint.Endpoint
+	CreateTaskEndpoint          endpoint.Endpoint
+	GetTaskEndpoint             endpoint.Endpoint
+	ListTasksEndpoint           endpoint.Endpoint
+	DeleteTaskEndpoint          endpoint.Endpoint
+	PauseTaskEndpoint           endpoint.Endpoint
+	ResumeTaskEndpoint          endpoint.Endpoint
+	CancelTaskEndpoint          endpoint.Endpoint
+	RetryTaskEndpoint           endpoint.Endpoint
+	CheckFileExistsEndpoint     endpoint.Endpoint
+	GetTaskProgressEndpoint     endpoint.Endpoint
+	GenerateDownloadURLEndpoint endpoint.Endpoint
 	// Auth endpoints (public)
 	AuthCreateEndpoint  endpoint.Endpoint
 	AuthSessionEndpoint endpoint.Endpoint
@@ -159,6 +160,50 @@ type (
 		TotalBytes      *int64   `json:"total_bytes,omitempty"`
 	}
 )
+
+type (
+	GenerateDownloadURLRequest struct {
+		TaskID     uint64 `json:"task_id"`
+		TTLSeconds int64  `json:"ttl_seconds"`
+		OneTime    bool   `json:"one_time"`
+	}
+	GenerateDownloadURLResponse struct {
+		URL    string `json:"url"`
+		Direct bool   `json:"direct"`
+	}
+)
+
+// MakeGenerateDownloadURLEndpoint calls the task service GenerateDownloadURL,
+// which internally handles presigning (direct MinIO URL) or token fallback.
+func MakeGenerateDownloadURLEndpoint(svc task.Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*GenerateDownloadURLRequest)
+
+		userID, ok := UserIDFromContext(ctx)
+		if !ok {
+			return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "unauthenticated"}
+		}
+
+		t, err := svc.GetTask(ctx, req.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		if t.OfAccountID != userID {
+			return nil, &errors.Error{Code: errors.ErrCodePermissionDenied, Message: "forbidden"}
+		}
+
+		ttl := time.Duration(req.TTLSeconds) * time.Second
+		if ttl <= 0 {
+			ttl = time.Hour
+		}
+
+		urlStr, direct, err := svc.GenerateDownloadURL(ctx, req.TaskID, ttl, req.OneTime)
+		if err != nil {
+			return nil, err
+		}
+		return &GenerateDownloadURLResponse{URL: urlStr, Direct: direct}, nil
+	}
+}
 
 func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
@@ -460,6 +505,14 @@ func NewGatewayEndpoints(
 				func(req interface{}) uint64 { return req.(*GetTaskProgressRequest).TaskId },
 			)(
 				MakeGetTaskProgressEndpoint(downloadTaskSvc),
+			),
+		),
+		GenerateDownloadURLEndpoint: authMW(
+			RequireTaskOwnerMiddleware(
+				downloadTaskSvc,
+				func(req interface{}) uint64 { return req.(*GenerateDownloadURLRequest).TaskID },
+			)(
+				MakeGenerateDownloadURLEndpoint(downloadTaskSvc),
 			),
 		),
 		AuthCreateEndpoint:  authCreate,

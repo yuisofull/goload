@@ -34,6 +34,7 @@ type grpcServer struct {
 	updateTaskMetadata    grpctransport.Handler
 	checkFileExists       grpctransport.Handler
 	getTaskProgress       grpctransport.Handler
+	generateDownloadURL   grpctransport.Handler
 }
 
 func (s *grpcServer) CreateTask(ctx context.Context, req *pb.CreateTaskRequest) (*pb.TaskResponse, error) {
@@ -174,6 +175,17 @@ func (s *grpcServer) GetTaskProgress(
 	return resp.(*pb.GetTaskProgressResponse), nil
 }
 
+func (s *grpcServer) GenerateDownloadURL(
+	ctx context.Context,
+	req *pb.GenerateDownloadURLRequest,
+) (*pb.GenerateDownloadURLResponse, error) {
+	_, resp, err := s.generateDownloadURL.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, encodeError(ctx, err)
+	}
+	return resp.(*pb.GenerateDownloadURLResponse), nil
+}
+
 func (s *grpcServer) UpdateTaskChecksum(
 	ctx context.Context,
 	req *pb.UpdateTaskChecksumRequest,
@@ -291,6 +303,11 @@ func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger) pb.TaskService
 			decodeGetTaskProgressRequest,
 			encodeGetTaskProgressResponse,
 			options...),
+		generateDownloadURL: grpctransport.NewServer(
+			endpoints.GenerateDownloadURLEndpoint,
+			decodeGenerateDownloadURLRequest,
+			encodeGenerateDownloadURLResponse,
+			options...),
 	}
 }
 
@@ -330,6 +347,8 @@ func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {
 		CheckFileExistsEndpoint: grpctransport.NewClient(conn, svcName, "CheckFileExists", encodeCheckFileExistsRequest, decodeCheckFileExistsResponse, pb.CheckFileExistsResponse{}, options...).
 			Endpoint(),
 		GetTaskProgressEndpoint: grpctransport.NewClient(conn, svcName, "GetTaskProgress", encodeGetTaskProgressRequest, decodeGetTaskProgressResponse, pb.GetTaskProgressResponse{}, options...).
+			Endpoint(),
+		GenerateDownloadURLEndpoint: grpctransport.NewClient(conn, svcName, "GenerateDownloadURL", encodeGenerateDownloadURLRequest, decodeGenerateDownloadURLResponse, pb.GenerateDownloadURLResponse{}, options...).
 			Endpoint(),
 	}
 }
@@ -584,4 +603,26 @@ func decodeCheckFileExistsResponse(_ context.Context, grpcResp interface{}) (int
 func decodeGetTaskProgressResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
 	resp := grpcResp.(*pb.GetTaskProgressResponse)
 	return (*taskendpoint.GetTaskProgressResponse)(resp), nil
+}
+
+// GenerateDownloadURL server-side decoder/encoder
+func decodeGenerateDownloadURLRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.GenerateDownloadURLRequest)
+	return (*taskendpoint.GenerateDownloadURLRequest)(req), nil
+}
+
+func encodeGenerateDownloadURLResponse(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(*taskendpoint.GenerateDownloadURLResponse)
+	return (*pb.GenerateDownloadURLResponse)(resp), nil
+}
+
+// GenerateDownloadURL client-side encoder/decoder
+func encodeGenerateDownloadURLRequest(_ context.Context, request interface{}) (interface{}, error) {
+	req := request.(*taskendpoint.GenerateDownloadURLRequest)
+	return (*pb.GenerateDownloadURLRequest)(req), nil
+}
+
+func decodeGenerateDownloadURLResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+	resp := grpcResp.(*pb.GenerateDownloadURLResponse)
+	return (*taskendpoint.GenerateDownloadURLResponse)(resp), nil
 }

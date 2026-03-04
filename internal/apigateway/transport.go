@@ -136,8 +136,21 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 		endpoints.GetTaskProgressEndpoint,
 		decodeHTTPIDRequestName("task_id"),
 		encodeHTTPResponse,
-		options...)
-	mux.Handle("/api/v1/download-tasks/progress", addTokenToContext(progressHandler))
+		options...,
+	))).Methods(http.MethodGet)
+
+	tasks.Handle("/download-url", addTokenToContext(httptransport.NewServer(
+		endpoints.GenerateDownloadURLEndpoint,
+		func(_ context.Context, r *http.Request) (interface{}, error) {
+			var req GenerateDownloadURLRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				return nil, err
+			}
+			return &req, nil
+		},
+		encodeHTTPResponse,
+		options...,
+	))).Methods(http.MethodPost)
 
 	// optional auth endpoints from endpoints struct
 
