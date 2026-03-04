@@ -30,7 +30,7 @@ type Backend interface {
 // return temporary presigned URLs for GET operations.
 type Presigner interface {
 	// PresignGet returns a URL that allows GET access to `key` for the provided ttl.
-	PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error)
+	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
 }
 
 // FileMetadata contains file metadata from source

@@ -16,6 +16,8 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+
 	storagepkg "github.com/yuisofull/goload/internal/storage"
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
@@ -24,7 +26,6 @@ import (
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
-	"google.golang.org/grpc"
 )
 
 func main() {
@@ -109,9 +110,7 @@ func main() {
 
 		var presigner *storagepkg.Minio
 		presigner, err = storagepkg.NewMinioPresigner(
-			//config.MinioPresignPublicEndpoint,
 			config.MinioEndpoint,
-			"",
 			presignAccessKey,
 			presignSecretKey,
 			config.MinioUseSSL,

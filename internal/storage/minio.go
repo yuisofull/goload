@@ -51,6 +51,30 @@ func NewMinioBackend(endpoint, accessKey, secretKey string, useSSL bool, bucket 
 	return &Minio{client: client, bucket: bucket}, nil
 }
 
+// NewMinioPresigner creates a Minio that is used only for presigning.
+func NewMinioPresigner(
+	endpoint, accessKey, secretKey string, useSSL bool, bucket string,
+) (*Minio, error) {
+	if u, err := url.Parse(endpoint); err == nil && u.Scheme != "" {
+		if u.Host != "" {
+			endpoint = u.Host
+		}
+	}
+
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: useSSL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create minio presign client: %w", err)
+	}
+
+	return &Minio{
+		client: client,
+		bucket: bucket,
+	}, nil
+}
+
 func (m *Minio) Store(ctx context.Context, key string, reader io.Reader, metadata *FileMetadata) error {
 	opts := minio.PutObjectOptions{
 		ContentType: "application/octet-stream",
@@ -147,14 +171,11 @@ func (m *Minio) Delete(ctx context.Context, key string) error {
 	return m.client.RemoveObject(ctx, m.bucket, key, minio.RemoveObjectOptions{})
 }
 
-func (m *Minio) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
-	// ignore bucket param and use configured bucket unless provided
-	if bucket == "" {
-		bucket = m.bucket
-	}
-	url, err := m.client.PresignedGetObject(ctx, bucket, key, ttl, nil)
+func (m *Minio) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	presignedURL, err := m.client.PresignedGetObject(ctx, m.bucket, key, ttl, nil)
 	if err != nil {
 		return "", err
 	}
-	return url.String(), nil
+
+	return presignedURL.String(), nil
 }
