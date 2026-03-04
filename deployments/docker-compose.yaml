@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mysql:
     image: mysql:9.3.0
@@ -16,7 +14,6 @@ services:
       retries: 10
     networks:
       - goload-net
-
   broker:
     image: bitnamilegacy/kafka:4.0.0-debian-12-r10
     container_name: broker
@@ -27,6 +24,7 @@ services:
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "0@broker:9093"
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
     ports:
       - "9092:9092"
     healthcheck:
@@ -36,7 +34,25 @@ services:
       retries: 10
     networks:
       - goload-net
-
+  kafka-init:
+    image: bitnamilegacy/kafka:4.0.0-debian-12-r10
+    depends_on:
+      broker:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c", "
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.created --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.completed --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.failed --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.status.updated --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.progress.updated --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.paused --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.resumed --partitions 1 --replication-factor 1 &&
+      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.cancelled --partitions 1 --replication-factor 1 &&
+      echo 'All Kafka topics created successfully'
+    "]
+    networks:
+      - goload-net
+    restart: "no"
   redis:
     image: redis:8.0.2
     restart: always
@@ -49,105 +65,67 @@ services:
       retries: 10
     networks:
       - goload-net
-
   minio:
     image: quay.io/minio/minio
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     ports:
       - "9000:9000"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -k -f http://127.0.0.1:9000/minio/health/live || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
     networks:
       - goload-net
-
-  apigateway:
+  bucket-creator:
     build:
       context: ..
-      dockerfile: ./deployments/dockerfiles/Dockerfile.apigateway
+      dockerfile: ./deployments/dockerfiles/Dockerfile.bucket
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_READER_ACCESS_KEY=goload-reader
+      - MINIO_READER_SECRET_KEY=goload-reader-secret
     depends_on:
-      mysql:
-        condition: service_healthy
-      broker:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       minio:
         condition: service_healthy
-    environment:
-      - CONFIG_PATH=/app/configs/config.yaml
-    volumes:
-      - ../configs/config.yaml:/app/configs/config.yaml:ro
-      - ../migrations:/app/migrations:ro
-    ports:
-      - "8080:8080"
     networks:
       - goload-net
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-S", "http://localhost:8080/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
+    restart: "no"
   migrator:
     build:
       context: ..
       dockerfile: ./deployments/dockerfiles/Dockerfile.migrator
     environment:
-      - CONFIG_PATH=/app/configs/config.yaml
+      # Shared MySQL vars (migrator reads MYSQL_* directly)
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USERNAME=root
+      - MYSQL_PASSWORD=example
+      - MYSQL_DATABASE=goload
       - SKIP_KAFKA_WAIT=1
     volumes:
-      - ../configs/config.yaml:/app/configs/config.yaml:ro
       - ../migrations:/app/migrations:ro
     networks:
       - goload-net
-    depends_on:
-      - minio
-      - bucket-creator
-
-  download:
-    build:
-      context: ..
-      dockerfile: ./deployments/dockerfiles/Dockerfile.download
     depends_on:
       mysql:
         condition: service_healthy
-      broker:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       minio:
         condition: service_healthy
-    environment:
-      - CONFIG_PATH=/app/configs/config.yaml
-    volumes:
-      - ../configs/config.yaml:/app/configs/config.yaml:ro
-      - ../migrations:/app/migrations:ro
-    networks:
-      - goload-net
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8082 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  bucket-creator:
+      bucket-creator:
+        condition: service_completed_successfully
+  # ──────────────────────────────────────────────
+  # auth service
+  # Env vars: LOG_LEVEL, MYSQL_*, REDIS_*, AUTH_*, AUTH_SERVICE_GRPC_ADDRESS
+  # ──────────────────────────────────────────────
+  auth:
     build:
       context: ..
-      dockerfile: ./deployments/dockerfiles/Dockerfile.bucket
-    networks:
-      - goload-net
-    restart: "no"
-
-  authsvc:
-    build:
-      context: ..
-      dockerfile: ./deployments/dockerfiles/Dockerfile.authsvc
+      dockerfile: ./deployments/dockerfiles/Dockerfile.auth
     depends_on:
       mysql:
         condition: service_healthy
@@ -156,10 +134,18 @@ services:
       migrator:
         condition: service_completed_successfully
     environment:
-      - CONFIG_PATH=/app/configs/config.yaml
-    volumes:
-      - ../configs/config.yaml:/app/configs/config.yaml:ro
-      - ../migrations:/app/migrations:ro
+      - LOG_LEVEL=debug
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USERNAME=root
+      - MYSQL_PASSWORD=example
+      - MYSQL_DATABASE=goload
+      - REDIS_ADDRESS=redis:6379
+      - AUTH_HASH_BCRYPT_COST=10
+      - AUTH_TOKEN_RSA_BITS=2048
+      - AUTH_TOKEN_EXPIRES_IN=24h
+      - AUTH_TOKEN_REGENERATE_BEFORE_EXPIRY=1h
+      - AUTH_SERVICE_GRPC_ADDRESS=0.0.0.0:8081
     networks:
       - goload-net
     healthcheck:
@@ -167,7 +153,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+  # ──────────────────────────────────────────────
+  # task service
+  # Env vars: LOG_LEVEL, MYSQL_*, REDIS_*, KAFKA_*, GRPC_ADDRESS,
+  #           TOKEN_HMAC_SECRET, MINIO_*
+  # ──────────────────────────────────────────────
   task:
     build:
       context: ..
@@ -181,11 +171,28 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
     environment:
-      - CONFIG_PATH=/app/configs/config.yaml
-    volumes:
-      - ../configs/config.yaml:/app/configs/config.yaml:ro
-      - ../migrations:/app/migrations:ro
+      - LOG_LEVEL=debug
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USERNAME=root
+      - MYSQL_PASSWORD=example
+      - MYSQL_DATABASE=goload
+      - REDIS_ADDRESS=redis:6379
+      - KAFKA_BROKERS=broker:9092
+      - KAFKA_VERSION=4.0.0
+      - GRPC_ADDRESS=0.0.0.0:8082
+      - TOKEN_HMAC_SECRET=dev-secret-123456
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=goload
+      - MINIO_USE_SSL=false
+      - MINIO_PRESIGN_PUBLIC_ENDPOINT=http://localhost:9000
+      - MINIO_PRESIGN_ACCESS_KEY=goload-reader
+      - MINIO_PRESIGN_SECRET_KEY=goload-reader-secret
     networks:
       - goload-net
     healthcheck:
@@ -193,7 +200,89 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+  # ──────────────────────────────────────────────
+  # download service
+  # Env vars: LOG_LEVEL, KAFKA_*, MINIO_*
+  # ──────────────────────────────────────────────
+  download:
+    build:
+      context: ..
+      dockerfile: ./deployments/dockerfiles/Dockerfile.download
+    depends_on:
+      broker:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      - LOG_LEVEL=debug
+      - KAFKA_BROKERS=broker:9092
+      - KAFKA_VERSION=4.0.0
+      - KAFKA_CONSUMER_GROUP=download-service-group
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=goload
+      - MINIO_USE_SSL=false
+    networks:
+      - goload-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8083 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  # ──────────────────────────────────────────────
+  # api gateway
+  # Env vars: LOG_LEVEL, HTTP_ADDRESS, TOKEN_HMAC_SECRET,
+  #           REDIS_*, AUTH_SERVICE_GRPC_ADDRESS,
+  #           TASK_SERVICE_GRPC_ADDRESS, MINIO_*
+  # ──────────────────────────────────────────────
+  apigateway:
+    build:
+      context: ..
+      dockerfile: ./deployments/dockerfiles/Dockerfile.apigateway
+    depends_on:
+      auth:
+        condition: service_healthy
+      task:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      - LOG_LEVEL=debug
+      - HTTP_ADDRESS=0.0.0.0:8080
+      - TOKEN_HMAC_SECRET=dev-secret-123456
+      - REDIS_ADDRESS=redis:6379
+      - AUTH_SERVICE_GRPC_ADDRESS=auth:8081
+      - TASK_SERVICE_GRPC_ADDRESS=task:8082
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=goload
+      - MINIO_USE_SSL=false
+    networks:
+      - goload-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      apigateway:
+        condition: service_healthy
+    networks:
+      - goload-net
+    restart: always
 networks:
   goload-net:
     driver: bridge

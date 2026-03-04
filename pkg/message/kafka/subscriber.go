@@ -55,7 +55,7 @@ func NewSubscriber(
 ) (*Subscriber, error) {
 	config.NackResendSleep = cmp.Or(config.NackResendSleep, time.Millisecond*100)
 	config.ReconnectRetrySleep = cmp.Or(config.ReconnectRetrySleep, time.Second*1)
-	config.Version = cmp.Or(config.Version, sarama.V2_0_0_0)
+	config.Version = cmp.Or(config.Version, sarama.V3_6_0_0)
 	config.ClientID = cmp.Or(config.ClientID, "watermill")
 	config.Unmarshaler = cmp.Or[Unmarshaler](config.Unmarshaler, DefaultMarshaler{})
 	if config.ConsumerGroup == "" {
@@ -196,8 +196,31 @@ func (s *Subscriber) Subscribe(baseCtx context.Context, topic string) (<-chan *m
 			cancel()
 			s.wg.Done()
 		}()
-		if err := grp.Consume(ctx, []string{topic}, handler); err != nil {
-			s.errorHandler(ctx, err)
+		// Retry grp.Consume on transient errors (e.g. topic-not-found during startup).
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			if err := grp.Consume(ctx, []string{topic}, handler); err != nil {
+				if ctx.Err() != nil {
+					// Context canceled: shutdown, not an error.
+					return
+				}
+				s.errorHandler(ctx, err)
+				// Back off before retrying.
+				sleep := s.config.ReconnectRetrySleep
+				if sleep <= 0 {
+					sleep = time.Second
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(sleep):
+				}
+			} else {
+				// Consume returned nil — normal exit (context canceled or partition EOF).
+				return
+			}
 		}
 	}()
 	return out, nil

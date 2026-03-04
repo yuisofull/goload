@@ -113,15 +113,15 @@ func TaskStatusValue(status string) TaskStatus {
 }
 
 const (
-	EventTaskCreated         EventType = "task_created"
-	EventTaskStatusUpdated   EventType = "task_status_updated"
-	EventTaskProgressUpdated EventType = "task_progress_updated"
-	EventTaskCompleted       EventType = "task_completed"
-	EventTaskFailed          EventType = "task_failed"
-	EventTaskPaused          EventType = "task_paused"
-	EventTaskResumed         EventType = "task_resumed"
-	EventTaskCancelled       EventType = "task_cancelled"
-	EventTaskRetried         EventType = "task_retried"
+	EventTaskCreated         EventType = "task.created"
+	EventTaskStatusUpdated   EventType = "task.status.updated"
+	EventTaskProgressUpdated EventType = "task.progress.updated"
+	EventTaskCompleted       EventType = "task.completed"
+	EventTaskFailed          EventType = "task.failed"
+	EventTaskPaused          EventType = "task.paused"
+	EventTaskResumed         EventType = "task.resumed"
+	EventTaskCancelled       EventType = "task.cancelled"
+	EventTaskRetried         EventType = "task.retried"
 
 	StatusPending     TaskStatus = "PENDING"
 	StatusDownloading TaskStatus = "DOWNLOADING"

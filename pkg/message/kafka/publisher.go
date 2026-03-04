@@ -25,17 +25,24 @@ func NewPublisher(cfg *PublisherConfig, options ...PublisherOption) (*Publisher,
 	p := &Publisher{}
 
 	p.marshaler = DefaultMarshaler{}
+	p.logger = log.NewNopLogger() // default to nop logger; callers can override via WithLogger option
 
 	sconfig := sarama.NewConfig()
 	{
 		sconfig.Producer.Retry.Max = cfg.MaxRetry
 		sconfig.Producer.RequiredAcks = sarama.WaitForAll
 		sconfig.Producer.Return.Successes = true
-		sconfig.Version = cmp.Or(cfg.Version, sarama.V2_0_0_0)
+		sconfig.Version = cmp.Or(cfg.Version, sarama.V3_6_0_0)
 		sconfig.ClientID = cmp.Or(cfg.ClientID, "watermill")
 	}
 
 	p.producer, err = sarama.NewSyncProducer(cfg.BrokerHosts, sconfig)
+	if err != nil {
+		return p, err
+	}
+	if p.producer == nil {
+		return p, fmt.Errorf("sarama.NewSyncProducer returned nil producer without error")
+	}
 
 	for _, option := range options {
 		option(p)
@@ -80,7 +87,7 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) (err error) 
 	}()
 
 	for _, msg := range msgs {
-		level.Info(p.logger).Log(
+		level.Debug(p.logger).Log(
 			"msg", "Sending message to Kafka",
 			"topic", topic,
 			"message_uuid", msg.UUID,
@@ -94,7 +101,7 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) (err error) 
 		if err != nil {
 			return errors.Wrapf(err, "cannot produce message %s", msg.UUID)
 		}
-		level.Info(p.logger).Log("msg", "Message sent to Kafka",
+		level.Debug(p.logger).Log("msg", "Message sent to Kafka",
 			"partition", partition,
 			"offset", offset,
 			"topic", topic,
