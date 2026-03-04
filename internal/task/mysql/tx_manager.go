@@ -3,20 +3,16 @@ package mysql
 import (
 	"context"
 	"database/sql"
-	"github.com/yuisofull/goload/internal/auth"
-	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
+
+	"github.com/yuisofull/goload/internal/task"
 )
 
 type txManager struct {
-	queries *sqlc.Queries
-	db      *sql.DB
+	db *sql.DB
 }
 
-func NewTxManager(db *sql.DB) auth.TxManager {
-	return &txManager{
-		queries: sqlc.New(db),
-		db:      db,
-	}
+func NewTxManager(db *sql.DB) task.TxManager {
+	return &txManager{db: db}
 }
 
 type txKey struct{}
@@ -35,12 +31,4 @@ func (t *txManager) DoInTx(ctx context.Context, fn func(ctx context.Context) err
 	}
 
 	return tx.Commit()
-}
-
-func getTxFrom(ctx context.Context) (*sql.Tx, bool) {
-	tx, ok := ctx.Value(txKey{}).(*sql.Tx)
-	if !ok {
-		return nil, false
-	}
-	return tx, true
 }

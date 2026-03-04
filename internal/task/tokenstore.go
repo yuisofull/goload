@@ -67,7 +67,7 @@ func (r *tokenStore) ConsumeToken(ctx context.Context, token string) (*storage.T
 	// Atomically get and delete the metadata using the cache helper
 	meta, err := r.cache.GetAndDelete(ctx, key)
 	if err != nil {
-		if err == cache.Nil {
+		if errors.Is(err, cache.Nil) {
 			return nil, nil
 		}
 		return nil, err

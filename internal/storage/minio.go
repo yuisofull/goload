@@ -12,7 +12,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// Minio implements storage.Backend and storage.Presigner using MinIO
+// Minio implements storage.Backend and storage.Presigner using MinIO.
 type Minio struct {
 	client *minio.Client
 	bucket string
@@ -126,9 +126,9 @@ func (m *Minio) GetWithRange(ctx context.Context, key string, start, end int64) 
 
 // prependReader wraps a ReadCloser and prepends already-read bytes.
 type prependReader struct {
+	io.ReadCloser
 	prefix []byte
 	pos    int
-	io.ReadCloser
 }
 
 func (p *prependReader) Read(b []byte) (int, error) {

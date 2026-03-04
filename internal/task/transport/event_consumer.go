@@ -48,7 +48,9 @@ func (ec *EventConsumer) Start(ctx context.Context) error {
 	go ec.handleCompletions(ctx, completedCh)
 	go ec.handleFailures(ctx, failedCh)
 
-	return nil
+	// Block until context is canceled.
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 // handleProgressUpdates processes progress update messages

@@ -1,1 +1,1 @@
-when you run any linux command, just know that pwd is /home/yui/repo/goload
+The path is \\wsl.localhost\Ubuntu-22.04\home\yui\repo\goload
