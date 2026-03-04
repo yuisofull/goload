@@ -10,16 +10,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/IBM/sarama"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
-
-	"github.com/yuisofull/goload/internal/configs"
-
-	"github.com/IBM/sarama"
-	"google.golang.org/grpc"
-
+	"github.com/redis/go-redis/v9"
+	storagepkg "github.com/yuisofull/goload/internal/storage"
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
 	taskmysql "github.com/yuisofull/goload/internal/task/mysql"
@@ -27,10 +24,11 @@ import (
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
+	"google.golang.org/grpc"
 )
 
 func main() {
-	config, err := configs.Load()
+	config, err := loadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +39,7 @@ func main() {
 	var logger log.Logger
 	{
 		logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
-		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.Log.Level, level.DebugValue())))
+		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.LogLevel, level.DebugValue())))
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
@@ -50,11 +48,11 @@ func main() {
 	var db *sql.DB
 	{
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
-			config.MySQL.Username,
-			config.MySQL.Password,
-			config.MySQL.Host,
-			config.MySQL.Port,
-			config.MySQL.Database)
+			config.MySQLUsername,
+			config.MySQLPassword,
+			config.MySQLHost,
+			config.MySQLPort,
+			config.MySQLDatabase)
 		db, err = sql.Open("mysql", dsn)
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to open mysql", "err", err)
@@ -79,16 +77,16 @@ func main() {
 
 	// messaging publisher (kafka) if configured
 	var pub message.Publisher
-	if len(config.Messaging.Kafka.Brokers) > 0 {
-		kv, err := sarama.ParseKafkaVersion(config.Messaging.Kafka.Version)
+	if len(config.KafkaBrokers) > 0 {
+		kv, err := sarama.ParseKafkaVersion(config.KafkaVersion)
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to parse kafka version, falling back", "err", err)
-			kv = sarama.V2_0_0_0
+			kv = sarama.V3_6_0_0
 		}
 		pubCfg := &kafkapkg.PublisherConfig{
-			BrokerHosts: config.Messaging.Kafka.Brokers,
+			BrokerHosts: config.KafkaBrokers,
 			Version:     kv,
-			MaxRetry:    config.Messaging.Kafka.MaxRetry,
+			MaxRetry:    config.KafkaMaxRetry,
 		}
 		if pub, err = kafkapkg.NewPublisher(pubCfg, kafkapkg.WithLogger(logger)); err != nil {
 			level.Error(logger).Log("msg", "failed to create kafka publisher", "err", err)
@@ -99,8 +97,56 @@ func main() {
 	// event publisher wrapper
 	dep := taskpkg.NewEventPublisher(pub)
 
-	// NewService expects a value Publisher (not pointer) in this package
-	svc := taskpkg.NewService(repo, *dep, tx)
+	// Optional: presigner (MinIO) and token store (Redis) for GenerateDownloadURL
+	var svcOpts []taskpkg.ServiceOption
+	if config.MinioEndpoint != "" {
+		presignAccessKey := config.MinioAccessKey
+		presignSecretKey := config.MinioSecretKey
+		if config.MinioPresignAccessKey != "" {
+			presignAccessKey = config.MinioPresignAccessKey
+			presignSecretKey = config.MinioPresignSecretKey
+		}
+
+		var presigner *storagepkg.Minio
+		presigner, err = storagepkg.NewMinioPresigner(
+			//config.MinioPresignPublicEndpoint,
+			config.MinioEndpoint,
+			"",
+			presignAccessKey,
+			presignSecretKey,
+			config.MinioUseSSL,
+			config.MinioBucket,
+		)
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to create minio presigner", "err", err)
+		}
+		if presigner != nil {
+			level.Info(logger).Log("msg", "minio presigner initialized",
+				"public_url", config.MinioPresignPublicEndpoint,
+				"proxy_url", config.MinioEndpoint,
+				"access_key", presignAccessKey)
+			svcOpts = append(svcOpts, taskpkg.WithPresigner(presigner))
+		} else {
+			level.Error(logger).Log("msg", "minio presigner NOT available — download-url will use token fallback")
+		}
+	} else {
+		level.Warn(logger).Log("msg", "taskservice.storage.minio.endpoint not configured — presign disabled")
+	}
+	{
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     config.RedisAddress,
+			Username: config.RedisUsername,
+			Password: config.RedisPassword,
+		})
+		secret := []byte(config.TokenHMACSecret)
+		if len(secret) == 0 {
+			secret = []byte("default-secret-change-me")
+		}
+		ts := taskpkg.NewRedisTokenStore(redisClient, secret)
+		svcOpts = append(svcOpts, taskpkg.WithTokenStore(ts))
+	}
+
+	svc := taskpkg.NewService(repo, *dep, tx, append(svcOpts, taskpkg.WithLogger(logger))...)
 
 	endpointSet := taskendpoint.New(svc)
 
@@ -111,21 +157,48 @@ func main() {
 	// register pb server using generated protobuf package
 	taskpb.RegisterTaskServiceServer(grpcServer, pbServer)
 
-	var g run.Group
+	// Kafka subscriber for consuming download-service events (task.completed, task.failed, progress)
+	var taskEventConsumer *tasktransport.EventConsumer
+	if len(config.KafkaBrokers) > 0 {
+		kv2, err := sarama.ParseKafkaVersion(config.KafkaVersion)
+		if err != nil {
+			kv2 = sarama.V3_6_0_0
+		}
+		subCfg := &kafkapkg.SubscriberConfig{
+			Brokers:       config.KafkaBrokers,
+			ConsumerGroup: "task-service-group",
+			Version:       kv2,
+		}
+		taskSub, err := kafkapkg.NewSubscriber(subCfg, kafkapkg.WithLog(logger))
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to create kafka subscriber for task service", "err", err)
+		} else {
+			taskEventConsumer = tasktransport.NewEventConsumer(svc, taskSub)
+		}
+	}
 
+	var g run.Group
 	{
-		lis, err := net.Listen("tcp", config.DownloadTaskService.GRPC.Address)
+		lis, err := net.Listen("tcp", config.GRPCAddress)
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to listen", "err", err)
 			os.Exit(1)
 		}
 
 		g.Add(func() error {
-			level.Info(logger).Log("transport", "gRPC", "addr", config.DownloadTaskService.GRPC.Address)
+			level.Info(logger).Log("transport", "gRPC", "addr", config.GRPCAddress)
 			return grpcServer.Serve(lis)
 		}, func(error) {
 			grpcServer.GracefulStop()
 			_ = lis.Close()
+		})
+	}
+
+	// Start the event consumer if it was successfully created
+	if taskEventConsumer != nil {
+		g.Add(func() error {
+			return taskEventConsumer.Start(ctx)
+		}, func(error) {
 		})
 	}
 

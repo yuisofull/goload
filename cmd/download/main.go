@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,23 +12,16 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
 
-	"github.com/yuisofull/goload/internal/configs"
 	"github.com/yuisofull/goload/internal/download"
+	"github.com/yuisofull/goload/internal/download/downloader"
 	downloadtransport "github.com/yuisofull/goload/internal/download/transport"
 	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
 )
 
-// printfAdapter adapts go-kit logger to the Printf interface expected by downloadtransport
-type printfAdapter struct{ l log.Logger }
-
-func (p printfAdapter) Printf(format string, v ...interface{}) {
-	_ = level.Debug(p.l).Log("msg", fmt.Sprintf(format, v...))
-}
-
 func main() {
-	config, err := configs.Load()
+	config, err := loadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -50,14 +42,14 @@ func main() {
 	// storage backend (MinIO) optional
 	var storageBackend storage.Backend
 	{
-		minioCfg := config.APIGateway.Storage.Minio
-		if minioCfg.Endpoint != "" && minioCfg.AccessKey != "" && minioCfg.SecretKey != "" && minioCfg.Bucket != "" {
+		if config.MinioEndpoint != "" && config.MinioAccessKey != "" && config.MinioSecretKey != "" &&
+			config.MinioBucket != "" {
 			if m, err := storage.NewMinioBackend(
-				minioCfg.Endpoint,
-				minioCfg.AccessKey,
-				minioCfg.SecretKey,
-				minioCfg.UseSSL,
-				minioCfg.Bucket,
+				config.MinioEndpoint,
+				config.MinioAccessKey,
+				config.MinioSecretKey,
+				config.MinioUseSSL,
+				config.MinioBucket,
 			); err == nil {
 				storageBackend = m
 			} else {
@@ -73,30 +65,30 @@ func main() {
 	// create publisher/subscriber: try Kafka if configured, otherwise use in-memory
 	var pub message.Publisher
 	var sub message.Subscriber
-	if len(config.Messaging.Kafka.Brokers) > 0 {
+	if len(config.KafkaBrokers) > 0 {
 		// parse kafka version from config
-		kv, err := sarama.ParseKafkaVersion(config.Messaging.Kafka.Version)
+		kv, err := sarama.ParseKafkaVersion(config.KafkaVersion)
 		if err != nil {
 			level.Error(logger).
 				Log("msg", "failed to parse kafka version from config, falling back to default", "err", err)
-			kv = sarama.V2_0_0_0
+			kv = sarama.V3_6_0_0
 		}
 		// create kafka publisher
-		pubCfg := &kafkapkg.PublisherConfig{BrokerHosts: config.Messaging.Kafka.Brokers, Version: kv}
-		pub, err = kafkapkg.NewPublisher(pubCfg)
+		pubCfg := &kafkapkg.PublisherConfig{BrokerHosts: config.KafkaBrokers, Version: kv}
+		pub, err = kafkapkg.NewPublisher(pubCfg, kafkapkg.WithLogger(logger))
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to create kafka publisher", "err", err)
 			os.Exit(1)
 		}
 		subCfg := &kafkapkg.SubscriberConfig{
-			Brokers:       config.Messaging.Kafka.Brokers,
-			ConsumerGroup: config.Messaging.Kafka.ConsumerGroup,
+			Brokers:       config.KafkaBrokers,
+			ConsumerGroup: config.KafkaConsumerGroup,
 			Version:       kv,
 		}
 		sub, err = kafkapkg.NewSubscriber(subCfg, kafkapkg.WithErrorHandler(func(_ context.Context, e error) {
 			// Ignore benign context cancellation errors (happen during shutdown) and log them at debug level.
 			if errors.Is(e, context.Canceled) || e.Error() == "context canceled" {
-				_ = level.Debug(logger).Log("msg", "kafka subscriber canceled", "err", e)
+				level.Debug(logger).Log("msg", "kafka subscriber canceled", "err", e)
 				return
 			}
 			level.Error(logger).Log("msg", "kafka subscriber error", "err", e)
@@ -114,7 +106,12 @@ func main() {
 	dep := download.NewDownloadEventPublisher(pub)
 	svc := download.NewService(storageBackend, dep)
 
-	consumer := downloadtransport.NewEventConsumer(svc, sub, printfAdapter{logger})
+	// Register concrete downloaders for each supported source type.
+	httpDL := downloader.NewHTTPDownloader(nil)
+	svc.RegisterDownloader("HTTP", httpDL)
+	svc.RegisterDownloader("HTTPS", httpDL) // HTTPS is handled by the same HTTP downloader
+
+	consumer := downloadtransport.NewEventConsumer(svc, sub, logger)
 
 	var g run.Group
 	// run the consumer

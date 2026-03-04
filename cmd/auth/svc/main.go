@@ -17,20 +17,20 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+
 	"github.com/yuisofull/goload/internal/auth"
 	authcache "github.com/yuisofull/goload/internal/auth/cache"
 	authendpoint "github.com/yuisofull/goload/internal/auth/endpoint"
 	authmysql "github.com/yuisofull/goload/internal/auth/mysql"
 	authpb "github.com/yuisofull/goload/internal/auth/pb"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
-	"github.com/yuisofull/goload/internal/configs"
 	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 	"github.com/yuisofull/goload/pkg/crypto/bcrypt"
-	"google.golang.org/grpc"
 )
 
 func main() {
-	config, err := configs.Load()
+	config, err := loadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +41,7 @@ func main() {
 	var logger log.Logger
 	{
 		logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
-		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.Log.Level, level.DebugValue())))
+		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.LogLevel, level.DebugValue())))
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
@@ -49,9 +49,9 @@ func main() {
 	var redisClient *redis.Client
 	{
 		redisClient = redis.NewClient(&redis.Options{
-			Addr:     config.Redis.Address,
-			Username: config.Redis.Username,
-			Password: config.Redis.Password,
+			Addr:     config.RedisAddress,
+			Username: config.RedisUsername,
+			Password: config.RedisPassword,
 		})
 
 		_, err = redisClient.Ping(ctx).Result()
@@ -64,11 +64,11 @@ func main() {
 	var mysqlDB *sql.DB
 	{
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
-			config.MySQL.Username,
-			config.MySQL.Password,
-			config.MySQL.Host,
-			config.MySQL.Port,
-			config.MySQL.Database)
+			config.MySQLUsername,
+			config.MySQLPassword,
+			config.MySQLHost,
+			config.MySQLPort,
+			config.MySQLDatabase)
 		mysqlDB, err = sql.Open("mysql", dsn)
 		if err != nil {
 			level.Error(logger).Log("err", err)
@@ -110,12 +110,17 @@ func main() {
 			level.Error(logger).Log("err", err)
 		}
 		tokenStore = authcache.NewTokenPublicKeyStore(publicKeyCache, store, cacheErrorHandler)
-		privateKey, err := rsa.GenerateKey(rand.Reader, config.Auth.Token.JWTRS512.RSABits)
+		privateKey, err := rsa.GenerateKey(rand.Reader, config.AuthTokenRSABits)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			os.Exit(1)
 		}
-		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, config.Auth.Token.ExpiresIn, tokenStore)
+		tokenExpiresIn, err := time.ParseDuration(config.AuthTokenExpiresIn)
+		if err != nil {
+			level.Error(logger).Log("err", err, "msg", "invalid AUTH_TOKEN_EXPIRES_IN")
+			os.Exit(1)
+		}
+		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, tokenExpiresIn, tokenStore)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			os.Exit(1)
@@ -123,7 +128,7 @@ func main() {
 	}
 
 	var (
-		bcryptHasher = bcrypt.NewHasher(config.Auth.Hash.Bcrypt.HashCost)
+		bcryptHasher = bcrypt.NewHasher(config.AuthHashBcryptCost)
 		hasher       = auth.NewPasswordHasher(bcryptHasher)
 		nameCache    = rediscache.New(
 			redisClient,
@@ -145,7 +150,7 @@ func main() {
 
 	var g run.Group
 	{
-		grpcListener, err := net.Listen("tcp", config.AuthService.GRPC.Address)
+		grpcListener, err := net.Listen("tcp", config.GRPCAddress)
 		if err != nil {
 			level.Error(logger).Log("transport", "gRPC", "during", "Listen", "err", err)
 			os.Exit(1)
@@ -155,7 +160,7 @@ func main() {
 		authpb.RegisterAuthServiceServer(baseServer, grpcServer)
 
 		g.Add(func() error {
-			level.Info(logger).Log("transport", "gRPC", "addr", config.AuthService.GRPC.Address)
+			level.Info(logger).Log("transport", "gRPC", "addr", config.GRPCAddress)
 			return baseServer.Serve(grpcListener)
 		}, func(error) {
 			baseServer.GracefulStop()

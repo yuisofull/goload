@@ -17,15 +17,14 @@ import (
 	"github.com/yuisofull/goload/internal/apigateway"
 	"github.com/yuisofull/goload/internal/auth"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
-	"github.com/yuisofull/goload/internal/configs"
-	"github.com/yuisofull/goload/internal/storage"
+	storagepkg "github.com/yuisofull/goload/internal/storage"
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 )
 
 func main() {
-	config, err := configs.Load()
+	config, err := loadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -36,7 +35,7 @@ func main() {
 	var logger log.Logger
 	{
 		logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
-		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.Log.Level, level.DebugValue())))
+		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(config.LogLevel, level.DebugValue())))
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
@@ -45,7 +44,7 @@ func main() {
 	var authService auth.Service
 	{
 		conn, err := grpc.NewClient(
-			config.AuthService.GRPC.Address,
+			config.AuthServiceGRPCAddress,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
 		if err != nil {
@@ -61,7 +60,7 @@ func main() {
 	var downloadTaskService taskpkg.Service
 	{
 		conn, err := grpc.NewClient(
-			config.DownloadTaskService.GRPC.Address,
+			config.TaskServiceGRPCAddress,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
 		if err != nil {
@@ -80,38 +79,38 @@ func main() {
 	authMiddleware := apigateway.NewAuthMiddleware(tokenValidator)
 
 	// Create unified gateway endpoints with authentication middleware
-	gatewayEndpoints := apigateway.NewGatewayEndpoints(downloadTaskService, authMiddleware, authService)
+	gatewayEndpoints := apigateway.NewGatewayEndpoints(
+		downloadTaskService,
+		authMiddleware,
+		authService,
+	)
 
-	// Create redis client and token store
+	// Redis token store — consumed by the /download fallback handler
 	var tokenStore taskpkg.TokenStore
 	{
-		redisClient := redis.NewClient(
-			&redis.Options{
-				Addr:     config.Redis.Address,
-				Username: config.Redis.Username,
-				Password: config.Redis.Password,
-			},
-		)
-		secret := []byte(config.APIGateway.TokenHMACSecret)
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     config.RedisAddress,
+			Username: config.RedisUsername,
+			Password: config.RedisPassword,
+		})
+		secret := []byte(config.TokenHMACSecret)
 		if len(secret) == 0 {
 			secret = []byte("default-secret-change-me")
 		}
-		// create a redis-backed cache and pass it into the generic token store constructor
-		rc := rediscache.New[string, storage.TokenMetadata](redisClient)
+		rc := rediscache.New[string, storagepkg.TokenMetadata](redisClient)
 		tokenStore = taskpkg.NewTokenStore(rc, secret)
 	}
 
-	// Create storage backend (MinIO) if config provided; otherwise nil
-	var storageBackend storage.Reader
+	// MinIO storage backend for the /download fallback streamer
+	var storageBackend storagepkg.Reader
 	{
-		minioCfg := config.APIGateway.Storage.Minio
-		if minioCfg.Endpoint != "" && minioCfg.AccessKey != "" && minioCfg.SecretKey != "" && minioCfg.Bucket != "" {
-			if m, err := storage.NewMinioBackend(
-				minioCfg.Endpoint,
-				minioCfg.AccessKey,
-				minioCfg.SecretKey,
-				minioCfg.UseSSL,
-				minioCfg.Bucket,
+		if config.MinioEndpoint != "" && config.MinioAccessKey != "" && config.MinioSecretKey != "" && config.MinioBucket != "" {
+			if m, err := storagepkg.NewMinioBackend(
+				config.MinioEndpoint,
+				config.MinioAccessKey,
+				config.MinioSecretKey,
+				config.MinioUseSSL,
+				config.MinioBucket,
 			); err == nil {
 				storageBackend = m
 			} else {
@@ -120,19 +119,20 @@ func main() {
 		}
 	}
 
-	// Create HTTP handler (with download handler that uses token store and storage backend)
+	// /tasks/download-url  → returns {url, direct} (presigned or token URL)
+	// /download?token=...  → fallback: validate token, stream bytes from MinIO
 	httpHandler := apigateway.NewHTTPHandlerWithDownload(gatewayEndpoints, logger, storageBackend, tokenStore)
 
 	var g run.Group
 	{
 		// HTTP server
 		httpServer := &http.Server{
-			Addr:    config.APIGateway.HTTP.Address,
+			Addr:    config.HTTPAddress,
 			Handler: httpHandler,
 		}
 
 		g.Add(func() error {
-			level.Info(logger).Log("transport", "HTTP", "addr", config.APIGateway.HTTP.Address)
+			level.Info(logger).Log("transport", "HTTP", "addr", config.HTTPAddress)
 			return httpServer.ListenAndServe()
 		}, func(error) {
 			httpServer.Shutdown(ctx)
