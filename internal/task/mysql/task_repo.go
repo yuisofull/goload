@@ -39,9 +39,35 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) (*task.Task, error)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Metadata: %w", err)
 	}
-	headers, err := toJSON(t.SourceAuth.Headers)
-	if err != nil {
-		return nil, fmt.Errorf("marshal Headers: %w", err)
+	// SourceAuth may be nil — only marshal headers if present
+	var headers []byte
+	if t.SourceAuth != nil {
+		headers, err = toJSON(t.SourceAuth.Headers)
+		if err != nil {
+			return nil, fmt.Errorf("marshal Headers: %w", err)
+		}
+	}
+
+	// Build nullable fields safely
+	var checksumType, checksumValue sql.NullString
+	if t.Checksum != nil {
+		checksumType = sql.NullString{String: t.Checksum.ChecksumType, Valid: true}
+		checksumValue = sql.NullString{String: t.Checksum.ChecksumValue, Valid: true}
+	}
+
+	var concurrency sql.NullInt32
+	var maxSpeed sql.NullInt64
+	var maxRetries int32
+	var timeout sql.NullInt32
+	if t.DownloadOptions != nil {
+		concurrency = sql.NullInt32{Int32: int32(t.DownloadOptions.Concurrency), Valid: true}
+		maxRetries = int32(t.DownloadOptions.MaxRetries)
+		if t.DownloadOptions.MaxSpeed != nil {
+			maxSpeed = sql.NullInt64{Int64: *t.DownloadOptions.MaxSpeed, Valid: true}
+		}
+		if t.DownloadOptions.Timeout != nil {
+			timeout = sql.NullInt32{Int32: int32(*t.DownloadOptions.Timeout), Valid: true}
+		}
 	}
 
 	result, err := q.CreateTask(ctx, sqlc.CreateTaskParams{
@@ -54,12 +80,12 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) (*task.Task, error)
 		StorageType:   string(t.StorageType),
 		StoragePath:   t.StoragePath,
 		Status:        string(t.Status),
-		ChecksumType:  sql.NullString{String: t.Checksum.ChecksumType, Valid: t.Checksum != nil},
-		ChecksumValue: sql.NullString{String: t.Checksum.ChecksumValue, Valid: t.Checksum != nil},
-		Concurrency:   sql.NullInt32{Int32: int32(t.DownloadOptions.Concurrency), Valid: t.DownloadOptions != nil},
-		MaxSpeed:      sql.NullInt64{Int64: *t.DownloadOptions.MaxSpeed, Valid: t.DownloadOptions != nil && t.DownloadOptions.MaxSpeed != nil},
-		MaxRetries:    int32(t.DownloadOptions.MaxRetries),
-		Timeout:       sql.NullInt32{Int32: int32(*t.DownloadOptions.Timeout), Valid: t.DownloadOptions != nil && t.DownloadOptions.Timeout != nil},
+		ChecksumType:  checksumType,
+		ChecksumValue: checksumValue,
+		Concurrency:   concurrency,
+		MaxSpeed:      maxSpeed,
+		MaxRetries:    maxRetries,
+		Timeout:       timeout,
 		Metadata:      metadata,
 	})
 	if err != nil {
@@ -81,14 +107,15 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error)
 		tx     *sql.Tx
 	)
 
-	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
-		opentx = true
+	if ctxTx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		tx = ctxTx
 	} else {
 		tx, err = r.db.BeginTx(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
 		defer tx.Rollback()
+		opentx = true
 	}
 	q = q.WithTx(tx)
 
