@@ -9,10 +9,10 @@ generate:
 
 build:
 	@go build ./...
-compose-up-svc:
-	@cd deployments && docker compose --profile svc up --build -d  && cd ..
 compose-up:
-	@cd deployments && docker compose up --build -d && cd ..
+	docker compose -f deployments/docker-compose.yaml up -d
+compose-build-up:
+	@cd deployments && docker compose build --no-cache && docker compose up -d
 
 compose-down:
 	@cd deployments && docker compose down && cd ..
