@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-kit/kit/transport"
 	"github.com/go-kit/log/level"
+	"github.com/gorilla/mux"
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
@@ -60,79 +61,82 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 		httptransport.ServerErrorHandler(transport.NewLogErrorHandler(level.Error(logger))),
 	}
 
-	mux := http.NewServeMux()
+	r := mux.NewRouter()
 
-	listHandler := httptransport.NewServer(
+	// --- health ---------------------------------------------------------
+	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}).Methods(http.MethodGet)
+
+	// --- /api/v1/tasks --------------------------------------------------
+	tasks := r.PathPrefix("/api/v1/tasks").Subrouter()
+
+	tasks.Handle("/list", addTokenToContext(httptransport.NewServer(
 		endpoints.ListTasksEndpoint,
 		decodeHTTPListTaskRequest,
 		encodeHTTPResponse,
 		options...,
-	)
-	mux.Handle("/api/v1/download-tasks/list", addTokenToContext(listHandler))
+	))).Methods(http.MethodGet)
 
-	// Create
-	createHandler := httptransport.NewServer(
+	tasks.Handle("/create", addTokenToContext(httptransport.NewServer(
 		endpoints.CreateTaskEndpoint,
 		decodeHTTPCreateRequest,
 		encodeHTTPResponse,
 		options...,
-	)
-	mux.Handle("/api/v1/download-tasks/create", addTokenToContext(createHandler))
+	))).Methods(http.MethodPost)
 
-	// Get
-	getHandler := httptransport.NewServer(
+	tasks.Handle("/get", addTokenToContext(httptransport.NewServer(
 		endpoints.GetTaskEndpoint,
 		decodeHTTPGetRequest,
 		encodeHTTPResponse,
 		options...,
-	)
-	mux.Handle("/api/v1/download-tasks/get", addTokenToContext(getHandler))
+	))).Methods(http.MethodGet)
 
-	// Delete
-	deleteHandler := httptransport.NewServer(
+	tasks.Handle("/delete", addTokenToContext(httptransport.NewServer(
 		endpoints.DeleteTaskEndpoint,
 		decodeHTTPIDRequest,
 		encodeHTTPResponse,
 		options...,
-	)
-	mux.Handle("/api/v1/download-tasks/delete", addTokenToContext(deleteHandler))
+	))).Methods(http.MethodDelete)
 
-	// Pause/Resume/Cancel/Retry
-	pauseHandler := httptransport.NewServer(
+	tasks.Handle("/pause", addTokenToContext(httptransport.NewServer(
 		endpoints.PauseTaskEndpoint,
 		decodeHTTPIDRequest,
 		encodeHTTPResponse,
-		options...)
-	mux.Handle("/api/v1/download-tasks/pause", addTokenToContext(pauseHandler))
-	resumeHandler := httptransport.NewServer(
+		options...,
+	))).Methods(http.MethodPost)
+
+	tasks.Handle("/resume", addTokenToContext(httptransport.NewServer(
 		endpoints.ResumeTaskEndpoint,
 		decodeHTTPIDRequest,
 		encodeHTTPResponse,
-		options...)
-	mux.Handle("/api/v1/download-tasks/resume", addTokenToContext(resumeHandler))
-	cancelHandler := httptransport.NewServer(
+		options...,
+	))).Methods(http.MethodPost)
+
+	tasks.Handle("/cancel", addTokenToContext(httptransport.NewServer(
 		endpoints.CancelTaskEndpoint,
 		decodeHTTPIDRequest,
 		encodeHTTPResponse,
-		options...)
-	mux.Handle("/api/v1/download-tasks/cancel", addTokenToContext(cancelHandler))
-	retryHandler := httptransport.NewServer(
+		options...,
+	))).Methods(http.MethodPost)
+
+	tasks.Handle("/retry", addTokenToContext(httptransport.NewServer(
 		endpoints.RetryTaskEndpoint,
 		decodeHTTPIDRequest,
 		encodeHTTPResponse,
-		options...)
-	mux.Handle("/api/v1/download-tasks/retry", addTokenToContext(retryHandler))
+		options...,
+	))).Methods(http.MethodPost)
 
-	// Check exists
-	existsHandler := httptransport.NewServer(
+	tasks.Handle("/exists", addTokenToContext(httptransport.NewServer(
 		endpoints.CheckFileExistsEndpoint,
 		decodeHTTPIDRequestName("task_id"),
 		encodeHTTPResponse,
-		options...)
-	mux.Handle("/api/v1/download-tasks/exists", addTokenToContext(existsHandler))
+		options...,
+	))).Methods(http.MethodGet)
 
-	// Progress
-	progressHandler := httptransport.NewServer(
+	tasks.Handle("/progress", addTokenToContext(httptransport.NewServer(
 		endpoints.GetTaskProgressEndpoint,
 		decodeHTTPIDRequestName("task_id"),
 		encodeHTTPResponse,
@@ -152,41 +156,36 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 		options...,
 	))).Methods(http.MethodPost)
 
-	// optional auth endpoints from endpoints struct
+	// --- /api/v1/auth ---------------------------------------------------
+	auth := r.PathPrefix("/api/v1/auth").Subrouter()
 
-	{
-		createHandler := httptransport.NewServer(
-			endpoints.AuthCreateEndpoint,
-			func(_ context.Context, r *http.Request) (interface{}, error) {
-				var req CreateAccountGatewayRequest
-				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-					return nil, err
-				}
-				return &req, nil
-			},
-			encodeHTTPResponse,
-			options...,
-		)
-		mux.Handle("/api/v1/auth/create", createHandler)
-	}
+	auth.Handle("/create", httptransport.NewServer(
+		endpoints.AuthCreateEndpoint,
+		func(_ context.Context, r *http.Request) (interface{}, error) {
+			var req CreateAccountGatewayRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				return nil, err
+			}
+			return &req, nil
+		},
+		encodeHTTPResponse,
+		options...,
+	)).Methods(http.MethodPost)
 
-	{
-		sessionHandler := httptransport.NewServer(
-			endpoints.AuthSessionEndpoint,
-			func(_ context.Context, r *http.Request) (interface{}, error) {
-				var req CreateSessionGatewayRequest
-				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-					return nil, err
-				}
-				return &req, nil
-			},
-			encodeHTTPResponse,
-			options...,
-		)
-		mux.Handle("/api/v1/auth/session", sessionHandler)
-	}
+	auth.Handle("/session", httptransport.NewServer(
+		endpoints.AuthSessionEndpoint,
+		func(_ context.Context, r *http.Request) (interface{}, error) {
+			var req CreateSessionGatewayRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				return nil, err
+			}
+			return &req, nil
+		},
+		encodeHTTPResponse,
+		options...,
+	)).Methods(http.MethodPost)
 
-	return mux
+	return r
 }
 
 // NewHTTPHandlerWithDownload builds the same handlers as NewHTTPHandler and also
@@ -200,9 +199,9 @@ func NewHTTPHandlerWithDownload(
 ) http.Handler {
 	// call NewHTTPHandler which will pick up auth endpoints from the endpoints struct
 	mux := NewHTTPHandler(endpoints, logger).(*http.ServeMux)
+	r := NewHTTPHandler(endpoints, logger).(*mux.Router)
 
-	// Register download handler
-	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
 		token := r.URL.Query().Get("token")
@@ -308,7 +307,7 @@ func NewHTTPHandlerWithDownload(
 		}
 	})
 
-	return mux
+	return r
 }
 
 // addTokenToContext extracts JWT token from HTTP Authorization header and adds it to context
