@@ -26,6 +26,7 @@ import (
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
+	"github.com/yuisofull/goload/pkg/middleware"
 )
 
 func main() {
@@ -149,7 +150,10 @@ func main() {
 
 	endpointSet := taskendpoint.New(svc)
 
-	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(kitgrpc.Interceptor))
+	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
+		middleware.LoggingGRPCInterceptor(logger),
+		kitgrpc.Interceptor,
+	))
 
 	// register service
 	pbServer := tasktransport.NewGRPCServer(endpointSet, logger)
@@ -185,7 +189,12 @@ func main() {
 		}
 
 		g.Add(func() error {
-			level.Info(logger).Log("transport", "gRPC", "addr", config.GRPCAddress)
+			level.Info(logger).Log(
+				"transport", "gRPC",
+				"addr", config.GRPCAddress,
+				"endpoints", "CreateTask, GetTask, ListTasks, DeleteTask, PauseTask, ResumeTask, CancelTask, RetryTask, CheckFileExists, GetTaskProgress, GenerateDownloadURL",
+				"msg", "serving grpc endpoints",
+			)
 			return grpcServer.Serve(lis)
 		}, func(error) {
 			grpcServer.GracefulStop()

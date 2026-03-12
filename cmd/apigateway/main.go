@@ -21,6 +21,7 @@ import (
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
+	"github.com/yuisofull/goload/pkg/middleware"
 )
 
 func main() {
@@ -104,7 +105,8 @@ func main() {
 	// MinIO storage backend for the /download fallback streamer
 	var storageBackend storagepkg.Reader
 	{
-		if config.MinioEndpoint != "" && config.MinioAccessKey != "" && config.MinioSecretKey != "" && config.MinioBucket != "" {
+		if config.MinioEndpoint != "" && config.MinioAccessKey != "" && config.MinioSecretKey != "" &&
+			config.MinioBucket != "" {
 			if m, err := storagepkg.NewMinioBackend(
 				config.MinioEndpoint,
 				config.MinioAccessKey,
@@ -121,7 +123,8 @@ func main() {
 
 	// /tasks/download-url  → returns {url, direct} (presigned or token URL)
 	// /download?token=...  → fallback: validate token, stream bytes from MinIO
-	httpHandler := apigateway.NewHTTPHandlerWithDownload(gatewayEndpoints, logger, storageBackend, tokenStore)
+	var httpHandler http.Handler = apigateway.NewHTTPHandlerWithDownload(gatewayEndpoints, logger, storageBackend, tokenStore)
+	httpHandler = middleware.LoggingHTTPMiddleware(logger)(httpHandler)
 
 	var g run.Group
 	{
@@ -132,7 +135,12 @@ func main() {
 		}
 
 		g.Add(func() error {
-			level.Info(logger).Log("transport", "HTTP", "addr", config.HTTPAddress)
+			level.Info(logger).Log(
+				"transport", "HTTP",
+				"addr", config.HTTPAddress,
+				"endpoints", "/health, /api/v1/tasks/*, /api/v1/auth/*, /download",
+				"msg", "serving http endpoints",
+			)
 			return httpServer.ListenAndServe()
 		}, func(error) {
 			httpServer.Shutdown(ctx)

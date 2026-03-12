@@ -1,1 +1,0 @@
-The path is \\wsl.localhost\Ubuntu-22.04\home\yui\repo\goload

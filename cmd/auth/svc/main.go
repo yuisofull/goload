@@ -27,6 +27,7 @@ import (
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
 	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 	"github.com/yuisofull/goload/pkg/crypto/bcrypt"
+	"github.com/yuisofull/goload/pkg/middleware"
 )
 
 func main() {
@@ -156,11 +157,19 @@ func main() {
 			os.Exit(1)
 		}
 
-		baseServer := grpc.NewServer(grpc.UnaryInterceptor(kitgrpc.Interceptor))
+		baseServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
+			middleware.LoggingGRPCInterceptor(logger),
+			kitgrpc.Interceptor,
+		))
 		authpb.RegisterAuthServiceServer(baseServer, grpcServer)
 
 		g.Add(func() error {
-			level.Info(logger).Log("transport", "gRPC", "addr", config.GRPCAddress)
+			level.Info(logger).Log(
+				"transport", "gRPC", 
+				"addr", config.GRPCAddress,
+				"endpoints", "CreateAccount, CreateSession, VerifySession",
+				"msg", "serving grpc endpoints",
+			)
 			return baseServer.Serve(grpcListener)
 		}, func(error) {
 			baseServer.GracefulStop()

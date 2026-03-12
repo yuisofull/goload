@@ -37,8 +37,6 @@ func main() {
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
 
-	// use printfAdapter to adapt logger
-
 	// storage backend (MinIO) optional
 	var storageBackend storage.Backend
 	{
@@ -111,12 +109,18 @@ func main() {
 	svc.RegisterDownloader("HTTP", httpDL)
 	svc.RegisterDownloader("HTTPS", httpDL) // HTTPS is handled by the same HTTP downloader
 
-	consumer := downloadtransport.NewEventConsumer(svc, sub, logger)
+	loggingSvc := &loggingMiddleware{next: svc, logger: logger}
+	consumer := downloadtransport.NewEventConsumer(loggingSvc, sub, logger)
 
 	var g run.Group
 	// run the consumer
 	{
 		g.Add(func() error {
+			level.Info(logger).Log(
+				"transport", "Kafka",
+				"endpoints", "ExecuteTask, PauseTask, ResumeTask, CancelTask",
+				"msg", "serving event endpoints (Kafka)",
+			)
 			return consumer.Start(ctx)
 		}, func(error) {
 			// on interrupt, cancel context which will stop consumer
