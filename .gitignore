@@ -28,13 +28,7 @@ go.work.sum
 .env
 
 # Editor/IDE
- .idea/*
- .vscode/*
+.idea/*
+.vscode/*
 
-.idea/.gitignore
-.idea/AugmentWebviewStateStore.xml
-.idea/goload.iml
-.idea/MarsCodeWorkspaceAppSettings.xml
-.idea/misc.xml
-.idea/protoeditor.xml
-.idea/vcs.xml
+__pycache__/*
