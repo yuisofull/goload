@@ -295,8 +295,24 @@ func (s *service) ListTasks(ctx context.Context, param *ListTasksParam) (*ListTa
 }
 
 func (s *service) DeleteTask(ctx context.Context, id uint64) error {
-	err := s.repo.Delete(ctx, id)
-	if err != nil {
+	// Verify the task exists before attempting deletion to avoid silent no-ops.
+	if _, err := s.repo.GetByID(ctx, id); err != nil {
+		return &errors.Error{
+			Code:    errors.ErrCodeNotFound,
+			Message: "Task not found",
+			Cause:   err,
+		}
+	}
+
+	// We must tell the download service to stop the worker thread.
+	// We do this by publishing a TaskCancelled event. 
+	// The download service listens for task.cancelled to stop running tasks.
+	if err := s.pub.PublishTaskCancelled(ctx, id); err != nil {
+		level.Warn(s.logger).Log("msg", "Failed to publish task cancelled event during delete", "task_id", id, "err", err)
+		// We still proceed to delete the record from the DB
+	}
+
+	if err := s.repo.Delete(ctx, id); err != nil {
 		return &errors.Error{
 			Code:    errors.ErrCodeInternal,
 			Message: "Failed to delete task",
@@ -475,11 +491,13 @@ func (s *service) RetryTask(ctx context.Context, taskID uint64) error {
 			}
 		}
 
-		// Publish status update to notify workers that the task is pending again
-		if err := s.pub.PublishTaskStatusUpdated(ctx, taskID, StatusPending); err != nil {
+		// Publish TaskCreated so the download worker re-picks the task.
+		// PublishTaskStatusUpdated is NOT consumed by the download service;
+		// only "task.created" events trigger execution.
+		if err := s.pub.PublishTaskCreated(ctx, task); err != nil {
 			return &errors.Error{
 				Code:    errors.ErrCodeInternal,
-				Message: "failed to publish task status updated event for retry",
+				Message: "failed to publish task created event for retry",
 				Cause:   err,
 			}
 		}

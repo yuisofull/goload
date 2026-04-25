@@ -256,11 +256,15 @@ func (e *Set) UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[st
 }
 
 func (e *Set) UpdateFileName(ctx context.Context, id uint64, fileName string) error {
-	panic("not implemented: UpdateFileName")
+	// UpdateFileName has no dedicated gRPC endpoint. The gRPC client proxy
+	// cannot fulfil this call; the concrete service must be used instead.
+	return fmt.Errorf("UpdateFileName not available via gRPC client proxy")
 }
 
 func (e *Set) UpdateStorageInfo(ctx context.Context, id uint64, storageType storage.Type, storagePath string) error {
-	panic("not implemented: UpdateStorageInfo")
+	// UpdateStorageInfo has no dedicated gRPC endpoint. The gRPC client proxy
+	// cannot fulfil this call; the concrete service must be used instead.
+	return fmt.Errorf("UpdateStorageInfo not available via gRPC client proxy")
 }
 
 // GenerateDownloadURL forwards to the underlying endpoint if available.

@@ -26,10 +26,13 @@ func NewEventPublisher(publisher message.Publisher) *Publisher {
 func (ep *Publisher) PublishTaskCreated(ctx context.Context, task *Task) error {
 	event := events.TaskCreatedEvent{
 		TaskID:          task.ID,
+		OfAccountID:     task.OfAccountID,
+		FileName:        task.FileName,
 		SourceURL:       task.SourceURL,
 		SourceType:      string(task.SourceType),
 		SourceAuth:      ep.convertAuthConfig(task.SourceAuth),
 		DownloadOptions: ep.convertDownloadOptions(task.DownloadOptions),
+		Metadata:        task.Metadata,
 		CreatedAt:       task.CreatedAt,
 	}
 

@@ -57,6 +57,10 @@ func (ec *EventConsumer) Start(ctx context.Context) error {
 func (ec *EventConsumer) handleProgressUpdates(ctx context.Context, ch <-chan *message.Message) {
 	for msg := range ch {
 		if err := ec.handleTaskProgressUpdated(ctx, msg); err != nil {
+			if errors.IsError(err, errors.ErrCodeNotFound) {
+				msg.Ack()
+				continue
+			}
 			log.Printf("Error handling progress update: %v", err)
 			msg.Nack()
 		} else {
@@ -69,6 +73,10 @@ func (ec *EventConsumer) handleProgressUpdates(ctx context.Context, ch <-chan *m
 func (ec *EventConsumer) handleCompletions(ctx context.Context, ch <-chan *message.Message) {
 	for msg := range ch {
 		if err := ec.handleTaskCompleted(ctx, msg); err != nil {
+			if errors.IsError(err, errors.ErrCodeNotFound) {
+				msg.Ack()
+				continue
+			}
 			log.Printf("Error handling task completion: %v", err)
 			msg.Nack()
 		} else {
@@ -81,6 +89,10 @@ func (ec *EventConsumer) handleCompletions(ctx context.Context, ch <-chan *messa
 func (ec *EventConsumer) handleFailures(ctx context.Context, ch <-chan *message.Message) {
 	for msg := range ch {
 		if err := ec.handleTaskFailed(ctx, msg); err != nil {
+			if errors.IsError(err, errors.ErrCodeNotFound) {
+				msg.Ack()
+				continue
+			}
 			log.Printf("Error handling task failure: %v", err)
 			msg.Nack()
 		} else {
