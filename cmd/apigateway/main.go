@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/gorilla/mux"
 	"github.com/oklog/run"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
@@ -121,9 +124,29 @@ func main() {
 		}
 	}
 
-	// /tasks/download-url  → returns {url, direct} (presigned or token URL)
 	// /download?token=...  → fallback: validate token, stream bytes from MinIO
-	var httpHandler http.Handler = apigateway.NewHTTPHandlerWithDownload(gatewayEndpoints, logger, storageBackend, tokenStore)
+	r := apigateway.NewHTTPHandlerWithDownload(gatewayEndpoints, logger, storageBackend, tokenStore)
+
+	r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		pathTemplate, _ := route.GetPathTemplate()
+		methods, _ := route.GetMethods()
+		if pathTemplate != "" {
+			level.Info(logger).Log("msg", "API endpoint registered", "methods", strings.Join(methods, ","), "path", pathTemplate)
+		}
+		return nil
+	})
+
+	var httpHandler http.Handler = r
+
+	httpHandler = middleware.CORSHTTPMiddleware(middleware.CORSOptions{
+		AllowedOrigins:   splitCSV(config.CORSAllowedOrigins),
+		AllowedMethods:   splitCSV(config.CORSAllowedMethods),
+		AllowedHeaders:   splitCSV(config.CORSAllowedHeaders),
+		ExposedHeaders:   splitCSV(config.CORSExposedHeaders),
+		AllowCredentials: config.CORSAllowCredentials,
+		PreflightMaxAge:  config.CORSPreflightMaxAge,
+	})(httpHandler)
+	httpHandler = middleware.RecoveryHTTPMiddleware(logger)(httpHandler)
 	httpHandler = middleware.LoggingHTTPMiddleware(logger)(httpHandler)
 
 	var g run.Group
@@ -138,7 +161,6 @@ func main() {
 			level.Info(logger).Log(
 				"transport", "HTTP",
 				"addr", config.HTTPAddress,
-				"endpoints", "/health, /api/v1/tasks/*, /api/v1/auth/*, /download",
 				"msg", "serving http endpoints",
 			)
 			return httpServer.ListenAndServe()
@@ -156,4 +178,16 @@ func main() {
 	}
 
 	level.Info(logger).Log("exit", g.Run())
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

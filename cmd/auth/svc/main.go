@@ -164,10 +164,14 @@ func main() {
 		authpb.RegisterAuthServiceServer(baseServer, grpcServer)
 
 		g.Add(func() error {
+			for svcName, svcInfo := range baseServer.GetServiceInfo() {
+				for _, m := range svcInfo.Methods {
+					level.Info(logger).Log("msg", "API endpoint registered", "service", svcName, "method", m.Name)
+				}
+			}
 			level.Info(logger).Log(
-				"transport", "gRPC", 
+				"transport", "gRPC",
 				"addr", config.GRPCAddress,
-				"endpoints", "CreateAccount, CreateSession, VerifySession",
 				"msg", "serving grpc endpoints",
 			)
 			return baseServer.Serve(grpcListener)

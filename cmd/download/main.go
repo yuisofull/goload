@@ -42,12 +42,18 @@ func main() {
 	{
 		if config.MinioEndpoint != "" && config.MinioAccessKey != "" && config.MinioSecretKey != "" &&
 			config.MinioBucket != "" {
+			minioOpts := []storage.MinioOption{}
+			if config.MinioFileExpiry > 0 {
+				minioOpts = append(minioOpts, storage.WithExpiry(config.MinioFileExpiry))
+				level.Info(logger).Log("msg", "minio file expiry configured", "expiry", config.MinioFileExpiry)
+			}
 			if m, err := storage.NewMinioBackend(
 				config.MinioEndpoint,
 				config.MinioAccessKey,
 				config.MinioSecretKey,
 				config.MinioUseSSL,
 				config.MinioBucket,
+				minioOpts...,
 			); err == nil {
 				storageBackend = m
 			} else {
@@ -106,11 +112,20 @@ func main() {
 
 	// Register concrete downloaders for each supported source type.
 	httpDL := downloader.NewHTTPDownloader(nil)
+	ftpDL := downloader.NewFTPDownloader(0)
+	bitTorrentDL := downloader.NewBitTorrentDownloader()
 	svc.RegisterDownloader("HTTP", httpDL)
 	svc.RegisterDownloader("HTTPS", httpDL) // HTTPS is handled by the same HTTP downloader
+	svc.RegisterDownloader("FTP", ftpDL)
+	svc.RegisterDownloader("BITTORRENT", bitTorrentDL)
 
-	loggingSvc := &loggingMiddleware{next: svc, logger: logger}
-	consumer := downloadtransport.NewEventConsumer(loggingSvc, sub, logger)
+	level.Info(logger).Log(
+		"msg", "download service initialized",
+		"registered_downloaders", "HTTP, HTTPS, FTP, BITTORRENT",
+	)
+
+	// loggingSvc := &loggingMiddleware{next: svc, logger: logger}
+	consumer := downloadtransport.NewEventConsumer(svc, sub, logger)
 
 	var g run.Group
 	// run the consumer

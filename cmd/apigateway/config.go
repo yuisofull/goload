@@ -19,6 +19,12 @@ import "github.com/kelseyhightower/envconfig"
 // MINIO_SECRET_KEY
 // MINIO_BUCKET                          (default: goload)
 // MINIO_USE_SSL                         (default: false)
+// CORS_ALLOWED_ORIGINS                  (default: *)
+// CORS_ALLOWED_METHODS                  (default: GET,POST,PUT,PATCH,DELETE,OPTIONS)
+// CORS_ALLOWED_HEADERS                  (default: Authorization,Content-Type,Accept,Origin)
+// CORS_EXPOSED_HEADERS                  (default: Content-Length,Content-Range,Content-Disposition)
+// CORS_ALLOW_CREDENTIALS                (default: false)
+// CORS_PREFLIGHT_MAX_AGE                (default: 600)
 type Config struct {
 	LogLevel               string `envconfig:"LOG_LEVEL"                 default:"debug"`
 	HTTPAddress            string `envconfig:"HTTP_ADDRESS"              default:"0.0.0.0:8080"`
@@ -33,6 +39,12 @@ type Config struct {
 	MinioSecretKey         string `envconfig:"MINIO_SECRET_KEY"`
 	MinioBucket            string `envconfig:"MINIO_BUCKET"              default:"goload"`
 	MinioUseSSL            bool   `envconfig:"MINIO_USE_SSL"             default:"false"`
+	CORSAllowedOrigins     string `envconfig:"CORS_ALLOWED_ORIGINS"      default:"*"`
+	CORSAllowedMethods     string `envconfig:"CORS_ALLOWED_METHODS"      default:"GET,POST,PUT,PATCH,DELETE,OPTIONS"`
+	CORSAllowedHeaders     string `envconfig:"CORS_ALLOWED_HEADERS"      default:"Authorization,Content-Type,Accept,Origin"`
+	CORSExposedHeaders     string `envconfig:"CORS_EXPOSED_HEADERS"      default:"Content-Length,Content-Range,Content-Disposition"`
+	CORSAllowCredentials   bool   `envconfig:"CORS_ALLOW_CREDENTIALS"    default:"false"`
+	CORSPreflightMaxAge    int    `envconfig:"CORS_PREFLIGHT_MAX_AGE"    default:"600"`
 }
 
 func loadConfig() (*Config, error) {

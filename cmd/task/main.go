@@ -189,6 +189,11 @@ func main() {
 		}
 
 		g.Add(func() error {
+			for svcName, svcInfo := range grpcServer.GetServiceInfo() {
+				for _, m := range svcInfo.Methods {
+					level.Info(logger).Log("msg", "API endpoint registered", "service", svcName, "method", m.Name)
+				}
+			}
 			level.Info(logger).Log(
 				"transport", "gRPC",
 				"addr", config.GRPCAddress,
