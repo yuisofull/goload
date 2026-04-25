@@ -94,6 +94,80 @@ func TestGetFileInfo_FallsBackToGETWhenHEADNotAllowed(t *testing.T) {
 	assert.Equal(t, int64(5), meta.FileSize)
 }
 
+func TestGetFileInfo_FallsBackToGETWhenHEADForbidden(t *testing.T) {
+	headCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			headCalled = true
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Length", "11")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "hello world")
+	}))
+	defer srv.Close()
+
+	meta, err := newDL().GetFileInfo(context.Background(), srv.URL+"/paper.pdf", nil)
+
+	require.NoError(t, err)
+	assert.True(t, headCalled)
+	assert.Equal(t, "application/pdf", meta.ContentType)
+	assert.Equal(t, int64(11), meta.FileSize)
+	assert.Equal(t, "paper.pdf", meta.FileName)
+}
+
+func TestGetFileInfo_FallsBackToPlainGETWhenRangeProbeForbidden(t *testing.T) {
+	headCalled := false
+	rangeGetCalled := false
+	plainGetCalled := false
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodHead:
+			headCalled = true
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		case http.MethodGet:
+			if r.Header.Get("Range") != "" {
+				rangeGetCalled = true
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			plainGetCalled = true
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Header().Set("Content-Length", "3")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "pdf")
+		}
+	}))
+	defer srv.Close()
+
+	meta, err := newDL().GetFileInfo(context.Background(), srv.URL+"/paper.pdf", nil)
+
+	require.NoError(t, err)
+	assert.True(t, headCalled)
+	assert.True(t, rangeGetCalled)
+	assert.True(t, plainGetCalled)
+	assert.Equal(t, "application/pdf", meta.ContentType)
+	assert.Equal(t, int64(3), meta.FileSize)
+}
+
+func TestGetFileInfo_ReturnsBestEffortMetadataWhenAllProbesForbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	meta, err := newDL().GetFileInfo(context.Background(), srv.URL+"/blocked.pdf", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	assert.Equal(t, "blocked.pdf", meta.FileName)
+	assert.Equal(t, int64(0), meta.FileSize)
+}
+
 func TestGetFileInfo_FilenameFromURL_WhenNoContentDisposition(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "video/mp4")
@@ -177,6 +251,25 @@ func TestDownload_BearerAuth(t *testing.T) {
 	defer rc.Close()
 	got, _ := io.ReadAll(rc)
 	assert.Equal(t, "secret", string(got))
+}
+
+func TestDownload_SetsDefaultUserAgent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua := r.Header.Get("User-Agent")
+		if ua == "" {
+			http.Error(w, "missing user-agent", http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	rc, _, err := newDL().Download(context.Background(), srv.URL+"/ua", nil, download.DownloadOptions{})
+	require.NoError(t, err)
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	assert.Equal(t, "ok", string(got))
 }
 
 func TestDownload_BasicAuth(t *testing.T) {

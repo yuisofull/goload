@@ -254,13 +254,6 @@ func newPublisher(t *testing.T, brokers []string) *kafkamsg.Publisher {
 	return pub
 }
 
-// kitLogger wraps go-kit/log for the EventConsumer's Logger interface.
-type kitLogger struct{ l log.Logger }
-
-func (k *kitLogger) Printf(format string, v ...interface{}) {
-	_ = k.l.Log("msg", fmt.Sprintf(format, v...))
-}
-
 // publishTaskCreated is the equivalent of what the task service does: it
 // serialises a TaskCreatedEvent and publishes it to the "task_created" topic.
 func publishTaskCreated(t *testing.T, pub *kafkamsg.Publisher, ev events.TaskCreatedEvent) {
@@ -326,7 +319,7 @@ func buildSystem(t *testing.T, brokers []string) (
 	sub := newSubscriber(t, brokers, "download-svc-test", allTopics)
 
 	// Event consumer
-	logger := &kitLogger{l: log.NewNopLogger()}
+	logger := log.NewNopLogger()
 	consumer := downloadtransport.NewEventConsumer(dlSvc, sub, logger)
 
 	ctx, cancelFn := context.WithCancel(context.Background())
