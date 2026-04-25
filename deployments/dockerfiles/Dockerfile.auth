@@ -1,4 +1,4 @@
-FROM golang:1.24 AS builder
+FROM golang:1.25 AS builder
 WORKDIR /src
 COPY . .
 RUN apt-get update \
@@ -14,7 +14,6 @@ COPY --from=builder /bin/authsvc /app/authsvc
 COPY --from=builder /bin/authsvc /bin/authsvc
 RUN chmod +x /app/authsvc || true
 RUN test -x /app/authsvc || (echo "/app/authsvc missing or not executable" && false)
-COPY configs/config.yaml /app/configs/config.yaml
 COPY migrations /app/migrations
 WORKDIR /app
 ENTRYPOINT ["/app/authsvc"]

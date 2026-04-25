@@ -9,7 +9,6 @@ WORKDIR /app
 
 # copy the wait script and migrations/config
 COPY deployments/run-migrations.sh /app/run-migrations.sh
-COPY configs/config.yaml /app/configs/config.yaml
 COPY migrations /app/migrations
 RUN chmod +x /app/run-migrations.sh
 

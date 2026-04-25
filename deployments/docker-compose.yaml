@@ -48,8 +48,7 @@ services:
       kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.paused --partitions 1 --replication-factor 1 &&
       kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.resumed --partitions 1 --replication-factor 1 &&
       kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.cancelled --partitions 1 --replication-factor 1 &&
-      echo 'All Kafka topics created successfully'
-    "]
+      echo 'All Kafka topics created successfully'"]
     networks:
       - goload-net
     restart: "no"
