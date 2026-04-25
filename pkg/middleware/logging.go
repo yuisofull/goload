@@ -29,7 +29,7 @@ func LoggingGRPCInterceptor(logger log.Logger) grpc.UnaryServerInterceptor {
 		if err != nil {
 			errStatus, _ := status.FromError(err)
 			code := errStatus.Code()
-			
+
 			if code == codes.Internal || code == codes.Unknown {
 				level.Error(logger).Log(
 					"method", info.FullMethod,
