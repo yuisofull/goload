@@ -2,47 +2,22 @@ package apigateway
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/samber/lo"
-
+	"github.com/yuisofull/goload/internal/apigateway/gen"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/task"
 )
 
-type ListTasksRequest struct {
-	Filter *struct {
-		OfAccountID uint64
-	}
-	Offset int32
-	Limit  int32
-}
+type ListTasksRequest = gen.ListTasksParams
 
-type ListTasksResponse struct {
-	Tasks      []*Task `json:"tasks"`
-	TotalCount int32   `json:"total_count"`
-}
+type ListTasksResponse = gen.ListTasksResponse
 
-type Task struct {
-	ID              uint64         `json:"id"`
-	OfAccountID     uint64         `json:"of_account_id"`
-	FileName        string         `json:"file_name"`
-	SourceUrl       string         `json:"source_url"`
-	SourceType      string         `json:"source_type"`
-	ChecksumType    *string        `json:"checksum_type"`
-	ChecksumValue   *string        `json:"checksum_value"`
-	Status          string         `json:"status"`
-	Progress        *float64       `json:"progress"`
-	DownloadedBytes *int64         `json:"downloaded_bytes"`
-	TotalBytes      *int64         `json:"total_bytes"`
-	ErrorMessage    *string        `json:"error_message"`
-	Metadata        map[string]any `json:"metadata"`
-	CreatedAt       *time.Time     `json:"created_at"`
-	UpdatedAt       *time.Time     `json:"updated_at"`
-	CompletedAt     *time.Time     `json:"completed_at"`
-}
+type Task = gen.Task
 
 // taskToAPI maps domain task to API Task response used by endpoints.
 func taskToAPI(t *task.Task) *Task {
@@ -65,19 +40,19 @@ func taskToAPI(t *task.Task) *Task {
 	}
 
 	return &Task{
-		ID:              t.ID,
-		OfAccountID:     t.OfAccountID,
-		FileName:        t.FileName,
-		SourceUrl:       t.SourceURL,
-		SourceType:      t.SourceType.String(),
+		Id:              &t.ID,
+		OfAccountId:     &t.OfAccountID,
+		FileName:        &t.FileName,
+		SourceUrl:       &t.SourceURL,
+		SourceType:      lo.ToPtr(t.SourceType.String()),
 		ChecksumType:    checksumType,
 		ChecksumValue:   checksumValue,
-		Status:          t.Status.String(),
-		Progress:        progress,
+		Status:          lo.ToPtr(t.Status.String()),
+		Progress:        lo.ToPtr(float32(lo.FromPtr(progress))),
 		DownloadedBytes: downloadedBytes,
 		TotalBytes:      totalBytes,
 		ErrorMessage:    t.ErrorMessage,
-		Metadata:        t.Metadata,
+		Metadata:        lo.ToPtr(t.Metadata),
 		CreatedAt:       &t.CreatedAt,
 		UpdatedAt:       &t.UpdatedAt,
 		CompletedAt:     t.CompletedAt,
@@ -101,77 +76,38 @@ type GatewayEndpoints struct {
 	AuthSessionEndpoint endpoint.Endpoint
 }
 
-type CreateTaskRequest struct {
-	FileName      string         `json:"file_name"`
-	SourceUrl     string         `json:"source_url"`
-	SourceType    string         `json:"source_type"`
-	ChecksumType  *string        `json:"checksum_type,omitempty"`
-	ChecksumValue *string        `json:"checksum_value,omitempty"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
-}
+type CreateTaskRequest = gen.CreateTaskRequest
 
-type CreateTaskResponse struct {
-	Task *Task `json:"task"`
-}
+type CreateTaskResponse = gen.CreateTaskResponse
 
-type GetTaskRequest struct {
-	ID uint64 `json:"id"`
-}
+type GetTaskRequest = gen.GetTaskParams
 
-type GetTaskResponse struct {
-	Task *Task `json:"task"`
-}
+type GetTaskResponse = gen.GetTaskResponse
 
-type (
-	DeleteTaskRequest  struct{ ID uint64 }
-	DeleteTaskResponse struct{ Success bool }
-)
+type DeleteTaskRequest = gen.DeleteTaskParams
+type DeleteTaskResponse = gen.SuccessResponse
 
-type (
-	PauseTaskRequest  struct{ ID uint64 }
-	PauseTaskResponse struct{ Success bool }
-)
+type PauseTaskRequest = gen.PauseTaskParams
+type PauseTaskResponse = gen.SuccessResponse
 
-type (
-	ResumeTaskRequest  struct{ ID uint64 }
-	ResumeTaskResponse struct{ Success bool }
-)
+type ResumeTaskRequest = gen.ResumeTaskParams
+type ResumeTaskResponse = gen.SuccessResponse
 
-type (
-	CancelTaskRequest  struct{ ID uint64 }
-	CancelTaskResponse struct{ Success bool }
-)
+type CancelTaskRequest = gen.CancelTaskParams
+type CancelTaskResponse = gen.SuccessResponse
 
-type (
-	RetryTaskRequest  struct{ ID uint64 }
-	RetryTaskResponse struct{ Success bool }
-)
+type RetryTaskRequest = gen.RetryTaskParams
+type RetryTaskResponse = gen.SuccessResponse
 
-type (
-	CheckFileExistsRequest  struct{ TaskId uint64 }
-	CheckFileExistsResponse struct{ Exists bool }
-)
+type CheckFileExistsRequest = gen.CheckFileExistsParams
+type CheckFileExistsResponse = gen.CheckFileExistsResponse
 
-type (
-	GetTaskProgressRequest  struct{ TaskId uint64 }
-	GetTaskProgressResponse struct {
-		Progress        *float64 `json:"progress,omitempty"`
-		DownloadedBytes *int64   `json:"downloaded_bytes,omitempty"`
-		TotalBytes      *int64   `json:"total_bytes,omitempty"`
-	}
-)
+type GetTaskProgressRequest = gen.GetTaskProgressParams
+type GetTaskProgressResponse = gen.GetTaskProgressResponse
 
-type (
-	GenerateDownloadURLRequest struct {
-		TaskID     uint64 `json:"task_id"`
-		TTLSeconds int64  `json:"ttl_seconds"`
-		OneTime    bool   `json:"one_time"`
-	}
-	GenerateDownloadURLResponse struct {
-		URL    string `json:"url"`
-		Direct bool   `json:"direct"`
-	}
-)
+type GenerateDownloadURLRequest = gen.GenerateDownloadURLRequest
+
+type GenerateDownloadURLResponse = gen.GenerateDownloadURLResponse
 
 // MakeGenerateDownloadURLEndpoint calls the task service GenerateDownloadURL,
 // which internally handles presigning (direct MinIO URL) or token fallback.
@@ -184,7 +120,7 @@ func MakeGenerateDownloadURLEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "unauthenticated"}
 		}
 
-		t, err := svc.GetTask(ctx, req.TaskID)
+		t, err := svc.GetTask(ctx, req.TaskId)
 		if err != nil {
 			return nil, err
 		}
@@ -192,16 +128,16 @@ func MakeGenerateDownloadURLEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, &errors.Error{Code: errors.ErrCodePermissionDenied, Message: "forbidden"}
 		}
 
-		ttl := time.Duration(req.TTLSeconds) * time.Second
+		ttl := time.Duration(req.TtlSeconds) * time.Second
 		if ttl <= 0 {
 			ttl = time.Hour
 		}
 
-		urlStr, direct, err := svc.GenerateDownloadURL(ctx, req.TaskID, ttl, req.OneTime)
+		urlStr, direct, err := svc.GenerateDownloadURL(ctx, req.TaskId, ttl, req.OneTime)
 		if err != nil {
 			return nil, err
 		}
-		return &GenerateDownloadURLResponse{URL: urlStr, Direct: direct}, nil
+		return &GenerateDownloadURLResponse{Url: &urlStr, Direct: &direct}, nil
 	}
 }
 
@@ -217,12 +153,20 @@ func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "unauthenticated"}
 		}
 
+		var offset, limit uint64
+		if req.Offset != nil {
+			offset = *req.Offset
+		}
+		if req.Limit != nil {
+			limit = *req.Limit
+		}
+
 		params := task.ListTasksParam{
 			Filter: &task.TaskFilter{
 				OfAccountID: userID,
 			},
-			Offset: req.Offset,
-			Limit:  req.Limit,
+			Offset: int32(offset),
+			Limit:  int32(limit),
 		}
 
 		result, err := svc.ListTasks(ctx, &params)
@@ -230,9 +174,11 @@ func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, err
 		}
 
+		var count int32 = result.Total
+		tasks := lo.Map(result.Tasks, func(t *task.Task, _ int) Task { return *taskToAPI(t) })
 		return &ListTasksResponse{
-			Tasks:      lo.Map(result.Tasks, func(t *task.Task, _ int) *Task { return taskToAPI(t) }),
-			TotalCount: result.Total,
+			Tasks:      &tasks,
+			TotalCount: &count,
 		}, nil
 	}
 }
@@ -248,12 +194,25 @@ func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "unauthenticated"}
 		}
 
+		var metadata map[string]any
+		if req.Metadata != nil {
+			metadata = *req.Metadata
+		}
+
 		param := task.CreateTaskParam{
 			OfAccountID: userID,
 			FileName:    req.FileName,
 			SourceURL:   req.SourceUrl,
 			SourceType:  task.ToSourceType(req.SourceType),
-			Metadata:    req.Metadata,
+			Metadata:    metadata,
+		}
+
+		if param.SourceType == task.SourceBitTorrent && metadata != nil {
+			if raw, ok := metadata["torrent_file_base64"]; ok {
+				if s, ok := raw.(string); ok && s != "" {
+					param.SourceURL = fmt.Sprintf("data:application/x-bittorrent;base64,%s", s)
+				}
+			}
 		}
 		if req.ChecksumType != nil || req.ChecksumValue != nil {
 			var ctype, cval string
@@ -278,7 +237,7 @@ func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
 func MakeGetTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*GetTaskRequest)
-		t, err := svc.GetTask(ctx, req.ID)
+		t, err := svc.GetTask(ctx, req.Id)
 		if err != nil {
 			return nil, err
 		}
@@ -287,32 +246,15 @@ func MakeGetTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	}
 }
 
-// Auth endpoints -----------------------------------------------------------
-type CreateAccountGatewayRequest struct {
-	AccountName string `json:"account_name"`
-	Password    string `json:"password"`
-}
+type CreateAccountGatewayRequest = gen.CreateAccountGatewayRequest
 
-type CreateAccountGatewayResponse struct {
-	ID          uint64 `json:"id"`
-	AccountName string `json:"account_name"`
-}
+type CreateAccountGatewayResponse = gen.CreateAccountGatewayResponse
 
-type CreateSessionGatewayRequest struct {
-	AccountName string `json:"account_name"`
-	Password    string `json:"password"`
-}
+type CreateSessionGatewayRequest = gen.CreateSessionGatewayRequest
 
-type CreateSessionGatewayResponse struct {
-	Token   string       `json:"token"`
-	Account *AuthAccount `json:"account,omitempty"`
-}
+type CreateSessionGatewayResponse = gen.CreateSessionGatewayResponse
 
-// AuthAccount is a small projection of auth.Account used in gateway responses.
-type AuthAccount struct {
-	ID          uint64 `json:"id"`
-	AccountName string `json:"account_name"`
-}
+type AuthAccount = gen.AuthAccount
 
 func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
@@ -324,7 +266,7 @@ func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
 		if err != nil {
 			return nil, err
 		}
-		return &CreateAccountGatewayResponse{ID: out.ID, AccountName: out.AccountName}, nil
+		return &CreateAccountGatewayResponse{Id: &out.ID, AccountName: &out.AccountName}, nil
 	}
 }
 
@@ -340,59 +282,59 @@ func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 		}
 		var acct *AuthAccount
 		if out.Account != nil {
-			acct = &AuthAccount{ID: out.Account.Id, AccountName: out.Account.AccountName}
+			acct = &AuthAccount{Id: &out.Account.Id, AccountName: &out.Account.AccountName}
 		}
-		return &CreateSessionGatewayResponse{Token: out.Token, Account: acct}, nil
+		return &CreateSessionGatewayResponse{Token: &out.Token, Account: acct}, nil
 	}
 }
 
 func MakeDeleteTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*DeleteTaskRequest)
-		if err := svc.DeleteTask(ctx, req.ID); err != nil {
+		if err := svc.DeleteTask(ctx, req.Id); err != nil {
 			return nil, err
 		}
-		return &DeleteTaskResponse{Success: true}, nil
+		return &DeleteTaskResponse{Success: lo.ToPtr(true)}, nil
 	}
 }
 
 func MakePauseTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*PauseTaskRequest)
-		if err := svc.PauseTask(ctx, req.ID); err != nil {
+		if err := svc.PauseTask(ctx, req.Id); err != nil {
 			return nil, err
 		}
-		return &PauseTaskResponse{Success: true}, nil
+		return &PauseTaskResponse{Success: lo.ToPtr(true)}, nil
 	}
 }
 
 func MakeResumeTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*ResumeTaskRequest)
-		if err := svc.ResumeTask(ctx, req.ID); err != nil {
+		if err := svc.ResumeTask(ctx, req.Id); err != nil {
 			return nil, err
 		}
-		return &ResumeTaskResponse{Success: true}, nil
+		return &ResumeTaskResponse{Success: lo.ToPtr(true)}, nil
 	}
 }
 
 func MakeCancelTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*CancelTaskRequest)
-		if err := svc.CancelTask(ctx, req.ID); err != nil {
+		if err := svc.CancelTask(ctx, req.Id); err != nil {
 			return nil, err
 		}
-		return &CancelTaskResponse{Success: true}, nil
+		return &CancelTaskResponse{Success: lo.ToPtr(true)}, nil
 	}
 }
 
 func MakeRetryTaskEndpoint(svc task.Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*RetryTaskRequest)
-		if err := svc.RetryTask(ctx, req.ID); err != nil {
+		if err := svc.RetryTask(ctx, req.Id); err != nil {
 			return nil, err
 		}
-		return &RetryTaskResponse{Success: true}, nil
+		return &RetryTaskResponse{Success: lo.ToPtr(true)}, nil
 	}
 }
 
@@ -403,7 +345,7 @@ func MakeCheckFileExistsEndpoint(svc task.Service) endpoint.Endpoint {
 		if err != nil {
 			return nil, err
 		}
-		return &CheckFileExistsResponse{Exists: okExists}, nil
+		return &CheckFileExistsResponse{Exists: &okExists}, nil
 	}
 }
 
@@ -416,10 +358,11 @@ func MakeGetTaskProgressEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, err
 		}
 
-		var p *float64
+		var p *float32
 		var d, tot *int64
 		if progress != nil {
-			p = &progress.Progress
+			pf := float32(progress.Progress)
+			p = &pf
 			d = &progress.DownloadedBytes
 			tot = &progress.TotalBytes
 		}
@@ -445,7 +388,7 @@ func NewGatewayEndpoints(
 		GetTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*GetTaskRequest).ID },
+				func(req interface{}) uint64 { return req.(*GetTaskRequest).Id },
 			)(
 				MakeGetTaskEndpoint(downloadTaskSvc),
 			),
@@ -454,7 +397,7 @@ func NewGatewayEndpoints(
 		DeleteTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*DeleteTaskRequest).ID },
+				func(req interface{}) uint64 { return req.(*DeleteTaskRequest).Id },
 			)(
 				MakeDeleteTaskEndpoint(downloadTaskSvc),
 			),
@@ -462,7 +405,7 @@ func NewGatewayEndpoints(
 		PauseTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*PauseTaskRequest).ID },
+				func(req interface{}) uint64 { return req.(*PauseTaskRequest).Id },
 			)(
 				MakePauseTaskEndpoint(downloadTaskSvc),
 			),
@@ -470,7 +413,7 @@ func NewGatewayEndpoints(
 		ResumeTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*ResumeTaskRequest).ID },
+				func(req interface{}) uint64 { return req.(*ResumeTaskRequest).Id },
 			)(
 				MakeResumeTaskEndpoint(downloadTaskSvc),
 			),
@@ -478,7 +421,7 @@ func NewGatewayEndpoints(
 		CancelTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*CancelTaskRequest).ID },
+				func(req interface{}) uint64 { return req.(*CancelTaskRequest).Id },
 			)(
 				MakeCancelTaskEndpoint(downloadTaskSvc),
 			),
@@ -486,7 +429,7 @@ func NewGatewayEndpoints(
 		RetryTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*RetryTaskRequest).ID },
+				func(req interface{}) uint64 { return req.(*RetryTaskRequest).Id },
 			)(
 				MakeRetryTaskEndpoint(downloadTaskSvc),
 			),
@@ -510,7 +453,7 @@ func NewGatewayEndpoints(
 		GenerateDownloadURLEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*GenerateDownloadURLRequest).TaskID },
+				func(req interface{}) uint64 { return req.(*GenerateDownloadURLRequest).TaskId },
 			)(
 				MakeGenerateDownloadURLEndpoint(downloadTaskSvc),
 			),

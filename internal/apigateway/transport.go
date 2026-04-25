@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,11 +16,12 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
+	"github.com/samber/lo"
+	"github.com/yuisofull/goload/docs"
 	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type HTTPListTasksRequest struct {
@@ -59,6 +61,8 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 		httptransport.ServerErrorHandler(transport.NewLogErrorHandler(level.Error(logger))),
 	}
 
+
+
 	r := mux.NewRouter()
 
 	// --- health ---------------------------------------------------------
@@ -67,6 +71,10 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	}).Methods(http.MethodGet)
+
+	// --- /docs ----------------------------------------------------------
+	sub, _ := fs.Sub(docs.FS, ".")
+	r.PathPrefix("/docs/").Handler(http.StripPrefix("/docs/", http.FileServer(http.FS(sub))))
 
 	// --- /api/v1/tasks --------------------------------------------------
 	tasks := r.PathPrefix("/api/v1/tasks").Subrouter()
@@ -101,42 +109,42 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 
 	tasks.Handle("/pause", addTokenToContext(httptransport.NewServer(
 		endpoints.PauseTaskEndpoint,
-		decodeHTTPIDRequest,
+		decodeHTTPPauseTaskRequest,
 		encodeHTTPResponse,
 		options...,
 	))).Methods(http.MethodPost)
 
 	tasks.Handle("/resume", addTokenToContext(httptransport.NewServer(
 		endpoints.ResumeTaskEndpoint,
-		decodeHTTPIDRequest,
+		decodeHTTPResumeTaskRequest,
 		encodeHTTPResponse,
 		options...,
 	))).Methods(http.MethodPost)
 
 	tasks.Handle("/cancel", addTokenToContext(httptransport.NewServer(
 		endpoints.CancelTaskEndpoint,
-		decodeHTTPIDRequest,
+		decodeHTTPCancelTaskRequest,
 		encodeHTTPResponse,
 		options...,
 	))).Methods(http.MethodPost)
 
 	tasks.Handle("/retry", addTokenToContext(httptransport.NewServer(
 		endpoints.RetryTaskEndpoint,
-		decodeHTTPIDRequest,
+		decodeHTTPRetryTaskRequest,
 		encodeHTTPResponse,
 		options...,
 	))).Methods(http.MethodPost)
 
 	tasks.Handle("/exists", addTokenToContext(httptransport.NewServer(
 		endpoints.CheckFileExistsEndpoint,
-		decodeHTTPIDRequestName("task_id"),
+		decodeHTTPCheckFileExistsRequest,
 		encodeHTTPResponse,
 		options...,
 	))).Methods(http.MethodGet)
 
 	tasks.Handle("/progress", addTokenToContext(httptransport.NewServer(
 		endpoints.GetTaskProgressEndpoint,
-		decodeHTTPIDRequestName("task_id"),
+		decodeHTTPGetTaskProgressRequest,
 		encodeHTTPResponse,
 		options...,
 	))).Methods(http.MethodGet)
@@ -196,7 +204,7 @@ func NewHTTPHandlerWithDownload(
 	logger log.Logger,
 	store storage.Reader,
 	tokenStore task.TokenStore,
-) http.Handler {
+) *mux.Router {
 	r := NewHTTPHandler(endpoints, logger).(*mux.Router)
 
 	r.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
@@ -344,9 +352,8 @@ func decodeHTTPListTaskRequest(_ context.Context, r *http.Request) (interface{},
 	// populate the OfAccountID from the context once the auth middleware
 	// has run.
 	return &ListTasksRequest{
-		Filter: &struct{ OfAccountID uint64 }{},
-		Offset: int32(offset),
-		Limit:  int32(limit),
+		Offset: lo.ToPtr(offset),
+		Limit:  lo.ToPtr(limit),
 	}, nil
 }
 
@@ -367,30 +374,80 @@ func decodeHTTPGetRequest(_ context.Context, r *http.Request) (interface{}, erro
 	if err != nil {
 		return nil, err
 	}
-	return &GetTaskRequest{ID: id}, nil
+	return &GetTaskRequest{Id: id}, nil
 }
 
 func decodeHTTPIDRequest(_ context.Context, r *http.Request) (interface{}, error) {
 	return decodeHTTPIDRequestName("id")(context.Background(), r)
 }
 
+func decodeHTTPPauseTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	id, err := decodeHTTPQueryUint64(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	return &PauseTaskRequest{Id: id}, nil
+}
+
+func decodeHTTPResumeTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	id, err := decodeHTTPQueryUint64(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	return &ResumeTaskRequest{Id: id}, nil
+}
+
+func decodeHTTPCancelTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	id, err := decodeHTTPQueryUint64(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	return &CancelTaskRequest{Id: id}, nil
+}
+
+func decodeHTTPRetryTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	id, err := decodeHTTPQueryUint64(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	return &RetryTaskRequest{Id: id}, nil
+}
+
+func decodeHTTPCheckFileExistsRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	id, err := decodeHTTPQueryUint64(r, "task_id")
+	if err != nil {
+		return nil, err
+	}
+	return &CheckFileExistsRequest{TaskId: id}, nil
+}
+
+func decodeHTTPGetTaskProgressRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	id, err := decodeHTTPQueryUint64(r, "task_id")
+	if err != nil {
+		return nil, err
+	}
+	return &GetTaskProgressRequest{TaskId: id}, nil
+}
+
+func decodeHTTPQueryUint64(r *http.Request, name string) (uint64, error) {
+	idStr := r.URL.Query().Get(name)
+	if idStr == "" {
+		return 0, http.ErrMissingFile
+	}
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
 func decodeHTTPIDRequestName(name string) func(ctx context.Context, r *http.Request) (interface{}, error) {
 	return func(_ context.Context, r *http.Request) (interface{}, error) {
-		idStr := r.URL.Query().Get(name)
-		if idStr == "" {
-			return nil, http.ErrMissingFile
-		}
-		id, err := strconv.ParseUint(idStr, 10, 64)
+		id, err := decodeHTTPQueryUint64(r, name)
 		if err != nil {
 			return nil, err
 		}
-		// determine which request type to return based on name
-		switch name {
-		case "task_id":
-			return &CheckFileExistsRequest{TaskId: id}, nil
-		default:
-			return &DeleteTaskRequest{ID: id}, nil
-		}
+		return &DeleteTaskRequest{Id: id}, nil
 	}
 }
 
