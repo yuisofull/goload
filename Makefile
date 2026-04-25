@@ -1,6 +1,6 @@
 ## Makefile for local development
 
-.PHONY: all generate build compose-up compose-down smoke
+.PHONY: all generate build compose-up compose-down smoke docs lint serve-docs
 
 all: build
 
@@ -12,11 +12,27 @@ build:
 compose-up:
 	docker compose -f deployments/docker-compose.yaml up -d
 compose-build-up:
-	@cd deployments && docker compose build --no-cache && docker compose up -d
+	@cd deployments && docker compose build && docker compose up -d
 
 compose-down:
-	@cd deployments && docker compose down && cd ..
+	docker compose -f deployments/docker-compose.yaml down --remove-orphans
+up:
+	make compose-build-up
+# 	docker build -t goload-frontend ./public
+# 	docker run --name goloadfrontend -d -p 8081:80 goload-frontend 
 
 smoke:
 	@echo "Waiting for apigateway to be available..."
 	@bash -c 'for i in {1..30}; do if curl -sSf http://localhost:8080/health >/dev/null 2>&1; then echo "apigateway ready"; exit 0; fi; sleep 1; done; echo "apigateway did not become ready"; exit 1'
+
+OPENAPI=api/openapi.yaml
+BUNDLED=docs/openapi.yaml
+
+docs:
+	redocly bundle $(OPENAPI) -o $(BUNDLED)
+
+lint:
+	redocly lint $(OPENAPI)
+
+serve-docs:
+	redocly preview-docs $(OPENAPI)
