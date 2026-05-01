@@ -96,7 +96,7 @@ func (l *Local) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 }
 
 func (l *Local) GetWithRange(ctx context.Context, key string, start, end int64) (io.ReadCloser, error) {
-	if start < 0 || end < start {
+	if start < 0 || (end >= 0 && end < start) {
 		return nil, fmt.Errorf("invalid range %d-%d", start, end)
 	}
 	objectPath, err := l.objectPath(key)
@@ -106,6 +106,18 @@ func (l *Local) GetWithRange(ctx context.Context, key string, start, end int64) 
 	file, err := os.Open(objectPath)
 	if err != nil {
 		return nil, err
+	}
+	if end < 0 {
+		stat, err := file.Stat()
+		if err != nil {
+			file.Close()
+			return nil, err
+		}
+		end = stat.Size() - 1
+		if start > end {
+			file.Close()
+			return nil, fmt.Errorf("range start %d beyond file size %d", start, stat.Size())
+		}
 	}
 	if _, err := file.Seek(start, io.SeekStart); err != nil {
 		file.Close()
@@ -176,6 +188,15 @@ func (l *Local) PresignGet(ctx context.Context, key string, ttl time.Duration) (
 		return "", err
 	}
 	return (&url.URL{Scheme: "file", Path: absPath}).String(), nil
+}
+
+// PathForKey returns the absolute filesystem path for a stored object key.
+func (l *Local) PathForKey(key string) (string, error) {
+	objectPath, err := l.objectPath(key)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(objectPath)
 }
 
 type localRangeReadCloser struct {
