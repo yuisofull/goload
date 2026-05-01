@@ -13,6 +13,10 @@ build:
 build-web:
 	@docker build --build-arg VITE_GOLOAD_API_URL=http://localhost:8080 -t goload-frontend-builder -f public/Dockerfile.builder ./public
 	@docker run --rm -v ./public/dist:/app/dist goload-frontend-builder
+
+build-pocket:
+	@docker build -t goload-pocket-builder -f Dockerfile.pocketbuilder .
+	@docker run --rm -v ./:/out goload-pocket-builder
 compose-up:
 	docker compose -f deployments/docker-compose.yaml up -d
 compose-build-up:

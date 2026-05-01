@@ -1,9 +1,5 @@
-ARG ADDRESS=0.0.0.0:8081
-
-# Stage 1: Build the frontend (React/Vite)
+    # Stage 1: Build the frontend (React/Vite)
 FROM oven/bun:1 AS web-builder
-
-ARG ADDRESS
 
 WORKDIR /app
 
@@ -16,7 +12,7 @@ RUN bun install --frozen-lockfile
 # Copy source code
 COPY ./public .
 
-RUN VITE_GOLOAD_API_URL=${ADDRESS} bun run build
+RUN VITE_GOLOAD_API_URL=http://localhost:8080 bun run build
 
 # Stage 2: Build the pocket backend (Go)
 FROM golang:1.25 AS go-builder
