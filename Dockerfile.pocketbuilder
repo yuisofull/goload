@@ -1,0 +1,69 @@
+ARG ADDRESS=0.0.0.0:8081
+
+# Stage 1: Build the frontend (React/Vite)
+FROM oven/bun:1 AS web-builder
+
+ARG ADDRESS
+
+WORKDIR /app
+
+# Copy package files
+COPY ./public/package.json ./public/bun.lockb ./
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy source code
+COPY ./public .
+
+RUN VITE_GOLOAD_API_URL=${ADDRESS} bun run build
+
+# Stage 2: Build the pocket backend (Go)
+FROM golang:1.25 AS go-builder
+# Install build dependencies for CGO (required by crawshaw sqlite)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+# ENV CGO_ENABLED=0
+
+# RUN mkdir -p /out && \
+#     GOOS=linux   GOARCH=amd64 go build -o /out/pocket-linux-amd64 ./cmd/pocket && \
+#     GOOS=windows GOARCH=amd64 go build -o /out/pocket-windows-amd64.exe ./cmd/pocket && \
+#     GOOS=darwin  GOARCH=amd64 go build -o /out/pocket-darwin-amd64 ./cmd/pocket
+
+FROM go-builder AS linux-build
+RUN mkdir -p /out && \
+    GOOS=linux GOARCH=amd64 go build -o /out/pocket-linux-amd64 ./cmd/pocket
+
+FROM go-builder AS windows-build
+
+# Ensure the tools are there
+RUN apt-get update && apt-get install -y gcc-mingw-w64 g++-mingw-w64
+
+# Build with both compilers set
+RUN CGO_ENABLED=1 \
+    GOOS=windows \
+    GOARCH=amd64 \
+    CC=x86_64-w64-mingw32-gcc \
+    CXX=x86_64-w64-mingw32-g++ \
+    go build -ldflags '-linkmode external -extldflags "-static"'\
+    -o /out/pocket-windows-amd64.exe ./cmd/pocket
+
+FROM alpine:latest AS packager
+
+RUN apk add --no-cache zip
+
+WORKDIR /work
+
+COPY --from=linux-build /out .
+COPY --from=windows-build /out .
+COPY --from=web-builder /app/dist ./public/dist
+
+# zip everything into /out (mounted volume target)
+CMD ["zip", "-r", "/out/pocket-release.zip", "."]
