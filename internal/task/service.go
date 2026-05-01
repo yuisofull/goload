@@ -1,10 +1,16 @@
 package task
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	stderrors "errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,10 +79,15 @@ type service struct {
 	tx   TxManager
 	// optional presigner for storage backends that support presigning
 	presigner storage.Presigner
+	// optional storage/presigner for pre-processing large task source payloads (e.g. uploaded .torrent files)
+	taskSourceStore     storage.Writer
+	taskSourcePresigner storage.Presigner
 	// token store for one-time tokens fallback
 	tokenStore TokenStore
 	logger     log.Logger
 }
+
+const bittorrentDataURLPrefix = "data:application/x-bittorrent;base64,"
 
 // TokenStore stores one-time or short-lived tokens for server-side download URLs.
 type TokenStore interface {
@@ -100,6 +111,17 @@ func WithTokenStore(ts TokenStore) ServiceOption {
 // WithLogger configures the task service with a logger.
 func WithLogger(l log.Logger) ServiceOption {
 	return func(s *service) { s.logger = l }
+}
+
+// WithTaskSourceStore configures a storage writer used to persist large task source payloads.
+func WithTaskSourceStore(w storage.Writer) ServiceOption {
+	return func(s *service) { s.taskSourceStore = w }
+}
+
+// WithTaskSourcePresigner configures a presigner used to generate temporary URLs
+// for stored task source payloads.
+func WithTaskSourcePresigner(p storage.Presigner) ServiceOption {
+	return func(s *service) { s.taskSourcePresigner = p }
 }
 
 // in-memory token store for tests or simple setups
@@ -173,7 +195,7 @@ func (s *service) GenerateDownloadURL(
 			return urlStr, true, nil
 		}
 		// log and fallthrough to token path on presign error
-		level.Error(s.logger).
+		level.Warn(s.logger).
 			Log("msg", "presign failed, falling back to token URL", "storage_path", t.StoragePath, "err", err)
 	}
 
@@ -210,6 +232,32 @@ func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task
 		}
 	}
 
+	downloadOptions := &DownloadOptions{
+		Concurrency: 16,
+		MaxRetries:  3,
+	}
+
+	if strings.HasPrefix(param.SourceURL, bittorrentDataURLPrefix) {
+		if s.taskSourceStore == nil || s.taskSourcePresigner == nil {
+			return nil, &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "task source storage/presigner not configured",
+				Cause:   nil,
+			}
+		}
+
+		// Preserve BitTorrent source type even though the SourceURL will become http/https.
+		if param.SourceType == "" {
+			param.SourceType = SourceBitTorrent
+		}
+
+		presignedURL, err := s.storeTaskSourceTorrentDataURL(ctx, param.OfAccountID, param.FileName, param.SourceURL)
+		if err != nil {
+			return nil, err
+		}
+		param.SourceURL = presignedURL
+	}
+
 	parseUrl, err := url.Parse(param.SourceURL)
 	if err != nil {
 		return nil, &errors.Error{
@@ -233,7 +281,7 @@ func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task
 		SourceType:      param.SourceType,
 		SourceAuth:      param.SourceAuth,
 		Checksum:        param.Checksum,
-		DownloadOptions: param.DownloadOptions,
+		DownloadOptions: downloadOptions,
 		Metadata:        param.Metadata,
 		Status:          StatusPending,
 	}
@@ -266,6 +314,63 @@ func (s *service) CreateTask(ctx context.Context, param *CreateTaskParam) (*Task
 	}
 
 	return createdTask, nil
+}
+
+func (s *service) storeTaskSourceTorrentDataURL(
+	ctx context.Context,
+	ofAccountID uint64,
+	fileName string,
+	dataURL string,
+) (string, error) {
+	// Decode
+	encoded := strings.TrimPrefix(dataURL, bittorrentDataURLPrefix)
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" {
+		return "", &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "empty torrent base64 payload"}
+	}
+
+	content, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "invalid torrent base64 payload", Cause: err}
+	}
+
+	// Build a stable-ish object name for observability while ensuring uniqueness.
+	baseName := strings.TrimSpace(filepath.Base(fileName))
+	if baseName == "" || baseName == "." || baseName == "/" {
+		baseName = "source.torrent"
+	}
+	if !strings.HasSuffix(strings.ToLower(baseName), ".torrent") {
+		baseName = baseName + ".torrent"
+	}
+	baseStem := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+	if baseStem == "" {
+		baseStem = "source"
+	}
+
+	var randBytes [16]byte
+	if _, err := rand.Read(randBytes[:]); err != nil {
+		return "", &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to generate object key", Cause: err}
+	}
+	rnd := hex.EncodeToString(randBytes[:])
+	key := fmt.Sprintf("%d/%s-%s.torrent", ofAccountID, baseStem, rnd[:8])
+
+	// Upload (best-effort expiry of 24h)
+	expiresAt := time.Now().Add(24 * time.Hour)
+	if err := s.taskSourceStore.Store(ctx, key, bytes.NewReader(content), &storage.FileMetadata{
+		FileName:    baseName,
+		ContentType: "application/x-bittorrent",
+		Expiry:      expiresAt,
+	}); err != nil {
+		return "", &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store torrent source", Cause: err}
+	}
+
+	// Presign (24h)
+	urlStr, err := s.taskSourcePresigner.PresignGet(ctx, key, 24*time.Hour)
+	if err != nil {
+		return "", &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to presign torrent source", Cause: err}
+	}
+
+	return urlStr, nil
 }
 
 func (s *service) GetTask(ctx context.Context, id uint64) (*Task, error) {

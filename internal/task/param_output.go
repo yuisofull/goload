@@ -15,7 +15,6 @@ type CreateTaskParam struct {
 	SourceType      SourceType       `json:"source_type"`
 	SourceAuth      *AuthConfig      `json:"source_auth,omitempty"`
 	Checksum        *ChecksumInfo    `json:"checksum,omitempty"`
-	DownloadOptions *DownloadOptions `json:"download_options,omitempty"`
 	Metadata        map[string]any   `json:"metadata,omitempty"`
 }
 
