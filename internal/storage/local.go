@@ -171,6 +171,7 @@ func (l *Local) PresignGet(ctx context.Context, key string, ttl time.Duration) (
 		return "", err
 	}
 	absPath, err := filepath.Abs(objectPath)
+	absPath = filepath.ToSlash(absPath)
 	if err != nil {
 		return "", err
 	}
