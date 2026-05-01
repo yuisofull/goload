@@ -102,16 +102,40 @@ func main() {
 	// Optional: presigner (MinIO) and token store (Redis) for GenerateDownloadURL
 	var svcOpts []taskpkg.ServiceOption
 	if config.MinioEndpoint != "" {
+		taskSourcesBucket := config.MinioTaskSourcesBucket
+		if taskSourcesBucket == "" {
+			taskSourcesBucket = "task-sources"
+		}
+
+		// Storage for large task source payloads (e.g. uploaded .torrent files)
+		sourceStore, err := storagepkg.NewMinioBackend(
+			config.MinioEndpoint,
+			config.MinioAccessKey,
+			config.MinioSecretKey,
+			config.MinioUseSSL,
+			taskSourcesBucket,
+			storagepkg.WithExpiry(24*time.Hour),
+		)
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to create minio backend for task sources", "bucket", taskSourcesBucket, "err", err)
+			os.Exit(1)
+		}
+		svcOpts = append(svcOpts, taskpkg.WithTaskSourceStore(sourceStore))
+
 		presignAccessKey := config.MinioAccessKey
 		presignSecretKey := config.MinioSecretKey
 		if config.MinioPresignAccessKey != "" {
 			presignAccessKey = config.MinioPresignAccessKey
 			presignSecretKey = config.MinioPresignSecretKey
 		}
+		presignEndpoint := config.MinioPresignPublicEndpoint
+		if presignEndpoint == "" {
+			presignEndpoint = config.MinioEndpoint
+		}
 
 		var presigner *storagepkg.Minio
 		presigner, err = storagepkg.NewMinioPresigner(
-			config.MinioEndpoint,
+			presignEndpoint,
 			presignAccessKey,
 			presignSecretKey,
 			config.MinioUseSSL,
@@ -120,14 +144,28 @@ func main() {
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to create minio presigner", "err", err)
 		}
+
 		if presigner != nil {
 			level.Info(logger).Log("msg", "minio presigner initialized",
-				"public_url", config.MinioPresignPublicEndpoint,
+				"public_url", presignEndpoint,
 				"proxy_url", config.MinioEndpoint,
 				"access_key", presignAccessKey)
-			svcOpts = append(svcOpts, taskpkg.WithPresigner(presigner))
+			svcOpts = append(svcOpts, taskpkg.WithPresigner(nil))
+
+			taskSourcePresigner, err := storagepkg.NewMinioPresigner(
+				presignEndpoint,
+				presignAccessKey,
+				presignSecretKey,
+				config.MinioUseSSL,
+				taskSourcesBucket,
+			)
+			if err != nil {
+				level.Error(logger).Log("msg", "failed to create minio presigner for task sources", "bucket", taskSourcesBucket, "err", err)
+				os.Exit(1)
+			}
+			svcOpts = append(svcOpts, taskpkg.WithTaskSourcePresigner(taskSourcePresigner))
 		} else {
-			level.Error(logger).Log("msg", "minio presigner NOT available — download-url will use token fallback")
+			level.Warn(logger).Log("msg", "minio presigner NOT available — download-url will use token fallback")
 		}
 	} else {
 		level.Warn(logger).Log("msg", "taskservice.storage.minio.endpoint not configured — presign disabled")
@@ -197,7 +235,6 @@ func main() {
 			level.Info(logger).Log(
 				"transport", "gRPC",
 				"addr", config.GRPCAddress,
-				"endpoints", "CreateTask, GetTask, ListTasks, DeleteTask, PauseTask, ResumeTask, CancelTask, RetryTask, CheckFileExists, GetTaskProgress, GenerateDownloadURL",
 				"msg", "serving grpc endpoints",
 			)
 			return grpcServer.Serve(lis)

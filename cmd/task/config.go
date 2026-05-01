@@ -24,6 +24,7 @@ import "github.com/kelseyhightower/envconfig"
 // MINIO_ACCESS_KEY
 // MINIO_SECRET_KEY
 // MINIO_BUCKET                                   (default: goload)
+// MINIO_TASK_SOURCES_BUCKET                       (default: task-sources)
 // MINIO_USE_SSL                                  (default: false)
 // MINIO_PRESIGN_PUBLIC_ENDPOINT
 // MINIO_PRESIGN_ACCESS_KEY
@@ -47,6 +48,7 @@ type Config struct {
 	MinioAccessKey             string   `envconfig:"MINIO_ACCESS_KEY"`
 	MinioSecretKey             string   `envconfig:"MINIO_SECRET_KEY"`
 	MinioBucket                string   `envconfig:"MINIO_BUCKET"                  default:"goload"`
+	MinioTaskSourcesBucket     string   `envconfig:"MINIO_TASK_SOURCES_BUCKET"     default:"task-sources"`
 	MinioUseSSL                bool     `envconfig:"MINIO_USE_SSL"                 default:"false"`
 	MinioPresignPublicEndpoint string   `envconfig:"MINIO_PRESIGN_PUBLIC_ENDPOINT"`
 	MinioPresignAccessKey      string   `envconfig:"MINIO_PRESIGN_ACCESS_KEY"`
