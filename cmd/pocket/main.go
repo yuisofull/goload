@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -40,7 +44,7 @@ func main() {
 	cfg, err := loadConfig()
 	must(err)
 
-		var logger log.Logger
+	var logger log.Logger
 	{
 		logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
 		logger = level.NewFilter(logger, level.Allow(level.ParseDefault(cfg.LogLevel, level.DebugValue())))
@@ -91,17 +95,17 @@ func main() {
 	tokenStore := task.NewInmemTokenStore()
 	taskSvc := task.NewService(taskRepo, *taskPub, tx,
 		task.WithTokenStore(tokenStore),
-		task.WithPresigner(storageBackend),
+		// Local filesystem presigns are file:// URLs, which browsers will not
+		// open from the web UI. Use the HTTP /download token route in pocket mode.
 		task.WithTaskSourceStore(storageBackend),
 		task.WithTaskSourcePresigner(storageBackend),
 	)
 
-	// Task event consumer 
+	// Task event consumer
 	var taskEventConsumer *tasktransport.EventConsumer
 	{
 		taskEventConsumer = tasktransport.NewEventConsumer(taskSvc, sub)
 	}
-
 
 	// Download service
 	downloadPub := download.NewDownloadEventPublisher(pub)
@@ -144,6 +148,49 @@ func main() {
 	authMiddleware := apigateway.NewNoAuthMiddleware(defaultAccountID)
 	endpoints := apigateway.NewGatewayEndpoints(taskSvc, authMiddleware, authSvc)
 	handler := apigateway.NewHTTPHandlerWithDownload(endpoints, logger, storageBackend, tokenStore)
+	handler.HandleFunc("/api/v1/pocket/tasks/reveal", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		idRaw := strings.TrimSpace(r.URL.Query().Get("id"))
+		id, err := strconv.ParseUint(idRaw, 10, 64)
+		if err != nil || id == 0 {
+			http.Error(w, "invalid task id", http.StatusBadRequest)
+			return
+		}
+
+		t, err := taskSvc.GetTask(r.Context(), id)
+		if err != nil {
+			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		}
+		if t.StoragePath == "" {
+			http.Error(w, "task has no stored file", http.StatusBadRequest)
+			return
+		}
+
+		localPath, err := storageBackend.PathForKey(t.StoragePath)
+		if err != nil {
+			http.Error(w, "failed to resolve local path", http.StatusInternalServerError)
+			return
+		}
+		if ok, err := storageBackend.Exists(r.Context(), t.StoragePath); err != nil || !ok {
+			http.Error(w, "stored file not found", http.StatusNotFound)
+			return
+		}
+		if err := revealInFileManager(r.Context(), localPath, logger); err != nil {
+			level.Error(logger).Log("msg", "failed to reveal file", "path", localPath, "err", err)
+			http.Error(w, "failed to open file manager", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"path": localPath,
+		})
+	}).Methods(http.MethodPost)
 	if cfg.PocketWebDir != "" {
 		handler.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/" {
@@ -184,8 +231,8 @@ func main() {
 	}
 	g.Add(func() error {
 		return taskEventConsumer.Start(ctx)
-	
-		}, func(error) {
+
+	}, func(error) {
 	})
 
 	g.Add(func() error {
@@ -200,6 +247,60 @@ func main() {
 	}, func(error) {})
 
 	level.Info(logger).Log("exit", g.Run())
+}
+
+func revealInFileManager(ctx context.Context, path string, logger log.Logger) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.CommandContext(ctx, "open", "-R", path)
+	case "windows":
+		cmd = exec.CommandContext(ctx, "explorer.exe", "/select,"+path)
+	default:
+		if isWSL() {
+			windowsPath, err := wslWindowsPath(ctx, path)
+			if err != nil {
+				return err
+			}
+			cmd = exec.CommandContext(ctx, "explorer.exe", "/select,"+windowsPath)
+			break
+		}
+
+		dir := filepath.Dir(path)
+		if opener, err := exec.LookPath("xdg-open"); err == nil {
+			cmd = exec.CommandContext(ctx, opener, dir)
+		} else if opener, err := exec.LookPath("gio"); err == nil {
+			cmd = exec.CommandContext(ctx, opener, "open", dir)
+		} else {
+			return err
+		}
+	}
+
+	logger.Log("msg", "executing file manager command", "cmd", cmd.String())
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	cmd.Wait()
+	return nil
+}
+
+func isWSL() bool {
+	version, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	v := strings.ToLower(string(version))
+	return strings.Contains(v, "microsoft") || strings.Contains(v, "wsl")
+}
+
+func wslWindowsPath(ctx context.Context, path string) (string, error) {
+	out, err := exec.CommandContext(ctx, "wslpath", "-w", path).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // runMigrations creates minimal tables compatible with sqlc queries used by existing code.
