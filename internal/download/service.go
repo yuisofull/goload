@@ -17,6 +17,8 @@ import (
 	"github.com/yuisofull/goload/internal/storage"
 )
 
+const DOWNLOAD_PROGRESS_UPDATE_INTERVAL = 3 * time.Second
+
 type EventPublisher interface {
 	PublishTaskStatusUpdated(ctx context.Context, event events.TaskStatusUpdatedEvent) error
 	PublishTaskProgressUpdated(ctx context.Context, event events.TaskProgressUpdatedEvent) error
@@ -157,7 +159,7 @@ func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
 		s.mu.Unlock()
 	}()
 
-	return s.executeDownload(execution, downloader)
+	return s.executeDownload(execution,downloader)
 }
 
 // executeDownload performs the actual download and storage
@@ -174,7 +176,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	}
 
 	downloadOpts := DownloadOptions{
-		Concurrency: 1,
+		Concurrency: 10,
 		MaxRetries:  3,
 	}
 	if taskReq.DownloadOptions != nil {
@@ -212,7 +214,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	var totalSize int64
 	var dlErr error
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
 		reader, totalSize, dlErr = downloader.Download(ctx, taskReq.SourceURL, sourceAuth, downloadOpts)
 		if dlErr == nil {
 			break
@@ -228,13 +230,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 			}
 		}
 
-		// _ = s.publisher.PublishTaskRetried(ctx, events.TaskRetriedEvent{
-		// 	TaskID:     taskReq.TaskID,
-		// 	RetryCount: uint32(attempt + 1),
-		// 	Reason:     dlErr.Error(),
-		// 	RetriedAt:  time.Now(),
-		// })
-
+		s.errorHandler(ctx, fmt.Errorf("downloading %s failed, retry %d/%d: %w", taskReq.SourceURL, attempt, maxRetries, dlErr))
 		backoff := time.Second * time.Duration(1<<attempt)
 		jitter := time.Duration(time.Now().UnixNano() % int64(time.Second))
 		time.Sleep(backoff + jitter)
@@ -245,12 +241,16 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	s.updateProgress(ctx, taskReq.TaskID, execution.progress)
 
 	progressReader := NewPausableProgressReader(reader, func(bytesRead int64) {
-		execution.progress.DownloadedBytes = bytesRead
-		if totalSize > 0 {
-			execution.progress.Progress = float64(bytesRead) / float64(totalSize) * 100
+		p := execution.progress
+		if time.Since(p.UpdatedAt) >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL {
+			p.DownloadedBytes = bytesRead
+			if totalSize > 0 {
+				p.Progress = float64(bytesRead) / float64(totalSize) * 100
+			}
+			p.UpdatedAt = time.Now()
+			execution.progress = p
+			s.updateProgress(ctx, taskReq.TaskID, p)
 		}
-		execution.progress.UpdatedAt = time.Now()
-		s.updateProgress(ctx, taskReq.TaskID, execution.progress)
 	})
 
 	execution.progressReader = progressReader
@@ -406,6 +406,7 @@ func (s *service) updateProgress(ctx context.Context, taskID uint64, progress Pr
 		UpdatedAt:       progress.UpdatedAt,
 	}
 
+
 	if err := s.publisher.PublishTaskProgressUpdated(ctx, evt); err != nil {
 		s.errorHandler(ctx, fmt.Errorf("failed to publish progress for task %d: %w", taskID, err))
 	}
@@ -413,9 +414,29 @@ func (s *service) updateProgress(ctx context.Context, taskID uint64, progress Pr
 
 func (s *service) generateStorageKey(req TaskRequest) string {
 	urlHash := md5.Sum([]byte(req.SourceURL))
-	safeName := filepath.Base(req.SourceURL)
+	
+	var safeName string
+	if strings.HasPrefix(req.SourceURL, "data:") {
+		safeName = req.FileName
+	} else {
+		safeName = filepath.Base(req.SourceURL)
+		if safeName == "." || safeName == "/" {
+			safeName = req.FileName
+		}
+	}
+
+	if safeName == "" {
+		safeName = "download"
+	}
+
 	// Sanitize the name to avoid issues with file systems
 	safeName = strings.ReplaceAll(safeName, "/", "_")
+	safeName = strings.ReplaceAll(safeName, "\\", "_")
+	
+	if len(safeName) > 200 {
+		safeName = safeName[:200]
+	}
+
 	return fmt.Sprintf("%d/%s-%x", req.TaskID, safeName, urlHash[:8])
 }
 

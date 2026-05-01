@@ -1,182 +1,232 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
-	"net/url"
+	"net/http"
 	"os"
-	"strconv"
 	"strings"
 
+	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
+	"github.com/go-kit/log"
+
 	"github.com/yuisofull/goload/internal/download"
-	"github.com/yuisofull/goload/pkg/bittorrent"
 )
 
-// BitTorrentDownloader handles BitTorrent source metadata.
-//
-// It currently parses magnet links for metadata and registers a concrete
-// downloader for BITTORRENT source type. Full swarm download behavior can be
-// added later without changing service wiring.
+// BitTorrentDownloader handles BitTorrent source metadata and downloads using anacrolix/torrent.
 type BitTorrentDownloader struct {
-	client *bittorrent.Downloader
+	client  *torrent.Client
+	logger  log.Logger
+	dataDir string
 }
 
-func NewBitTorrentDownloader() *BitTorrentDownloader {
-	client, err := bittorrent.NewDownloader(bittorrent.Config{})
-	if err != nil {
-		// Construction is deterministic; panic keeps startup failure explicit.
-		panic(err)
+type BitTorrentDownloaderOption func(*BitTorrentDownloader)
+
+func WithBitTorrentLogger(logger log.Logger) BitTorrentDownloaderOption {
+	return func(b *BitTorrentDownloader) {
+		b.logger = logger
 	}
-	return &BitTorrentDownloader{client: client}
 }
 
-// SupportsResume returns false for now.
+func NewBitTorrentDownloader(opts ...BitTorrentDownloaderOption) (btDl *BitTorrentDownloader,closeFunc func()) {
+	b := &BitTorrentDownloader{
+		logger: log.NewNopLogger(),
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+
+	dataDir, err := os.MkdirTemp("", "goload-torrent-*")
+	if err != nil {
+		panic(fmt.Errorf("failed to create torrent data dir: %w", err))
+	}
+	b.dataDir = dataDir
+
+	cfg := torrent.NewDefaultClientConfig()
+	cfg.DataDir = dataDir
+
+	client, err := torrent.NewClient(cfg)
+	if err != nil {
+		panic(fmt.Errorf("failed to create torrent client: %w", err))
+	}
+	b.client = client
+
+	return b, func() {
+		b.Close()
+	}
+}
+
+func (b *BitTorrentDownloader) Close() {
+	if b.client != nil {
+		b.client.Close()
+	}
+	if b.dataDir != "" {
+		os.RemoveAll(b.dataDir)
+	}
+}
+
 func (b *BitTorrentDownloader) SupportsResume() bool { return false }
 
-// GetFileInfo extracts metadata from a magnet URI.
+func (b *BitTorrentDownloader) addTorrent(ctx context.Context, rawURL string) (*torrent.Torrent, error) {
+	if strings.HasPrefix(rawURL, "data:application/x-bittorrent;base64,") {
+		encoded := strings.TrimPrefix(rawURL, "data:application/x-bittorrent;base64,")
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decode base64 torrent: %w", err)
+		}
+
+		info, err := metainfo.Load(bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("load metainfo: %w", err)
+		}
+
+		t, err := b.client.AddTorrent(info)
+		if err != nil {
+			return nil, fmt.Errorf("add torrent to client: %w", err)
+		}
+		return t, nil
+	}
+
+	if strings.HasPrefix(rawURL, "magnet:") {
+		t, err := b.client.AddMagnet(rawURL)
+		if err != nil {
+			return nil, fmt.Errorf("add magnet: %w", err)
+		}
+		return t, nil
+	}
+
+	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create http request: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("fetch torrent file: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("fetch torrent file failed: %s", resp.Status)
+		}
+
+		info, err := metainfo.Load(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("load metainfo from http: %w", err)
+		}
+
+		t, err := b.client.AddTorrent(info)
+		if err != nil {
+			return nil, fmt.Errorf("add torrent from http: %w", err)
+		}
+		return t, nil
+	}
+
+	if strings.HasPrefix(rawURL, "file://") {
+		path := strings.TrimPrefix(rawURL, "file://")
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open torrent file: %w", err)
+		}
+		defer f.Close()
+
+		info, err := metainfo.Load(f)
+		if err != nil {
+			return nil, fmt.Errorf("load metainfo from file: %w", err)
+		}
+
+		t, err := b.client.AddTorrent(info)
+		if err != nil {
+			return nil, fmt.Errorf("add torrent from file: %w", err)
+		}
+		return t, nil
+	}
+
+	return nil, fmt.Errorf("unsupported torrent url format: %s", truncateURL(rawURL, 50))
+}
+
+func truncateURL(url string, maxLen int) string {
+	if len(url) <= maxLen {
+		return url
+	}
+	return url[:maxLen] + "..."
+}
+
 func (b *BitTorrentDownloader) GetFileInfo(
 	ctx context.Context,
 	rawURL string,
 	_ *download.AuthConfig,
 ) (*download.FileMetadata, error) {
-	parsedURL, err := url.Parse(rawURL)
+	t, err := b.addTorrent(ctx, rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse bittorrent url %q: %w", rawURL, err)
+		return nil, err
 	}
 
-	if strings.EqualFold(parsedURL.Scheme, "magnet") {
-		query := parsedURL.Query()
-		name := query.Get("dn")
-		size := parseMagnetLength(query.Get("xl"))
-
-		headers := map[string]string{}
-		if xt := query.Get("xt"); xt != "" {
-			headers["XT"] = xt
-		}
-
-		if name != "" || size > 0 {
-			return &download.FileMetadata{
-				FileName:    name,
-				FileSize:    size,
-				ContentType: "application/octet-stream",
-				Headers:     headers,
-			}, nil
-		}
-
-		torrentSource := bittorrent.ResolveTorrentSourceFromMagnet(parsedURL)
-		if torrentSource == "" {
-			return nil, fmt.Errorf("magnet link missing dn/xl metadata and xs/as torrent source")
-		}
-
-		tf, err := b.client.OpenTorrentFromSource(ctx, torrentSource)
-		if err != nil {
-			return nil, fmt.Errorf("open torrent metadata from magnet source: %w", err)
-		}
-		return &download.FileMetadata{
-			FileName:    tf.Name,
-			FileSize:    int64(tf.Length),
-			ContentType: "application/octet-stream",
-			Headers: map[string]string{
-				"Announce": tf.Announce,
-			},
-		}, nil
+	select {
+	case <-t.GotInfo():
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 
-	if !isTorrentScheme(parsedURL.Scheme) {
-		return nil, fmt.Errorf("unsupported bittorrent scheme %q", parsedURL.Scheme)
-	}
+	info := t.Info()
 
-	tf, err := b.client.OpenTorrentFromSource(ctx, rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("open torrent metadata: %w", err)
+	var name string
+	if info.Name != "" {
+		name = info.Name
+	} else {
+		name = t.Name()
 	}
 
 	return &download.FileMetadata{
-		FileName:    tf.Name,
-		FileSize:    int64(tf.Length),
+		FileName:    name,
+		FileSize:    info.TotalLength(),
 		ContentType: "application/octet-stream",
-		Headers: map[string]string{
-			"Announce": tf.Announce,
-		},
 	}, nil
 }
 
-// Download is intentionally explicit while full BitTorrent transfer support is
-// being added.
+type wrappedTorrentReader struct {
+	reader io.ReadCloser
+	t      *torrent.Torrent
+}
+
+func (w *wrappedTorrentReader) Read(p []byte) (n int, err error) {
+	return w.reader.Read(p)
+}
+
+func (w *wrappedTorrentReader) Close() error {
+	err := w.reader.Close()
+	w.t.Drop()
+	return err
+}
+
 func (b *BitTorrentDownloader) Download(
 	ctx context.Context,
 	rawURL string,
 	_ *download.AuthConfig,
 	_ download.DownloadOptions,
 ) (io.ReadCloser, int64, error) {
-	parsedURL, err := url.Parse(rawURL)
+	t, err := b.addTorrent(ctx, rawURL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("parse bittorrent url %q: %w", rawURL, err)
+		return nil, 0, err
 	}
 
-	if strings.EqualFold(parsedURL.Scheme, "magnet") {
-		torrentSource := bittorrent.ResolveTorrentSourceFromMagnet(parsedURL)
-		if torrentSource == "" {
-			return nil, 0, fmt.Errorf("magnet download requires xs/as torrent source")
-		}
-		rawURL = torrentSource
+	select {
+	case <-t.GotInfo():
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
 	}
 
-	parsedURL, err = url.Parse(rawURL)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parse bittorrent source url %q: %w", rawURL, err)
-	}
+	// Prioritize downloading all files
+	t.DownloadAll()
 
-	if !isTorrentScheme(parsedURL.Scheme) {
-		return nil, 0, fmt.Errorf("unsupported bittorrent scheme %q", parsedURL.Scheme)
-	}
+	reader := t.NewReader()
 
-	tf, err := b.client.OpenTorrentFromSource(ctx, rawURL)
-	if err != nil {
-		return nil, 0, fmt.Errorf("open torrent metadata: %w", err)
-	}
-
-	res, err := b.client.Download(ctx, tf)
-	if err != nil {
-		return nil, 0, fmt.Errorf("bittorrent download failed: %w", err)
-	}
-
-	return &tempFileReader{
-		file: res.File,
-		path: res.Path,
-	}, res.Size, nil
-}
-
-func isTorrentScheme(scheme string) bool {
-	return strings.EqualFold(scheme, "http") || strings.EqualFold(scheme, "https") || strings.EqualFold(scheme, "data") || scheme == ""
-}
-
-type tempFileReader struct {
-	file *os.File
-	path string
-}
-
-func (r *tempFileReader) Read(p []byte) (int, error) {
-	return r.file.Read(p)
-}
-
-func (r *tempFileReader) Close() error {
-	closeErr := r.file.Close()
-	removeErr := os.Remove(r.path)
-	if closeErr != nil {
-		return closeErr
-	}
-	return removeErr
-}
-
-func parseMagnetLength(raw string) int64 {
-	if raw == "" {
-		return 0
-	}
-	n, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || n < 0 {
-		return 0
-	}
-	return n
+	return &wrappedTorrentReader{
+		reader: reader,
+		t:      t,
+	}, t.Info().TotalLength(), nil
 }

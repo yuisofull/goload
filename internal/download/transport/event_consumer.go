@@ -14,9 +14,9 @@ import (
 
 // EventConsumer handles incoming events for the download service.
 type EventConsumer struct {
-	service    download.Service
-	subscriber message.Subscriber
-	logger     log.Logger
+	service     download.Service
+	subscriber  message.Subscriber
+	logger      log.Logger
 }
 
 // NewEventConsumer creates a new event consumer for the download service.
@@ -78,9 +78,10 @@ func (ec *EventConsumer) processTaskCreatedEvents(ctx context.Context, ch <-chan
 			continue
 		}
 
-		// Map event to internal TaskRequest and execute the task in a separate goroutine
+		// Map event to internal TaskRequest and execute in a separate goroutine.
 		go func(event events.TaskCreatedEvent) {
 			var req download.TaskRequest
+
 			if event.SourceAuth != nil {
 				req.SourceAuth = &download.AuthConfig{
 					Type:     event.SourceAuth.Type,
@@ -95,6 +96,7 @@ func (ec *EventConsumer) processTaskCreatedEvents(ctx context.Context, ch <-chan
 					MaxRetries:  event.DownloadOptions.MaxRetries,
 				}
 			}
+
 			req.TaskID = event.TaskID
 			req.OfAccountID = event.OfAccountID
 			req.FileName = event.FileName
@@ -103,6 +105,13 @@ func (ec *EventConsumer) processTaskCreatedEvents(ctx context.Context, ch <-chan
 			req.Metadata = event.Metadata
 			req.Checksum = nil
 			req.CreatedAt = event.CreatedAt
+
+			level.Debug(ec.logger).Log(
+				"msg", "executing task",
+				"task_id", req.TaskID,
+				"source_type", req.SourceType,
+				"source_url_len", len(req.SourceURL),
+			)
 
 			if err := ec.service.ExecuteTask(ctx, req); err != nil {
 				level.Error(ec.logger).Log("msg", "failed to execute task", "task_id", event.TaskID, "err", err)
