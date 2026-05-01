@@ -29,7 +29,6 @@ PROJECT_ROOT="$(pwd)"
 print_info "Creating pb directories..."
 mkdir -p internal/auth/pb
 mkdir -p internal/task/pb
-mkdir -p internal/file/pb
 mkdir -p internal/download/pb
 
 
