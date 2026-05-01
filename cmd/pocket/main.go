@@ -256,14 +256,14 @@ func revealInFileManager(ctx context.Context, path string, logger log.Logger) er
 	case "darwin":
 		cmd = exec.CommandContext(ctx, "open", "-R", path)
 	case "windows":
-		cmd = exec.CommandContext(ctx, "explorer.exe", "/select,"+path)
+		cmd = exec.CommandContext(ctx, "explorer.exe", "/select,",path)
 	default:
 		if isWSL() {
 			windowsPath, err := wslWindowsPath(ctx, path)
 			if err != nil {
 				return err
 			}
-			cmd = exec.CommandContext(ctx, "explorer.exe", "/select,"+windowsPath)
+			cmd = exec.CommandContext(ctx, "explorer.exe", "/select,",windowsPath)
 			break
 		}
 
