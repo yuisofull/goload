@@ -145,6 +145,21 @@ bash deployments/run-migrations.sh
 
 Pocket is built as a single local app. It serves the API and the compiled frontend from one process.
 
+You can run Pocket in two ways:
+
+**Option 1: Build from source (recommended for development)**
+
+```bash
+docker build -t goload-pocket-builder -f Dockerfile.pocketbuilder .
+docker run --rm -v ./:/out goload-pocket-builder
+```
+
+This builds the backend and frontend, creates a `pocket-release.zip` file in the current directory. Extract it to get the compiled binaries for Linux and Windows.
+
+**Option 2: Download pre-built binaries**
+
+Download the latest pre-built `pocket-release.zip` from the [Release](https://github.com/yuisofull/goload/releases) section. Extract it and run the binary directly.
+
 Common environment variables:
 
 | Variable | Default | Purpose |
