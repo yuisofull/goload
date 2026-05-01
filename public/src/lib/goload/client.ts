@@ -30,6 +30,9 @@ export const setStoredAccount = (account: unknown) => {
 const baseURL =
   (import.meta.env.VITE_GOLOAD_API_URL as string | undefined) ?? "";
 
+export const isPocketMode =
+  (import.meta.env.VITE_GOLOAD_POCKET as string | undefined) === "true";
+
 export const api: AxiosInstance = axios.create({
   baseURL,
   // Keep the timeout generous; download tasks may be slow to register.
@@ -125,4 +128,20 @@ export const generateDownloadUrl = (body: GenerateDownloadURLRequest) =>
     .post<GenerateDownloadURLResponse>("/api/v1/tasks/download-url", body)
     .then((r) => r.data);
 
+export const revealTaskInFolder = (id: number) =>
+  api
+    .post<{ path: string }>("/api/v1/pocket/tasks/reveal", null, { params: { id } })
+    .then((r) => r.data);
+
 export const apiBaseUrl = baseURL;
+
+export const toAbsoluteApiUrl = (url: string): string => {
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(url)) return url;
+
+  const base =
+    baseURL && /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(baseURL)
+      ? baseURL
+      : window.location.origin;
+
+  return `${base.replace(/\/$/, "")}/${url.replace(/^\/+/, "")}`;
+};

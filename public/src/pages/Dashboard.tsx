@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -34,10 +35,13 @@ import {
   extractError,
   generateDownloadUrl,
   getTaskProgress,
+  isPocketMode,
   listTasks,
   pauseTask,
+  revealTaskInFolder,
   resumeTask,
   retryTask,
+  toAbsoluteApiUrl,
 } from "@/lib/goload/client";
 import type { Task } from "@/lib/goload/types";
 import {
@@ -237,21 +241,9 @@ const Dashboard = () => {
         ttl_seconds: 3600,
         one_time: false,
       });
-      const isAbsoluteUrl = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(res.url);
-
-      const fullUrl = isAbsoluteUrl
-        ? res.url
-        : `${apiBaseUrl.replace(/\/$/, "")}/${res.url.replace(/^\/+/, "")}`;
+      const fullUrl = toAbsoluteApiUrl(res.url);
       await navigator.clipboard.writeText(fullUrl);
-
-      const isFile = fullUrl.startsWith("file://");
-
-      if (isFile) {
-        // This will usually fail in browsers
-        window.open(fullUrl);
-      } else {
-        window.open(fullUrl);
-      }
+      window.open(fullUrl, "_blank", "noopener");
       toast.success("Download link copied", {
         description: "Link is valid for 1 hour.",
       });
@@ -268,9 +260,7 @@ const Dashboard = () => {
         ttl_seconds: 3600,
         one_time: false,
       });
-      const fullUrl = res.url.startsWith("http")
-        ? res.url
-        : `${apiBaseUrl.replace(/\/$/, "")}${res.url}`;
+      const fullUrl = toAbsoluteApiUrl(res.url);
       // Try to initiate a download; fallback to opening in a new tab.
       const a = document.createElement("a");
       a.href = fullUrl;
@@ -282,6 +272,16 @@ const Dashboard = () => {
       toast.success("Download started", { description: task.file_name });
     } catch (err) {
       toast.error("Could not start download", { description: extractError(err) });
+    }
+  };
+
+  const handleReveal = async (task: Task) => {
+    setOpenMenuId(null);
+    try {
+      const res = await revealTaskInFolder(task.id);
+      toast.success("Opened file location", { description: res.path });
+    } catch (err) {
+      toast.error("Could not open file location", { description: extractError(err) });
     }
   };
 
@@ -481,7 +481,7 @@ const Dashboard = () => {
         </div>
 
         {/* Tasks list */}
-        <div className="bg-card rounded-[24px] shadow-soft border border-border/40 overflow-hidden">
+        <div className="bg-card rounded-[24px] shadow-soft border border-border/40 overflow-visible">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-5 border-b border-border/40">
             <div className="flex items-center gap-3">
               <h2 className="font-display font-semibold text-base">Downloads</h2>
@@ -555,6 +555,8 @@ const Dashboard = () => {
                   onDelete={() => withAction("Delete", () => deleteTask(task.id), "Deleted")}
                   onGetLink={() => handleGetLink(task)}
                   onDownload={() => handleDownload(task)}
+                  onReveal={() => handleReveal(task)}
+                  pocketMode={isPocketMode}
                 />
               ))}
             </ul>
@@ -610,6 +612,8 @@ interface TaskRowProps {
   onDelete: () => void;
   onGetLink: () => void;
   onDownload: () => void;
+  onReveal: () => void;
+  pocketMode: boolean;
 }
 
 const TaskRow = ({
@@ -624,6 +628,8 @@ const TaskRow = ({
   onDelete,
   onGetLink,
   onDownload,
+  onReveal,
+  pocketMode,
 }: TaskRowProps) => {
   const tone = statusTone(task.status);
   const isActive = isActiveStatus(task.status);
@@ -709,11 +715,11 @@ const TaskRow = ({
         <div className="flex items-center gap-1 shrink-0">
           {isCompleted && (
             <button
-              onClick={onDownload}
+              onClick={pocketMode ? onReveal : onDownload}
               className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-gradient-primary text-primary-foreground text-xs font-medium shadow-glow hover:shadow-elevated transition-all"
             >
-              <Download className="size-3.5" />
-              <span className="hidden sm:inline">Download</span>
+              {pocketMode ? <FolderOpen className="size-3.5" /> : <Download className="size-3.5" />}
+              <span className="hidden sm:inline">{pocketMode ? "Show" : "Download"}</span>
             </button>
           )}
           {isActive && !isPaused && (
@@ -756,7 +762,13 @@ const TaskRow = ({
                 <div className="fixed inset-0 z-40" onClick={onCloseMenu} />
                 <div className="absolute right-0 top-10 z-50 w-48 bg-card rounded-2xl shadow-elevated border border-border/40 p-1.5 animate-in fade-in zoom-in-95 duration-150">
                   {isCompleted && (
-                    <MenuItem icon={<Copy className="size-3.5" />} label="Copy link" onClick={onGetLink} />
+                    <>
+                      {pocketMode && (
+                        <MenuItem icon={<FolderOpen className="size-3.5" />} label="Show in folder" onClick={onReveal} />
+                      )}
+                      <MenuItem icon={<Download className="size-3.5" />} label={pocketMode ? "Download copy" : "Download"} onClick={onDownload} />
+                      <MenuItem icon={<Copy className="size-3.5" />} label="Copy link" onClick={onGetLink} />
+                    </>
                   )}
                   {isActive && !isPaused && (
                     <MenuItem icon={<Pause className="size-3.5" />} label="Pause" onClick={onPause} />
