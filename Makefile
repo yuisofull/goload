@@ -5,10 +5,14 @@
 all: build
 
 generate:
-	@bash scripts/generate.sh
+	bash scripts/generate.sh
 
 build:
 	@go build ./...
+
+build-web:
+	@docker build --build-arg VITE_GOLOAD_API_URL=http://localhost:8080 -t goload-frontend-builder -f public/Dockerfile.builder ./public
+	@docker run --rm -v ./public/dist:/app/dist goload-frontend-builder
 compose-up:
 	docker compose -f deployments/docker-compose.yaml up -d
 compose-build-up:
