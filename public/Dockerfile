@@ -12,10 +12,11 @@ RUN bun install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Build the application
+ARG VITE_GOLOAD_API_URL
+ENV VITE_GOLOAD_API_URL=$VITE_GOLOAD_API_URL
+
 RUN bun run build
 
-# Production stage
 FROM nginx:alpine
 
 # Copy built assets from builder stage

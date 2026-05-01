@@ -101,7 +101,7 @@ const Dashboard = () => {
   useEffect(() => {
     if (!isAuthenticated) return;
     refresh(true);
-    pollRef.current = window.setInterval(() => refresh(false), 5000);
+    pollRef.current = window.setInterval(() => refresh(false), 10000);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
@@ -134,7 +134,7 @@ const Dashboard = () => {
           };
         })
       );
-    }, 2000);
+    }, 3000);
     return () => window.clearInterval(id);
   }, [isAuthenticated, tasks]);
 
@@ -268,8 +268,6 @@ const Dashboard = () => {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      // Opening a new tab as a fallback/extra action so the user can save if needed.
-      window.open(fullUrl, "_blank", "noopener");
       toast.success("Download started", { description: task.file_name });
     } catch (err) {
       toast.error("Could not start download", { description: extractError(err) });
@@ -367,11 +365,10 @@ const Dashboard = () => {
             >
               <div className="flex items-center gap-2">
                 <div
-                  className={`grid place-items-center size-12 rounded-xl shrink-0 transition-colors ${
-                    detectedBT || torrentFile
-                      ? "bg-primary-soft text-primary"
-                      : "bg-secondary text-primary"
-                  }`}
+                  className={`grid place-items-center size-12 rounded-xl shrink-0 transition-colors ${detectedBT || torrentFile
+                    ? "bg-primary-soft text-primary"
+                    : "bg-secondary text-primary"
+                    }`}
                 >
                   {detectedBT || torrentFile ? (
                     <Magnet className="size-5" />
@@ -623,30 +620,38 @@ const TaskRow = ({
   const isCompleted = /complete|ready|done/i.test(task.status);
   const isFailed = /fail|error/i.test(task.status);
   const isCancelled = /cancel/i.test(task.status);
-  const progress = Math.max(
-    0,
-    Math.min(100, Math.round(((task.progress ?? 0) as number) * (task.progress && task.progress <= 1 ? 100 : 1)))
-  );
-  // ^ Server may return 0..1 or 0..100. Normalize either.
+  const bytesProgress =
+    task.total_bytes && task.total_bytes > 0
+      ? Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(((task.downloaded_bytes ?? 0) / task.total_bytes) * 100)
+        )
+      )
+      : null;
 
-  const displayProgress = task.progress == null
-    ? (isCompleted ? 100 : 0)
-    : task.progress <= 1 ? Math.round(task.progress * 100) : Math.round(task.progress);
+  const displayProgress =
+    bytesProgress ??
+    (task.progress == null
+      ? (isCompleted ? 100 : 0)
+      : task.progress <= 1
+        ? Math.round(task.progress * 100)
+        : Math.round(task.progress));
 
   const isTorrent = /bittorrent|torrent/i.test(task.source_type);
 
   return (
     <li className="px-6 py-5 hover:bg-secondary/30 transition-colors group">
       <div className="flex items-center gap-4">
-        <div className={`grid place-items-center size-12 rounded-xl shrink-0 ${
-          isCompleted ? "bg-success-soft text-success"
+        <div className={`grid place-items-center size-12 rounded-xl shrink-0 ${isCompleted ? "bg-success-soft text-success"
           : isTorrent ? "bg-primary-soft text-primary"
-          : "bg-secondary text-muted-foreground"
-        }`}>
+            : "bg-secondary text-muted-foreground"
+          }`}>
           {isCompleted
             ? <CheckCircle2 className="size-5" />
             : isTorrent ? <Magnet className="size-5" />
-            : <FileText className="size-5" />}
+              : <FileText className="size-5" />}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -662,11 +667,10 @@ const TaskRow = ({
           <div className="flex items-center gap-3">
             <div className="flex-1 h-2 rounded-full bg-secondary overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  isCompleted ? "bg-success"
+                className={`h-full rounded-full transition-all duration-500 ${isCompleted ? "bg-success"
                   : isFailed || isCancelled ? "bg-destructive"
-                  : "bg-gradient-primary"
-                }`}
+                    : "bg-gradient-primary"
+                  }`}
                 style={{ width: `${displayProgress}%` }}
               />
             </div>
@@ -785,11 +789,10 @@ const MenuItem = ({
 }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-colors ${
-      destructive
-        ? "text-destructive hover:bg-destructive/10"
-        : "text-foreground hover:bg-secondary"
-    }`}
+    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-colors ${destructive
+      ? "text-destructive hover:bg-destructive/10"
+      : "text-foreground hover:bg-secondary"
+      }`}
   >
     <span className="text-muted-foreground">{icon}</span>
     {label}

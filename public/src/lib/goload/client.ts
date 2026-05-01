@@ -28,8 +28,7 @@ export const setStoredAccount = (account: unknown) => {
 };
 
 const baseURL =
-  (import.meta.env.VITE_GOLOAD_API_URL as string | undefined) ??
-  "http://localhost:8080";
+  (import.meta.env.VITE_GOLOAD_API_URL as string | undefined) ?? "";
 
 export const api: AxiosInstance = axios.create({
   baseURL,

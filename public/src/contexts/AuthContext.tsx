@@ -32,6 +32,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(() => getStoredToken());
   const [account, setAccount] = useState<AuthAccount | null>(() => getStoredAccount());
+  const [autoSignInAttempted, setAutoSignInAttempted] = useState(false);
 
   const signOut = useCallback(() => {
     setStoredToken(null);
@@ -44,6 +45,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUnauthorizedHandler(() => signOut());
     return () => setUnauthorizedHandler(null);
   }, [signOut]);
+
+  // Auto sign-in with default pocket account on first load
+  useEffect(() => {
+    if (!autoSignInAttempted && !token) {
+      setAutoSignInAttempted(true);
+      apiCreateSession("pocket", "")
+        .then((res) => {
+          setStoredToken(res.token);
+          setStoredAccount(res.account);
+          setToken(res.token);
+          setAccount(res.account);
+        })
+        .catch(() => {
+          // If auto sign-in fails, just continue without logging in
+          // User can manually sign in later
+        });
+    }
+  }, [autoSignInAttempted, token]);
 
   const signIn = useCallback(async (account_name: string, password: string) => {
     try {
