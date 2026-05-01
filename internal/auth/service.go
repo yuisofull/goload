@@ -137,7 +137,7 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 func (s *service) CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error) {
 	account, err := s.accountStore.GetAccountByAccountName(ctx, params.AccountName)
 	if (err != nil && stderrors.Is(err, errors.ErrNotFound)) || account == nil {
-		return CreateSessionOutput{}, &errors.Error{Code: errors.ErrCodeNotFound, Message: "account not found", Cause: err}
+		return CreateSessionOutput{}, &errors.Error{Code: errors.ErrCodeNotFound, Message: "account not found"}
 	}
 
 	accountPassword, err := s.accountPasswordStore.GetAccountPassword(ctx, account.Id)

@@ -61,7 +61,8 @@ func encodeError(_ context.Context, err error) error {
 		case auth.ErrCodeInvalidToken:
 			return status.Error(codes.Unauthenticated, svcErr.Message)
 		default:
-			return status.Error(codes.Internal, svcErr.Message)
+			// Delegate standard error codes (e.g. NOT_FOUND) to shared mapper.
+			return internalerrors.EncodeGRPCError(svcErr)
 		}
 	}
 

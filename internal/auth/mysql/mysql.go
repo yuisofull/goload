@@ -3,7 +3,6 @@ package authmysql
 import (
 	"database/sql"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/yuisofull/goload/internal/auth"
 )
 
