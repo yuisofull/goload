@@ -237,10 +237,21 @@ const Dashboard = () => {
         ttl_seconds: 3600,
         one_time: false,
       });
-      const fullUrl = res.url.startsWith("http")
+      const isAbsoluteUrl = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(res.url);
+
+      const fullUrl = isAbsoluteUrl
         ? res.url
-        : `${apiBaseUrl.replace(/\/$/, "")}${res.url}`;
+        : `${apiBaseUrl.replace(/\/$/, "")}/${res.url.replace(/^\/+/, "")}`;
       await navigator.clipboard.writeText(fullUrl);
+
+      const isFile = fullUrl.startsWith("file://");
+
+      if (isFile) {
+        // This will usually fail in browsers
+        window.open(fullUrl);
+      } else {
+        window.open(fullUrl);
+      }
       toast.success("Download link copied", {
         description: "Link is valid for 1 hour.",
       });
