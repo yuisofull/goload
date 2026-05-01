@@ -212,6 +212,7 @@ func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
 				if s, ok := raw.(string); ok && s != "" {
 					param.SourceURL = fmt.Sprintf("data:application/x-bittorrent;base64,%s", s)
 				}
+				delete(metadata, "torrent_file_base64")
 			}
 		}
 		if req.ChecksumType != nil || req.ChecksumValue != nil {

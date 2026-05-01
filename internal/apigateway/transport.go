@@ -74,7 +74,7 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 
 	// --- /docs ----------------------------------------------------------
 	sub, _ := fs.Sub(docs.FS, ".")
-	r.PathPrefix("/docs/").Handler(http.StripPrefix("/docs/", http.FileServer(http.FS(sub))))
+	r.PathPrefix("/docs").Handler(http.StripPrefix("/docs/", http.FileServer(http.FS(sub))))
 
 	// --- /api/v1/tasks --------------------------------------------------
 	tasks := r.PathPrefix("/api/v1/tasks").Subrouter()
@@ -460,8 +460,10 @@ func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 	var statusCode int
+	errMsg := err.Error()
 
 	if grpcStatus, ok := status.FromError(err); ok {
+		errMsg = grpcStatus.Message()
 		switch grpcStatus.Code() {
 		case codes.NotFound:
 			statusCode = http.StatusNotFound
@@ -499,8 +501,11 @@ func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 	if statusCode == 0 {
 		statusCode = http.StatusInternalServerError
 	}
+	if statusCode >= 500 {
+		errMsg = "internal server error"
+	}
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": err.Error(),
+		"error": errMsg,
 	})
 }

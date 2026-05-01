@@ -42,6 +42,18 @@ func NewAuthMiddleware(tokenValidator auth.SessionValidator) endpoint.Middleware
 	}
 }
 
+// NewNoAuthMiddleware returns a middleware that injects a fixed account ID into
+// the request context. Useful for pocket/single-user mode where authentication
+// is not required.
+func NewNoAuthMiddleware(accountID uint64) endpoint.Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (interface{}, error) {
+			ctx = context.WithValue(ctx, accountIDKey, accountID)
+			return next(ctx, request)
+		}
+	}
+}
+
 func UserIDFromContext(ctx context.Context) (uint64, bool) {
 	userID, ok := ctx.Value(accountIDKey).(uint64)
 	return userID, ok
