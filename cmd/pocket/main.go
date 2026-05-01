@@ -146,13 +146,14 @@ func main() {
 	handler := apigateway.NewHTTPHandlerWithDownload(endpoints, logger, storageBackend, tokenStore)
 	if cfg.PocketWebDir != "" {
 		handler.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			path := filepath.Join(cfg.PocketWebDir, r.URL.Path)
-			_, err := os.Stat(path)
-			if os.IsNotExist(err) || r.URL.Path == "/" {
-				http.ServeFile(w, r, filepath.Join(cfg.PocketWebDir, "index.html"))
-				return
+			if r.URL.Path != "/" {
+				assetPath := filepath.Join(cfg.PocketWebDir, r.URL.Path)
+				if _, err := os.Stat(assetPath); err == nil {
+					http.FileServer(http.Dir(cfg.PocketWebDir)).ServeHTTP(w, r)
+					return
+				}
 			}
-			http.FileServer(http.Dir(cfg.PocketWebDir)).ServeHTTP(w, r)
+			http.ServeFile(w, r, filepath.Join(cfg.PocketWebDir, "index.html"))
 		}))
 	}
 
