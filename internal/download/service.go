@@ -414,7 +414,7 @@ func (s *service) updateProgress(ctx context.Context, taskID uint64, progress Pr
 
 func (s *service) generateStorageKey(req TaskRequest) string {
 	urlHash := md5.Sum([]byte(req.SourceURL))
-	
+
 	var safeName string
 	if strings.HasPrefix(req.SourceURL, "data:") {
 		safeName = req.FileName
@@ -429,15 +429,25 @@ func (s *service) generateStorageKey(req TaskRequest) string {
 		safeName = "download"
 	}
 
-	// Sanitize the name to avoid issues with file systems
+	// Sanitize
 	safeName = strings.ReplaceAll(safeName, "/", "_")
 	safeName = strings.ReplaceAll(safeName, "\\", "_")
-	
+
 	if len(safeName) > 200 {
 		safeName = safeName[:200]
 	}
 
-	return fmt.Sprintf("%d/%s-%x", req.TaskID, safeName, urlHash[:8])
+	ext := filepath.Ext(safeName)
+	name := strings.TrimSuffix(safeName, ext)
+
+	// fallback if name becomes empty (e.g. ".env")
+	if name == "" {
+		name = "file"
+	}
+
+	finalName := fmt.Sprintf("%s-%x%s", name, urlHash[:8], ext)
+
+	return fmt.Sprintf("%d/%s", req.TaskID, finalName)
 }
 
 // PausableProgressReader wraps a reader to support pause/resume and progress tracking.
