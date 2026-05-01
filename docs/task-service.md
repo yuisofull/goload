@@ -1,6 +1,8 @@
 # Task Service
 
-The Task Service is the central state-management service for file-download tasks. It persists task records in MySQL, publishes lifecycle events to Kafka, consumes completion/progress events back from the Download Service, and exposes a **gRPC** API to the API Gateway.
+The Task Service is the central state-management service for file-download tasks. In microservice mode it persists task records in MySQL, publishes lifecycle events to Kafka, consumes completion/progress events back from the Download Service, and exposes a **gRPC** API to the API Gateway.
+
+Pocket edition uses the same domain service with SQLite repositories and an in-memory event bus inside `cmd/pocket`.
 
 ---
 
@@ -34,10 +36,10 @@ cmd/task/main.go
 | Layer | Package | Role |
 |-------|---------|------|
 | Domain | `internal/task` | `Service` interface, `Task` struct, status/source-type constants, error codes |
-| Persistence | `internal/task/mysql` | `Repository`, `TxManager` backed by MySQL via `sqlc` |
+| Persistence | `internal/task/mysql`, `internal/task/sqlite` | `Repository`, `TxManager` backed by MySQL or SQLite |
 | Messaging (publish) | `internal/task/event_publisher.go` | Wraps `message.Publisher` to emit task lifecycle events |
 | Messaging (consume) | `internal/task/transport/event_consumer.go` | Subscribes to download-service events and calls `Service` update methods |
-| Token Store | `internal/task/tokenstore.go` | HMAC-signed tokens stored in Redis for one-time download URLs |
+| Token Store | `internal/task/tokenstore.go` | Redis-backed tokens for download URLs |
 | Endpoint | `internal/task/endpoint` | go-kit endpoint set, per-endpoint rate limiting |
 | Transport | `internal/task/transport/grpc.go` | gRPC server + client; maps protobuf ↔ endpoint types |
 
@@ -88,7 +90,7 @@ DOWNLOADING
   │  (progress updates via Kafka)
   ▼
 STORING
-  │  (file is being written to MinIO)
+  │  (file is being written to storage)
   ▼
 COMPLETED
 ```
@@ -149,8 +151,12 @@ type Task struct {
 
 `GenerateDownloadURL(ctx, taskID, ttl, oneTime)` returns a URL in one of two modes:
 
-1. **Presigned** (direct=true): if the storage backend implements `storage.Presigner` and `oneTime=false`, returns a MinIO presigned GET URL.
-2. **Token-based** (direct=false): generates a UUID token → HMAC-signs it → stores `TokenMetadata` in Redis with TTL → returns `/download?token=<uuid>`. The API Gateway handles the `/download` route.
+1. **Presigned** (`direct=true`): if the storage backend implements `storage.Presigner` and `oneTime=false`, returns a direct storage URL. In microservice mode this is normally a MinIO presigned GET URL.
+2. **Token-based** (`direct=false`): generates a UUID token, stores `TokenMetadata` in the configured token store with TTL, and returns `/download?token=<uuid>`. The API Gateway or pocket server handles the `/download` route.
+
+Pocket intentionally disables local filesystem presigning for completed downloads. Local presigns are `file://` URLs, and browsers do not allow web apps to open them reliably. Pocket uses `/download?token=...` for explicit browser downloads and `/api/v1/pocket/tasks/reveal` for opening the stored file location without making a second copy.
+
+Reusable links are supported when `oneTime=false`; one-time links are deleted after first use.
 
 ---
 
@@ -158,7 +164,7 @@ type Task struct {
 
 | Store | Technology | Key | TTL | Purpose |
 |-------|-----------|-----|-----|---------|
-| Token store | Redis (HMAC key) | `HMAC256(token)` | configurable | One-time download tokens |
+| Token store | Redis (HMAC key) or in-memory | `HMAC256(token)` in Redis, raw UUID in pocket memory | configurable | Download tokens |
 
 ---
 
@@ -214,7 +220,7 @@ Startup sequence:
 8. Start gRPC server.
 9. Wait for `SIGINT`/`SIGTERM`.
 
-> **Note:** The Kafka event consumer (`EventConsumer`) is wired in `cmd/task/main.go` but the `Start` call must be added to the `run.Group` if consuming events inside the Task Service process. Currently, the Task Service acts purely as a gRPC server; events from Download Service are pushed via gRPC calls in the current setup.
+In pocket edition, the task event consumer is started in `cmd/pocket/main.go` and receives download-service events through the in-memory broker.
 
 ---
 

@@ -308,6 +308,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/pocket/tasks/reveal:
+    post:
+      summary: Reveal a stored pocket file in the OS file manager
+      description: |
+        Pocket-only endpoint. Opens the already-downloaded local file in the OS
+        file manager and returns the resolved path. This avoids creating a
+        second browser download copy.
+      operationId: revealPocketTask
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        '200':
+          description: File location opened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PocketRevealResponse'
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/auth/create:
     post:
       summary: Create an account
@@ -466,6 +494,11 @@ components:
         - file_name
         - source_url
         - source_type
+      description: |
+        Create a download task. Supported source types include HTTP, HTTPS, FTP,
+        and BITTORRENT. For BITTORRENT, source_url can be a magnet URI or a
+        .torrent URL. Uploaded .torrent bytes can be sent in
+        metadata.torrent_file_base64 with source_url set to uploaded://torrent.
       properties:
         file_name:
           type: string
@@ -473,6 +506,11 @@ components:
           type: string
         source_type:
           type: string
+          enum:
+            - HTTP
+            - HTTPS
+            - FTP
+            - BITTORRENT
         checksum_type:
           type: string
         checksum_value:
@@ -480,6 +518,10 @@ components:
         metadata:
           type: object
           additionalProperties: {}
+          properties:
+            torrent_file_base64:
+              type: string
+              description: Base64-encoded .torrent bytes for BITTORRENT upload mode.
     CreateTaskResponse:
       type: object
       properties:
@@ -534,6 +576,12 @@ components:
           type: string
         direct:
           type: boolean
+    PocketRevealResponse:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Absolute path resolved by the pocket server.
     CreateAccountGatewayRequest:
       type: object
       required:

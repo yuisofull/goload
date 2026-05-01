@@ -1,6 +1,8 @@
 # Download Service
 
-The Download Service is a **worker** process. It listens for task lifecycle events from Kafka, physically downloads files from the configured source, streams them to the storage backend (MinIO), and publishes progress/completion/failure events back to Kafka so the Task Service can update its state.
+The Download Service is a **worker** process. It listens for task lifecycle events, physically downloads files from the configured source, streams them to the storage backend, and publishes progress/completion/failure events so the Task Service can update its state.
+
+In microservice mode the event bus is Kafka and the storage backend is MinIO. In pocket mode the same download domain service runs inside `cmd/pocket`, using an in-memory event bus and local filesystem storage.
 
 ---
 
@@ -8,7 +10,7 @@ The Download Service is a **worker** process. It listens for task lifecycle even
 
 - Execute file downloads triggered by `TaskCreated` events
 - Support pause, resume, and cancel of in-flight downloads
-- Write downloaded files to the configured storage backend (MinIO)
+- Write downloaded files to the configured storage backend
 - Compute MD5 checksum of the downloaded content
 - Publish status, progress, completion, and failure events to Kafka
 - Support concurrent task execution with a configurable concurrency limit
@@ -33,10 +35,10 @@ cmd/download/main.go
 | Layer | Package | Role |
 |-------|---------|------|
 | Domain | `internal/download` | `Service` interface, `Downloader` interface, internal data types |
-| Downloader | `internal/download/downloader/http.go` | HTTP/HTTPS file downloader |
+| Downloader | `internal/download/downloader` | HTTP/HTTPS, FTP, and BitTorrent downloaders |
 | Event publish | `internal/download/event_publisher.go` | Wraps `message.Publisher` to emit download events |
 | Event consume | `internal/download/transport/event_consumer.go` | Subscribes to task events and dispatches to `Service` |
-| Storage | `internal/storage` | `Backend` interface (MinIO implementation) |
+| Storage | `internal/storage` | `Backend` interface (MinIO and local filesystem implementations) |
 
 ---
 
@@ -72,7 +74,7 @@ EventConsumer.processTaskCreatedEvents
         7. Wrap reader in PausableProgressReader
            (publishes TaskProgressUpdated events periodically)
         8. Compute MD5 hash while streaming
-        9. storage.Store(key, reader, metadata) → MinIO upload
+        9. storage.Store(key, reader, metadata) → backend write
        10. Publish TaskCompleted (with StorageKey, checksum, size)
        11. On error: Publish TaskFailed
         └── Release semaphore slot
@@ -136,7 +138,11 @@ type Downloader interface {
 }
 ```
 
-Currently implemented: **HTTP/HTTPS** (`internal/download/downloader/http.go`).
+Currently implemented:
+
+- **HTTP/HTTPS** (`internal/download/downloader/http.go`)
+- **FTP** (`internal/download/downloader/ftp.go`)
+- **BitTorrent** (`internal/download/downloader/bittorrent.go`) for magnet links, `.torrent` URLs, and uploaded `.torrent` bytes
 
 To add a new protocol (e.g. FTP, BitTorrent), implement this interface and register it with `service.RegisterDownloader("FTP", myDownloader)`.
 
@@ -144,13 +150,21 @@ To add a new protocol (e.g. FTP, BitTorrent), implement this interface and regis
 
 ## Storage Backend
 
-The service uses `storage.Backend` (write + read). On startup, a MinIO backend is required. The storage key format is:
+The service uses `storage.Backend` (write + read). Microservice mode normally uses MinIO; pocket mode uses the local filesystem. The storage key format is:
 
 ```
-{OfAccountID}/{TaskID}/{FileName}
+{TaskID}/{safeFileName}-{sourceHash}{ext}
 ```
 
-The backend stores the file and returns it for streaming via `storage.Reader.Get`.
+The filename is chosen from downloader metadata first, then task filename, then URL path. This preserves extensions for opaque or signed source URLs when metadata contains the real filename.
+
+Example:
+
+```
+1/design_rationale_example_1-9e04fb677787202d.pdf
+```
+
+The backend stores the file and returns it for streaming via `storage.Reader.Get`. Local storage also writes a sidecar `.meta.json` file with the resolved filename, size, content type, storage key, and timestamps.
 
 ---
 
@@ -183,7 +197,7 @@ messaging:
 
 Startup sequence:
 1. Load config.
-2. Initialise MinIO backend (required — exits on failure).
+2. Initialise MinIO backend (required in microservice mode — exits on failure).
 3. Create Kafka publisher and subscriber (required — exits on failure).
 4. Create `DownloadEventPublisher`.
 5. Create `download.Service`.

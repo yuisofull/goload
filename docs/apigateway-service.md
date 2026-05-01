@@ -10,7 +10,7 @@ The API Gateway is the single public-facing entry point for the system. It expos
 - Authenticate requests: validate JWT Bearer tokens by calling the Auth Service
 - Enforce ownership: verify that the authenticated user owns the requested task
 - Forward task operations to the Task Service over gRPC
-- Serve file downloads using Redis-backed one-time tokens and MinIO object storage
+- Serve file downloads using token-backed URLs and the configured storage backend
 
 ---
 
@@ -52,22 +52,29 @@ Base path: `/api/v1`
 
 | Method | Path | Query / Body | Description |
 |--------|------|-------------|-------------|
-| `POST` | `/api/v1/download-tasks/create` | body JSON | Create a new download task |
-| `GET` | `/api/v1/download-tasks/get` | `?id=<taskId>` | Get a task by ID |
-| `GET` | `/api/v1/download-tasks/list` | `?offset=&limit=` | List tasks for the authenticated user |
-| `POST` | `/api/v1/download-tasks/delete` | `?id=<taskId>` | Delete a task |
-| `POST` | `/api/v1/download-tasks/pause` | `?id=<taskId>` | Pause a task |
-| `POST` | `/api/v1/download-tasks/resume` | `?id=<taskId>` | Resume a task |
-| `POST` | `/api/v1/download-tasks/cancel` | `?id=<taskId>` | Cancel a task |
-| `POST` | `/api/v1/download-tasks/retry` | `?id=<taskId>` | Retry a failed task |
-| `GET` | `/api/v1/download-tasks/exists` | `?task_id=<id>` | Check if file is stored |
-| `GET` | `/api/v1/download-tasks/progress` | `?task_id=<id>` | Get download progress |
+| `POST` | `/api/v1/tasks/create` | body JSON | Create a new download task |
+| `GET` | `/api/v1/tasks/get` | `?id=<taskId>` | Get a task by ID |
+| `GET` | `/api/v1/tasks/list` | `?offset=&limit=` | List tasks for the authenticated user |
+| `DELETE` | `/api/v1/tasks/delete` | `?id=<taskId>` | Delete a task |
+| `POST` | `/api/v1/tasks/pause` | `?id=<taskId>` | Pause a task |
+| `POST` | `/api/v1/tasks/resume` | `?id=<taskId>` | Resume a task |
+| `POST` | `/api/v1/tasks/cancel` | `?id=<taskId>` | Cancel a task |
+| `POST` | `/api/v1/tasks/retry` | `?id=<taskId>` | Retry a failed task |
+| `GET` | `/api/v1/tasks/exists` | `?task_id=<id>` | Check if file is stored |
+| `GET` | `/api/v1/tasks/progress` | `?task_id=<id>` | Get download progress |
+| `POST` | `/api/v1/tasks/download-url` | body JSON | Generate a presigned or token download URL |
+
+### Pocket-only
+
+| Method | Path | Query / Body | Description |
+|--------|------|-------------|-------------|
+| `POST` | `/api/v1/pocket/tasks/reveal` | `?id=<taskId>` | Open the stored local file in the OS file manager |
 
 ### File Download
 
 | Method | Path | Query | Description |
 |--------|------|-------|-------------|
-| `GET` | `/download` | `?token=<token>` | Stream file using a one-time download token |
+| `GET` | `/download` | `?token=<token>` | Stream file using a token download URL |
 
 ---
 
@@ -106,20 +113,20 @@ Implementation: `internal/apigateway/owner_middleware.go`.
 
 ## File Download Handler (`/download`)
 
-The `/download` handler serves files that are too large or sensitive for direct presigned URLs:
+The `/download` handler serves files through the gateway/server when a direct presigned URL is not used:
 
 ```
 GET /download?token=<uuid>
   1. Extract token from query string
-  2. tokenStore.ConsumeToken(token)           ← Redis HMAC lookup + delete
+  2. tokenStore.ConsumeToken(token)
   3. Validate token not expired
-  4. Verify context userID == token.OwnerID   ← ACL check
-  5. storage.Get(meta.Key)                    ← Stream from MinIO
+  4. storage.Get(meta.Key)
+     or storage.GetWithRange(meta.Key, start, end)
   6. Set Content-Disposition + Content-Type headers
   7. io.Copy(responseWriter, reader)
 ```
 
-Token one-time use is enforced by deleting the Redis key on first consumption.
+If the token metadata has `OneTime=true`, the token is deleted on first consumption. Reusable tokens remain available until TTL expiry.
 
 ---
 
@@ -150,7 +157,7 @@ type GatewayEndpoints struct {
 
 ## Token Store (Redis)
 
-The gateway holds a `task.TokenStore` (backed by Redis) to support server-side download tokens. Tokens are HMAC-signed with `config.APIGateway.TokenHMACSecret` before being stored, so raw tokens are never stored directly.
+The gateway holds a `task.TokenStore` (backed by Redis) to support server-side download tokens. Tokens are HMAC-signed with `config.APIGateway.TokenHMACSecret` before being stored, so raw tokens are never stored directly. Pocket uses an in-memory token store.
 
 ---
 

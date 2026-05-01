@@ -1,6 +1,9 @@
-# Goload — Documentation Index
+# Goload - Documentation Index
 
-Goload is a distributed file-download manager built with Go. Users submit download tasks through the API Gateway; dedicated workers fetch files from HTTP/HTTPS sources, store them in MinIO object storage, and report progress back through Kafka.
+Goload is a file-download manager built with Go. It can run in two modes:
+
+- **Microservice mode**: API Gateway, Auth, Task, and Download services communicate over gRPC and Kafka, with MySQL, Redis, and MinIO for persistence.
+- **Pocket edition**: a single local binary runs the API, web UI, SQLite persistence, in-memory events, and local filesystem storage.
 
 ---
 
@@ -46,6 +49,7 @@ Goload is a distributed file-download manager built with Go. Users submit downlo
 | **Auth Service** | [auth-service.md](./auth-service.md) | `cmd/auth/svc/main.go` | 8081 | gRPC |
 | **Task Service** | [task-service.md](./task-service.md) | `cmd/task/main.go` | 8082 | gRPC |
 | **Download Service** | [download-service.md](./download-service.md) | `cmd/download/main.go` | — | Kafka (event-driven) |
+| **Pocket Edition** | [pocket-edition.md](./pocket-edition.md) | `cmd/pocket/main.go` | 8080 | HTTP/JSON + local services |
 
 ### Shared packages
 
@@ -55,7 +59,7 @@ Goload is a distributed file-download manager built with Go. Users submit downlo
 | `pkg/cache` | — | Generic cache interface + Redis/in-memory implementations |
 | `pkg/crypto` | — | bcrypt hasher and RSA key helpers |
 | `internal/events` | — | Shared event struct definitions |
-| `internal/storage` | — | Storage `Backend`/`Reader`/`Writer`/`Presigner` interfaces + MinIO impl |
+| `internal/storage` | — | Storage `Backend`/`Reader`/`Writer`/`Presigner` interfaces + MinIO and local filesystem implementations |
 | `internal/errors` | — | Typed error codes and gRPC error encoder |
 
 ---
@@ -72,7 +76,7 @@ Client → POST /api/v1/auth/session → API Gateway → Auth Service (gRPC Crea
 ### Create a Download Task
 
 ```
-Client → POST /api/v1/download-tasks/create (Bearer <JWT>)
+Client → POST /api/v1/tasks/create (Bearer <JWT>)
   → API Gateway: verify JWT (Auth Service.VerifySession)
   → API Gateway: forward to Task Service (gRPC CreateTask)
   → Task Service: insert task row, publish TaskCreated to Kafka
@@ -80,7 +84,7 @@ Client → POST /api/v1/download-tasks/create (Bearer <JWT>)
       → publish TaskStatusUpdated (DOWNLOADING)
       → publish TaskProgressUpdated (periodic)
       → publish TaskStatusUpdated (STORING)
-      → upload file to MinIO
+      → upload file to storage backend
       → publish TaskCompleted
   → Task Service: consume TaskCompleted → mark task COMPLETED, save StoragePath
 ```
@@ -88,14 +92,23 @@ Client → POST /api/v1/download-tasks/create (Bearer <JWT>)
 ### Download a Completed File
 
 ```
-Client → GET /api/v1/download-tasks/get?id=<id> (Bearer <JWT>)
+Client → GET /api/v1/tasks/get?id=<id> (Bearer <JWT>)
   → API Gateway: verify JWT, check ownership
   → Task Service: GenerateDownloadURL (returns /download?token=<uuid> or presigned URL)
 
-Client → GET /download?token=<uuid> (Bearer <JWT>)
-  → API Gateway: ConsumeToken from Redis (HMAC check + delete)
+Client → GET /download?token=<uuid>
+  → API Gateway: ConsumeToken from token store
   → Validate expiry + ownership
-  → Stream file from MinIO
+  → Stream file from storage backend
+```
+
+### Pocket: Reveal a Completed Local File
+
+```
+Client → POST /api/v1/pocket/tasks/reveal?id=<id>
+  → Pocket server resolves the task storage key under POCKET_DATA_DIR
+  → Launches the OS file manager for the stored file
+  → No browser download copy is created
 ```
 
 ---
@@ -108,6 +121,8 @@ Client → GET /download?token=<uuid> (Bearer <JWT>)
 | Kafka 4.0 | `bitnamilegacy/kafka:4.0.0` | Inter-service event bus |
 | Redis 8 | `redis:8.0.2` | Caching, token store |
 | MinIO | `quay.io/minio/minio` | Object storage for downloaded files |
+| SQLite | embedded | Pocket edition task/auth persistence |
+| Local filesystem | host directory | Pocket edition downloaded-file storage |
 
 See `deployments/docker-compose.yaml` for the full container configuration.
 
@@ -125,6 +140,21 @@ Run database migrations:
 ```bash
 bash deployments/run-migrations.sh
 ```
+
+## Running Pocket Edition
+
+Pocket is built as a single local app. It serves the API and the compiled frontend from one process.
+
+Common environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HTTP_ADDRESS` | `0.0.0.0:8080` | Pocket HTTP listen address |
+| `POCKET_DB_PATH` | `./goload.db` | SQLite database path |
+| `POCKET_DATA_DIR` | `./data` | Local storage root for downloaded files |
+| `POCKET_WEB_DIR` | `./public/dist` | Static frontend directory |
+
+Pocket frontend builds set `VITE_GOLOAD_POCKET=true`, which enables the local **Show in folder** action. Non-pocket frontend builds keep **Download** as the primary completed-task action.
 
 ---
 
