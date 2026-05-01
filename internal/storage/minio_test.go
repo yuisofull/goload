@@ -129,6 +129,7 @@ func TestMinio_GetInfo(t *testing.T) {
 	assert.Equal(t, key, info.StorageKey)
 	assert.Equal(t, "text/plain", info.ContentType)
 }
+
 func TestMinio_GetWithRange(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

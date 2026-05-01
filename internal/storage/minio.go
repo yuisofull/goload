@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
+	"regexp"
+	"strings"
 	"time"
 
 	minio "github.com/minio/minio-go/v7"
@@ -19,6 +22,10 @@ type Minio struct {
 	bucket        string
 	defaultExpiry time.Duration // 0 means no expiry policy
 }
+
+const userMetaExpiryAt = "expiry-at"
+
+var keyHashSuffixRe = regexp.MustCompile(`^(.*)-[0-9a-fA-F]{8}$`)
 
 // MinioOption configures a Minio backend.
 type MinioOption func(*Minio)
@@ -122,6 +129,12 @@ func (m *Minio) Store(ctx context.Context, key string, reader io.Reader, metadat
 	if metadata != nil && metadata.ContentType != "" {
 		opts.ContentType = metadata.ContentType
 	}
+	if metadata != nil && metadata.FileName != "" {
+		if opts.UserMetadata == nil {
+			opts.UserMetadata = make(map[string]string)
+		}
+		opts.UserMetadata["filename"] = metadata.FileName
+	}
 
 	// Attach expiry as user-metadata so clients and cleanup jobs can inspect it.
 	// Prefer the per-object Expiry from metadata; fall back to defaultExpiry.
@@ -136,7 +149,8 @@ func (m *Minio) Store(ctx context.Context, key string, reader io.Reader, metadat
 			opts.UserMetadata = make(map[string]string)
 		}
 		// RFC3339 so any reader can parse it deterministically.
-		opts.UserMetadata["expires"] = expiry.UTC().Format(time.RFC3339)
+		// Note: MinIO/S3 disallow certain user-defined metadata names (e.g. "expires").
+		opts.UserMetadata[userMetaExpiryAt] = expiry.UTC().Format(time.RFC3339)
 	}
 
 	_, err := m.client.PutObject(ctx, m.bucket, key, reader, -1, opts)
@@ -205,7 +219,7 @@ func (m *Minio) GetInfo(ctx context.Context, key string) (*FileMetadata, error) 
 	}
 
 	fm := &FileMetadata{
-		FileName:     key,
+		FileName:     extractFileNameFromStorageKey(key),
 		FileSize:     info.Size,
 		ContentType:  info.ContentType,
 		LastModified: info.LastModified,
@@ -214,8 +228,12 @@ func (m *Minio) GetInfo(ctx context.Context, key string) (*FileMetadata, error) 
 		Headers:      map[string]string{},
 	}
 
+	if storedFileName := userMetadataValueCaseInsensitive(info.UserMetadata, "filename"); storedFileName != "" {
+		fm.FileName = storedFileName
+	}
+
 	// Restore expiry from user metadata if present.
-	if expiresStr, ok := info.UserMetadata["Expires"]; ok && expiresStr != "" {
+	if expiresStr := userMetadataValueCaseInsensitive(info.UserMetadata, userMetaExpiryAt); expiresStr != "" {
 		if t, err := time.Parse(time.RFC3339, expiresStr); err == nil {
 			fm.Expiry = t
 		}
@@ -246,4 +264,22 @@ func (m *Minio) PresignGet(ctx context.Context, key string, ttl time.Duration) (
 	}
 
 	return presignedURL.String(), nil
+}
+
+func userMetadataValueCaseInsensitive(metadata map[string]string, key string) string {
+	for k, v := range metadata {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return ""
+}
+
+func extractFileNameFromStorageKey(key string) string {
+	base := path.Base(key)
+	matches := keyHashSuffixRe.FindStringSubmatch(base)
+	if len(matches) == 2 && matches[1] != "" {
+		return matches[1]
+	}
+	return base
 }
