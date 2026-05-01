@@ -170,7 +170,7 @@ func main() {
 
 	var g run.Group
 	{
-		srv := &http.Server{Addr: ":8080", Handler: httpHandler}
+		srv := &http.Server{Addr: cfg.HTTPAddress, Handler: httpHandler}
 		g.Add(func() error {
 			level.Info(logger).Log("msg", "serving pocket-mode API", "addr", srv.Addr)
 			return srv.ListenAndServe()
