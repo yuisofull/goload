@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -159,7 +160,7 @@ func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
 		s.mu.Unlock()
 	}()
 
-	return s.executeDownload(execution,downloader)
+	return s.executeDownload(execution, downloader)
 }
 
 // executeDownload performs the actual download and storage
@@ -266,8 +267,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	hash := md5.New()
 	teeReader := io.TeeReader(progressReader, hash)
 
-	storageKey := s.generateStorageKey(taskReq)
-	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
+	storageKey := s.generateStorageKey(taskReq, metadata.FileName)
 	if err := s.storage.Store(ctx, storageKey, teeReader, &storage.FileMetadata{
 		FileName:     metadata.FileName,
 		FileSize:     metadata.FileSize,
@@ -278,6 +278,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		_ = s.storage.Delete(context.Background(), storageKey)
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
+	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
 
 	completedEvent := events.TaskCompletedEvent{
 		TaskID:      taskReq.TaskID,
@@ -406,23 +407,20 @@ func (s *service) updateProgress(ctx context.Context, taskID uint64, progress Pr
 		UpdatedAt:       progress.UpdatedAt,
 	}
 
-
 	if err := s.publisher.PublishTaskProgressUpdated(ctx, evt); err != nil {
 		s.errorHandler(ctx, fmt.Errorf("failed to publish progress for task %d: %w", taskID, err))
 	}
 }
 
-func (s *service) generateStorageKey(req TaskRequest) string {
+func (s *service) generateStorageKey(req TaskRequest, resolvedFileName string) string {
 	urlHash := md5.Sum([]byte(req.SourceURL))
 
-	var safeName string
-	if strings.HasPrefix(req.SourceURL, "data:") {
-		safeName = req.FileName
-	} else {
-		safeName = filepath.Base(req.SourceURL)
-		if safeName == "." || safeName == "/" {
-			safeName = req.FileName
-		}
+	safeName := strings.TrimSpace(resolvedFileName)
+	if safeName == "" {
+		safeName = strings.TrimSpace(req.FileName)
+	}
+	if safeName == "" && !strings.HasPrefix(req.SourceURL, "data:") {
+		safeName = fileNameFromSourceURL(req.SourceURL)
 	}
 
 	if safeName == "" {
@@ -448,6 +446,22 @@ func (s *service) generateStorageKey(req TaskRequest) string {
 	finalName := fmt.Sprintf("%s-%x%s", name, urlHash[:8], ext)
 
 	return fmt.Sprintf("%d/%s", req.TaskID, finalName)
+}
+
+func fileNameFromSourceURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err == nil && parsed.Path != "" {
+		base := filepath.Base(parsed.Path)
+		if base != "." && base != "/" {
+			return base
+		}
+	}
+
+	base := filepath.Base(rawURL)
+	if base == "." || base == "/" {
+		return ""
+	}
+	return base
 }
 
 // PausableProgressReader wraps a reader to support pause/resume and progress tracking.
