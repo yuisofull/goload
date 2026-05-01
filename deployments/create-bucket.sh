@@ -4,6 +4,7 @@ set -e
 HOST_MINIO=${MINIO_ENDPOINT_HOST:-minio}
 MINIO_PORT=${MINIO_ENDPOINT_PORT:-9000}
 BUCKET=${MINIO_BUCKET:-goload}
+TASK_SOURCES_BUCKET=${MINIO_TASK_SOURCES_BUCKET:-${TASK_SOURCES_BUCKET:-task-sources}}
 ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
 SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
 
@@ -44,13 +45,14 @@ fi
 echo "Configuring mc and creating bucket if missing"
 /tmp/mc alias set local "http://${HOST_MINIO}:${MINIO_PORT}" "$ACCESS_KEY" "$SECRET_KEY" >/dev/null 2>&1 || true
 /tmp/mc mb --ignore-existing local/"${BUCKET}"
+/tmp/mc mb --ignore-existing local/"${TASK_SOURCES_BUCKET}"
 
 # Create a read-only service account for presigning (GetObject only).
-echo "Creating read-only presign service account '${READER_ACCESS_KEY}' on bucket '${BUCKET}'"
+echo "Creating read-only presign service account '${READER_ACCESS_KEY}' on buckets '${BUCKET}' and '${TASK_SOURCES_BUCKET}'"
 
 POLICY_FILE=/tmp/goload-reader-policy.json
-printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/*"]}]}' \
-  "${BUCKET}" > "${POLICY_FILE}"
+printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/*","arn:aws:s3:::%s/*"]}]}' \
+  "${BUCKET}" "${TASK_SOURCES_BUCKET}" > "${POLICY_FILE}"
 
 # Remove existing account to allow re-running idempotently, then recreate.
 /tmp/mc admin user svcacct rm local "${READER_ACCESS_KEY}" >/dev/null 2>&1 || true
@@ -60,5 +62,5 @@ printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:Get
   --policy "${POLICY_FILE}" \
   local "${ACCESS_KEY}"
 
-echo "Bucket created successfully: local/${BUCKET}"
+echo "Buckets created successfully: local/${BUCKET}, local/${TASK_SOURCES_BUCKET}"
 echo "Read-only presign account created: ${READER_ACCESS_KEY}"

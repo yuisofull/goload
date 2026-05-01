@@ -8,7 +8,7 @@ services:
     ports:
       - "3306:3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -39,16 +39,29 @@ services:
     depends_on:
       broker:
         condition: service_healthy
-    entrypoint: ["/bin/bash", "-c", "
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.created --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.completed --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.failed --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.status.updated --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.progress.updated --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.paused --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.resumed --partitions 1 --replication-factor 1 &&
-      kafka-topics.sh --create --if-not-exists --bootstrap-server broker:9092 --topic task.cancelled --partitions 1 --replication-factor 1 &&
-      echo 'All Kafka topics created successfully'"]
+    entrypoint:
+      [
+        "/bin/bash",
+        "-c",
+        " kafka-topics.sh --create --if-not-exists --bootstrap-server
+          broker:9092 --topic task.created --partitions 1 --replication-factor 1
+          && kafka-topics.sh --create --if-not-exists --bootstrap-server
+          broker:9092 --topic task.completed --partitions 1 --replication-factor
+          1 && kafka-topics.sh --create --if-not-exists --bootstrap-server
+          broker:9092 --topic task.failed --partitions 1 --replication-factor 1
+          && kafka-topics.sh --create --if-not-exists --bootstrap-server
+          broker:9092 --topic task.status.updated --partitions 1
+          --replication-factor 1 && kafka-topics.sh --create --if-not-exists
+          --bootstrap-server broker:9092 --topic task.progress.updated
+          --partitions 1 --replication-factor 1 && kafka-topics.sh --create
+          --if-not-exists --bootstrap-server broker:9092 --topic task.paused
+          --partitions 1 --replication-factor 1 && kafka-topics.sh --create
+          --if-not-exists --bootstrap-server broker:9092 --topic task.resumed
+          --partitions 1 --replication-factor 1 && kafka-topics.sh --create
+          --if-not-exists --bootstrap-server broker:9092 --topic task.cancelled
+          --partitions 1 --replication-factor 1 && echo 'All Kafka topics
+          created successfully'",
+      ]
     networks:
       - goload-net
     restart: "no"
@@ -58,7 +71,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -71,7 +84,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data
     healthcheck:
-      test: ["CMD-SHELL", "curl -k -f http://localhost:9000/minio/health/live || exit 1"]
+      test: [ "CMD-SHELL", "curl -k -f http://localhost:9000/minio/health/live || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -148,7 +161,7 @@ services:
     networks:
       - goload-net
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8081 || exit 1"]
+      test: [ "CMD-SHELL", "nc -z localhost 8081 || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -189,13 +202,13 @@ services:
       - MINIO_SECRET_KEY=minioadmin
       - MINIO_BUCKET=goload
       - MINIO_USE_SSL=false
-      - MINIO_PRESIGN_PUBLIC_ENDPOINT=http://localhost:9000
+      - MINIO_PRESIGN_PUBLIC_ENDPOINT=http://minio:9000
       - MINIO_PRESIGN_ACCESS_KEY=goload-reader
       - MINIO_PRESIGN_SECRET_KEY=goload-reader-secret
     networks:
       - goload-net
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8082 || exit 1"]
+      test: [ "CMD-SHELL", "nc -z localhost 8082 || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -212,6 +225,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      task:
+        condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
     environment:
@@ -227,10 +242,12 @@ services:
     networks:
       - goload-net
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8083 || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8083/health || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+
   # ──────────────────────────────────────────────
   # api gateway
   # Env vars: LOG_LEVEL, HTTP_ADDRESS, TOKEN_HMAC_SECRET,
@@ -265,7 +282,25 @@ services:
     networks:
       - goload-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  public:
+    build:
+      context: ..
+      dockerfile: ./deployments/dockerfiles/Dockerfile.public
+      args:
+        - VITE_GOLOAD_API_URL=https://8209-117-102-143-232.ngrok-free.app
+    depends_on:
+      apigateway:
+        condition: service_healthy
+    networks:
+      - goload-net
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost/ || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -273,7 +308,7 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "8080:8080"
+      - "8081:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
