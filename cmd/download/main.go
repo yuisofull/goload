@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/go-kit/log"
@@ -111,9 +114,9 @@ func main() {
 	svc := download.NewService(storageBackend, dep)
 
 	// Register concrete downloaders for each supported source type.
-	httpDL := downloader.NewHTTPDownloader(nil)
+	httpDL := downloader.NewHTTPDownloader(nil, downloader.WithHTTPLogger(logger))
 	ftpDL := downloader.NewFTPDownloader(0)
-	bitTorrentDL := downloader.NewBitTorrentDownloader()
+	bitTorrentDL, bitTorrentDlClose := downloader.NewBitTorrentDownloader(downloader.WithBitTorrentLogger(logger))
 	svc.RegisterDownloader("HTTP", httpDL)
 	svc.RegisterDownloader("HTTPS", httpDL) // HTTPS is handled by the same HTTP downloader
 	svc.RegisterDownloader("FTP", ftpDL)
@@ -127,10 +130,15 @@ func main() {
 	// loggingSvc := &loggingMiddleware{next: svc, logger: logger}
 	consumer := downloadtransport.NewEventConsumer(svc, sub, logger)
 
+	// readiness flag for health endpoint
+	var ready int32
+
 	var g run.Group
 	// run the consumer
 	{
 		g.Add(func() error {
+			// mark service ready when the consumer loop starts
+			atomic.StoreInt32(&ready, 1)
 			level.Info(logger).Log(
 				"transport", "Kafka",
 				"endpoints", "ExecuteTask, PauseTask, ResumeTask, CancelTask",
@@ -140,6 +148,37 @@ func main() {
 		}, func(error) {
 			// on interrupt, cancel context which will stop consumer
 			cancel()
+		})
+	}
+
+	// health endpoint (lightweight HTTP server)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&ready) == 1 {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("starting"))
+	})
+
+	srv := &http.Server{Addr: ":8083", Handler: mux}
+	{
+		g.Add(func() error {
+			level.Info(logger).Log("transport", "HTTP", "addr", srv.Addr, "msg", "starting health endpoint")
+			err := srv.ListenAndServe()
+			if err == http.ErrServerClosed {
+				return nil
+			}
+			return err
+		}, func(error) {
+			// mark not ready and attempt graceful shutdown
+			atomic.StoreInt32(&ready, 0)
+			ctxSh, cancelSh := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelSh()
+			bitTorrentDlClose() // ensure BitTorrent downloader is closed to release any resources
+			_ = srv.Shutdown(ctxSh)
 		})
 	}
 
