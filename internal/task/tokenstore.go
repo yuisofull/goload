@@ -58,19 +58,24 @@ func (r *tokenStore) CreateToken(
 	return r.cache.Set(ctx, key, meta, ttl)
 }
 
-// ConsumeToken retrieves and deletes the token metadata atomically if present.
+// ConsumeToken retrieves token metadata if present. One-time tokens are deleted
+// after lookup; reusable tokens remain available until their cache TTL expires.
 func (r *tokenStore) ConsumeToken(ctx context.Context, token string) (*storage.TokenMetadata, error) {
 	if r == nil || r.cache == nil {
 		return nil, errors.New("redis token store not configured")
 	}
 	key := r.hmacToken(token)
-	// Atomically get and delete the metadata using the cache helper
-	meta, err := r.cache.GetAndDelete(ctx, key)
+	meta, err := r.cache.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, cache.Nil) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if meta.OneTime {
+		if err := r.cache.Delete(ctx, key); err != nil {
+			return nil, err
+		}
 	}
 	return &meta, nil
 }

@@ -154,7 +154,12 @@ func (m *inmemTokenStore) ConsumeToken(ctx context.Context, token string) (*stor
 	if !ok {
 		return nil, nil
 	}
-	delete(m.store, token)
+	if meta.OneTime || time.Now().After(meta.Expires) {
+		delete(m.store, token)
+	}
+	if time.Now().After(meta.Expires) {
+		return nil, nil
+	}
 	return &meta, nil
 }
 
@@ -410,7 +415,7 @@ func (s *service) DeleteTask(ctx context.Context, id uint64) error {
 	}
 
 	// We must tell the download service to stop the worker thread.
-	// We do this by publishing a TaskCancelled event. 
+	// We do this by publishing a TaskCancelled event.
 	// The download service listens for task.cancelled to stop running tasks.
 	if err := s.pub.PublishTaskCancelled(ctx, id); err != nil {
 		level.Warn(s.logger).Log("msg", "Failed to publish task cancelled event during delete", "task_id", id, "err", err)
