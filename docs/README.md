@@ -133,8 +133,8 @@ Client → POST /api/v1/pocket/tasks/reveal?id=<id>
 | Kafka 4.0 | `bitnamilegacy/kafka:4.0.0` | Inter-service event bus |
 | Redis 8 | `redis:8.0.2` | Caching, token store |
 | MinIO | `quay.io/minio/minio` | Object storage for downloaded files |
-| SQLite | embedded | Pocket edition task/auth persistence |
-| Local filesystem | host directory | Pocket edition downloaded-file storage |
+| SQLite | `sqlite:3.36.0` | Pocket edition task/auth persistence |
+| Local filesystem | — | Pocket edition downloaded-file storage |
 
 See `deployments/docker-compose.yaml` for the full container configuration.
 
@@ -180,7 +180,6 @@ docker build -t goload-pocket -f Dockerfile.pocket .
 docker run --rm -p 8080:8080 goload-pocket
 ```
 
-```bash
 Common environment variables:
 
 | Variable | Default | Purpose |
