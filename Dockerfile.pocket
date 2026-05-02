@@ -1,8 +1,6 @@
     # Stage 1: Build the frontend (React/Vite)
 FROM oven/bun:1 AS web-builder
 
-ARG ADDRESS
-
 WORKDIR /app
 
 # Copy package files
@@ -14,7 +12,7 @@ RUN bun install --frozen-lockfile
 # Copy source code
 COPY ./public .
 
-RUN VITE_GOLOAD_API_URL=http://localhost:8080 VITE_GOLOAD_POCKET=true bun run build
+RUN VITE_GOLOAD_API_URL=http://localhost:8080 bun run build
 
 # Stage 2: Build the pocket backend (Go)
 FROM golang:1.25 AS go-builder
@@ -47,6 +45,7 @@ COPY --from=web-builder /app/dist ./public/dist
 ENV POCKET_DB_PATH=/data/goload.db
 ENV POCKET_DATA_DIR=/data/downloads
 ENV POCKET_WEB_DIR=/app/public/dist
+ENV CONTAINER_MODE=true
 ENV HTTP_ADDRESS=0.0.0.0:8080
 
 # Create persistent data directory

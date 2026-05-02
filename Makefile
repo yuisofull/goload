@@ -14,6 +14,10 @@ build-web:
 	@docker build --build-arg VITE_GOLOAD_API_URL=http://localhost:8080 -t goload-frontend-builder -f public/Dockerfile.builder ./public
 	@docker run --rm -v ./public/dist:/app/dist goload-frontend-builder
 
+run-pocket:
+	@docker build -t goload-pocket -f Dockerfile.pocket .
+	@docker run --rm -p 8080:8080 goload-pocket
+
 build-pocket:
 	@docker build -t goload-pocket-builder -f Dockerfile.pocketbuilder .
 	@docker run --rm -v ./:/out goload-pocket-builder
@@ -40,7 +44,11 @@ docs:
 	redocly bundle $(OPENAPI) -o $(BUNDLED)
 
 lint:
-	redocly lint $(OPENAPI)
+# 	golangci-lint-v2 run --fix --enable-only=modernize
+	golangci-lint-v2 run --fix 
+# 	redocly lint $(OPENAPI)
+
+
 
 serve-docs:
 	redocly preview-docs $(OPENAPI)
