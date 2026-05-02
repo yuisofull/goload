@@ -32,7 +32,7 @@ func WithBitTorrentLogger(logger log.Logger) BitTorrentDownloaderOption {
 	}
 }
 
-func NewBitTorrentDownloader(opts ...BitTorrentDownloaderOption) (btDl *BitTorrentDownloader,closeFunc func()) {
+func NewBitTorrentDownloader(opts ...BitTorrentDownloaderOption) (btDl *BitTorrentDownloader, closeFunc func(), err error) {
 	b := &BitTorrentDownloader{
 		logger: log.NewNopLogger(),
 	}
@@ -42,7 +42,7 @@ func NewBitTorrentDownloader(opts ...BitTorrentDownloaderOption) (btDl *BitTorre
 
 	dataDir, err := os.MkdirTemp("", "goload-torrent-*")
 	if err != nil {
-		panic(fmt.Errorf("failed to create torrent data dir: %w", err))
+		return nil, nil, fmt.Errorf("failed to create torrent data dir: %w", err)
 	}
 	b.dataDir = dataDir
 
@@ -51,13 +51,14 @@ func NewBitTorrentDownloader(opts ...BitTorrentDownloaderOption) (btDl *BitTorre
 
 	client, err := torrent.NewClient(cfg)
 	if err != nil {
-		panic(fmt.Errorf("failed to create torrent client: %w", err))
+		_ = os.RemoveAll(dataDir)
+		return nil, nil, fmt.Errorf("failed to create torrent client: %w", err)
 	}
 	b.client = client
 
 	return b, func() {
 		b.Close()
-	}
+	}, nil
 }
 
 func (b *BitTorrentDownloader) Close() {

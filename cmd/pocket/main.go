@@ -109,13 +109,19 @@ func main() {
 
 	// Download service
 	downloadPub := download.NewDownloadEventPublisher(pub)
-	dlSvc := download.NewService(storageBackend, downloadPub, download.WithErrorHandler(func(ctx context.Context, err error) {
-		level.Error(logger).Log("msg", "download failed", "err", err)
-	}))
+	dlSvc := download.NewService(
+		storageBackend,
+		downloadPub,
+		download.WithStorageType(storage.TypeLocal),
+		download.WithErrorHandler(func(ctx context.Context, err error) {
+			level.Error(logger).Log("msg", "download failed", "err", err)
+		}),
+	)
 	// register downloaders
 	httpDL := downloader.NewHTTPDownloader(nil)
 	ftpDL := downloader.NewFTPDownloader(0)
-	btDL, btDlClose := downloader.NewBitTorrentDownloader(downloader.WithBitTorrentLogger(logger))
+	btDL, btDlClose, err := downloader.NewBitTorrentDownloader(downloader.WithBitTorrentLogger(logger))
+	must(err)
 	dlSvc.RegisterDownloader("HTTP", httpDL)
 	dlSvc.RegisterDownloader("HTTPS", httpDL)
 	dlSvc.RegisterDownloader("FTP", ftpDL)
@@ -256,14 +262,14 @@ func revealInFileManager(ctx context.Context, path string, logger log.Logger) er
 	case "darwin":
 		cmd = exec.CommandContext(ctx, "open", "-R", path)
 	case "windows":
-		cmd = exec.CommandContext(ctx, "explorer.exe", "/select,",path)
+		cmd = exec.CommandContext(ctx, "explorer.exe", "/select,", path)
 	default:
 		if isWSL() {
 			windowsPath, err := wslWindowsPath(ctx, path)
 			if err != nil {
 				return err
 			}
-			cmd = exec.CommandContext(ctx, "explorer.exe", "/select,",windowsPath)
+			cmd = exec.CommandContext(ctx, "explorer.exe", "/select,", windowsPath)
 			break
 		}
 

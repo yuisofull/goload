@@ -111,12 +111,16 @@ func main() {
 	}
 
 	dep := download.NewDownloadEventPublisher(pub)
-	svc := download.NewService(storageBackend, dep)
+	svc := download.NewService(storageBackend, dep, download.WithStorageType(storage.TypeMinio))
 
 	// Register concrete downloaders for each supported source type.
 	httpDL := downloader.NewHTTPDownloader(nil, downloader.WithHTTPLogger(logger))
 	ftpDL := downloader.NewFTPDownloader(0)
-	bitTorrentDL, bitTorrentDlClose := downloader.NewBitTorrentDownloader(downloader.WithBitTorrentLogger(logger))
+	bitTorrentDL, bitTorrentDlClose, err := downloader.NewBitTorrentDownloader(downloader.WithBitTorrentLogger(logger))
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to initialize bittorrent downloader", "err", err)
+		os.Exit(1)
+	}
 	svc.RegisterDownloader("HTTP", httpDL)
 	svc.RegisterDownloader("HTTPS", httpDL) // HTTPS is handled by the same HTTP downloader
 	svc.RegisterDownloader("FTP", ftpDL)

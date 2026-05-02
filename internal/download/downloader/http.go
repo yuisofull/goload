@@ -368,7 +368,7 @@ func (h *HTTPDownloader) downloadParallel(
 							"backoff", backoff+jitter,
 							"last_error", lastErr,
 						)
-						
+
 						select {
 						case <-time.After(backoff + jitter):
 						case <-cancelCtx.Done():
@@ -569,8 +569,6 @@ func filenameFromURL(rawURL string) string {
 	return name
 }
 
-
-
 // rateLimitedReader wraps an io.ReadCloser and throttles reads to maxBytesPerSec.
 type rateLimitedReader struct {
 	ctx     context.Context
@@ -584,6 +582,9 @@ type rateLimitedReader struct {
 func newRateLimitedReader(ctx context.Context, r io.ReadCloser, maxBytesPerSec int64) *rateLimitedReader {
 	const maxBurst = 64 * 1024 // 64 KB burst
 	burst := int(maxBytesPerSec)
+	if burst <= 0 {
+		burst = 1
+	}
 	if burst > maxBurst {
 		burst = maxBurst
 	}
@@ -596,6 +597,9 @@ func newRateLimitedReader(ctx context.Context, r io.ReadCloser, maxBytesPerSec i
 
 func (r *rateLimitedReader) Read(p []byte) (int, error) {
 	// Reserve the bytes we are about to read; wait if the bucket is empty.
+	if len(p) > r.limiter.Burst() {
+		p = p[:r.limiter.Burst()]
+	}
 	if err := r.limiter.WaitN(r.ctx, len(p)); err != nil {
 		return 0, err
 	}
