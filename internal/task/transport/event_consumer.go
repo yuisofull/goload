@@ -3,7 +3,6 @@ package tasktransport
 import (
 	"context"
 	"encoding/json"
-	"log"
 
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/events"
@@ -14,15 +13,21 @@ import (
 
 // EventConsumer handles events from other services
 type EventConsumer struct {
-	taskService task.Service
-	subscriber  message.Subscriber
+	taskService  task.Service
+	subscriber   message.Subscriber
+	errorHandler func(context.Context, error)
 }
 
 // NewEventConsumer creates a new event consumer for task service
-func NewEventConsumer(taskService task.Service, subscriber message.Subscriber) *EventConsumer {
+func NewEventConsumer(
+	taskService task.Service,
+	subscriber message.Subscriber,
+	errorHandler func(context.Context, error),
+) *EventConsumer {
 	return &EventConsumer{
-		taskService: taskService,
-		subscriber:  subscriber,
+		taskService:  taskService,
+		subscriber:   subscriber,
+		errorHandler: errorHandler,
 	}
 }
 
@@ -61,7 +66,7 @@ func (ec *EventConsumer) handleProgressUpdates(ctx context.Context, ch <-chan *m
 				msg.Ack()
 				continue
 			}
-			log.Printf("Error handling progress update: %v", err)
+			ec.errorHandler(ctx, err)
 			msg.Nack()
 		} else {
 			msg.Ack()
@@ -77,7 +82,7 @@ func (ec *EventConsumer) handleCompletions(ctx context.Context, ch <-chan *messa
 				msg.Ack()
 				continue
 			}
-			log.Printf("Error handling task completion: %v", err)
+			ec.errorHandler(ctx, err)
 			msg.Nack()
 		} else {
 			msg.Ack()
@@ -93,7 +98,7 @@ func (ec *EventConsumer) handleFailures(ctx context.Context, ch <-chan *message.
 				msg.Ack()
 				continue
 			}
-			log.Printf("Error handling task failure: %v", err)
+			ec.errorHandler(ctx, err)
 			msg.Nack()
 		} else {
 			msg.Ack()
@@ -130,7 +135,7 @@ func (ec *EventConsumer) handleTaskCompleted(ctx context.Context, msg *message.M
 	}
 
 	if err := ec.taskService.CompleteTask(ctx, event.TaskID); err != nil {
-		log.Printf("Failed to complete task %d: %v", event.TaskID, err)
+		ec.errorHandler(ctx, err)
 		return err
 	}
 
@@ -176,7 +181,7 @@ func (ec *EventConsumer) handleTaskCompleted(ctx context.Context, msg *message.M
 func (ec *EventConsumer) handleTaskFailed(ctx context.Context, msg *message.Message) error {
 	var event events.TaskFailedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		log.Printf("Failed to unmarshal TaskFailedEvent: %v", err)
+		ec.errorHandler(ctx, err)
 		return err
 	}
 

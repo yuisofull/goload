@@ -249,7 +249,7 @@ func (r *taskRepo) Delete(ctx context.Context, id uint64) error {
 func scanTask(stmt *sqlite.Stmt) (*task.Task, error) {
 	t := &task.Task{}
 	cols := make(map[string]int)
-	for i := 0; i < stmt.ColumnCount(); i++ {
+	for i := range stmt.ColumnCount() {
 		cols[stmt.ColumnName(i)] = i
 	}
 
