@@ -9,8 +9,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 )
 
 // Local implements Backend and Presigner using the local filesystem.
@@ -18,6 +22,25 @@ import (
 // data directory instead of MinIO/S3.
 type Local struct {
 	root string
+
+	defaultExpiry time.Duration // 0 means no expiry policy
+	logger        log.Logger
+}
+
+// LocalOption configures a Local backend.
+type LocalOption func(*Local)
+
+// WithLocalExpiry sets a default expiry duration for stored objects. When non-zero,
+// the backend will automatically delete objects after the equivalent number of days.
+// Individual Store calls can override this on a per-object basis via FileMetadata.Expiry.
+func WithLocalExpiry(d time.Duration) LocalOption {
+	return func(l *Local) { l.defaultExpiry = d }
+}
+
+func WithLocalLogger(logger log.Logger) LocalOption {
+	return func(l *Local) {
+		l.logger = logger
+	}
 }
 
 type localObjectMetadata struct {
@@ -27,7 +50,7 @@ type localObjectMetadata struct {
 }
 
 // NewLocalBackend creates a filesystem-backed storage backend rooted at dir.
-func NewLocalBackend(root string) (*Local, error) {
+func NewLocalBackend(root string, opts ...LocalOption) (*Local, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, errors.New("local storage root is empty")
@@ -39,7 +62,11 @@ func NewLocalBackend(root string) (*Local, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve local storage root: %w", err)
 	}
-	return &Local{root: absRoot}, nil
+	l := &Local{root: absRoot}
+	for _, o := range opts {
+		o(l)
+	}
+	return l, nil
 }
 
 func (l *Local) Store(ctx context.Context, key string, reader io.Reader, metadata *FileMetadata) error {
@@ -86,6 +113,29 @@ func (l *Local) Store(ctx context.Context, key string, reader io.Reader, metadat
 	if meta.ContentType == "" {
 		meta.ContentType = "application/octet-stream"
 	}
+	if meta.Headers == nil {
+		meta.Headers = map[string]string{}
+	}
+	if meta.ExpireAt.IsZero() && l.defaultExpiry > 0 {
+		meta.ExpireAt = meta.StoredAt.Add(l.defaultExpiry)
+	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		for range ticker.C {
+			deletedFiles, err := l.Reap(context.Background())
+			if err != nil {
+				level.Error(l.logger).Log("msg", "error during local storage reap", "err", err)
+			} else {
+				var deletedFilesStr string
+				if len(deletedFiles) > 0 {
+					deletedFilesStr = strings.Join(deletedFiles, ", ")
+				}
+				level.Info(l.logger).Log("msg", "finished reaping expired objects", "deletedFiles", deletedFilesStr)
+			}
+		}
+	}()
+
 	return l.writeMetadata(objectPath, &meta)
 }
 
@@ -223,6 +273,67 @@ func (r *localRangeReadCloser) Read(p []byte) (int, error) {
 
 func (r *localRangeReadCloser) Close() error { return r.file.Close() }
 
+// Reap traverses the storage root and deletes objects that have expired.
+// It returns the list of deleted files and any error encountered during traversal.
+func (l *Local) Reap(ctx context.Context) ([]string, error) {
+	var deletedFiles []string
+	now := time.Now()
+
+	err := filepath.WalkDir(l.root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories and metadata files
+		if d.IsDir() || strings.HasSuffix(path, ".meta.json") {
+			return nil
+		}
+
+		// Read metadata for the current file
+		// Note: readMetadata expects the object path, which we have here.
+		meta, err := l.readInternalMetadata(path)
+		if err != nil {
+			// If metadata is missing or corrupt, we skip it to avoid
+			// deleting data that might still be valid but orphaned.
+			return nil
+		}
+
+		if meta.ExpireAt.IsZero() && l.defaultExpiry > 0 {
+			meta.ExpireAt = meta.StoredAt.Add(l.defaultExpiry)
+		}
+
+		if now.After(meta.ExpireAt) {
+			// Extract key to use the existing Delete logic
+			relPath, err := filepath.Rel(l.root, path)
+			if err != nil {
+				return nil
+			}
+			key := filepath.ToSlash(relPath)
+
+			if err := l.Delete(ctx, key); err == nil {
+				deletedFiles = append(deletedFiles, key)
+			}
+		}
+
+		return nil
+	})
+
+	return deletedFiles, err
+}
+
+// Internal helper to get the full metadata including StoredAt
+func (l *Local) readInternalMetadata(objectPath string) (*localObjectMetadata, error) {
+	data, err := os.ReadFile(l.metadataPath(objectPath))
+	if err != nil {
+		return nil, err
+	}
+	var meta localObjectMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
 func (l *Local) objectPath(key string) (string, error) {
 	cleaned, err := l.cleanKey(key)
 	if err != nil {
@@ -264,10 +375,8 @@ func (l *Local) cleanKey(key string) (string, error) {
 	if key == "" {
 		return "", errors.New("storage key is empty")
 	}
-	for _, segment := range strings.Split(key, "/") {
-		if segment == ".." {
-			return "", fmt.Errorf("invalid storage key %q", key)
-		}
+	if slices.Contains(strings.Split(key, "/"), "..") {
+		return "", fmt.Errorf("invalid storage key %q", key)
 	}
 	cleaned := filepath.Clean("/" + key)
 	cleaned = strings.TrimPrefix(cleaned, "/")

@@ -67,7 +67,11 @@ func main() {
 
 	// Initialize storage backend (local filesystem)
 	dataDir := cfg.PocketDataDir
-	storageBackend, err := storage.NewLocalBackend(dataDir)
+	storageBackend, err := storage.NewLocalBackend(
+		dataDir,
+		storage.WithLocalLogger(logger),
+		storage.WithLocalExpiry(24*time.Hour),
+	)
 	must(err)
 
 	// Create in-memory broker
@@ -110,7 +114,9 @@ func main() {
 	// Task event consumer
 	var taskEventConsumer *tasktransport.EventConsumer
 	{
-		taskEventConsumer = tasktransport.NewEventConsumer(taskSvc, sub)
+		taskEventConsumer = tasktransport.NewEventConsumer(taskSvc, sub, func(ctx context.Context, err error) {
+			level.Error(logger).Log("msg", "task event consumer error", "err", err)
+		})
 	}
 
 	// Download service
