@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -23,6 +24,9 @@ func (fakeTxManager) DoInTx(ctx context.Context, fn func(ctx context.Context) er
 
 type fakeRepo struct {
 	created *Task
+	updated *Task
+	listed  []*Task
+	count   uint64
 }
 
 func (r *fakeRepo) Create(ctx context.Context, task *Task) (*Task, error) {
@@ -33,20 +37,23 @@ func (r *fakeRepo) Create(ctx context.Context, task *Task) (*Task, error) {
 	return &cloned, nil
 }
 
-func (r *fakeRepo) GetByID(ctx context.Context, id uint64) (*Task, error)                 { return nil, nil }
-func (r *fakeRepo) Update(ctx context.Context, task *Task) (*Task, error)               { return task, nil }
+func (r *fakeRepo) GetByID(ctx context.Context, id uint64) (*Task, error) { return nil, nil }
+func (r *fakeRepo) Update(ctx context.Context, task *Task) (*Task, error) {
+	r.updated = task
+	return task, nil
+}
 func (r *fakeRepo) ListByAccountID(ctx context.Context, filter TaskFilter, limit, offset uint32) ([]*Task, error) {
-	return nil, nil
+	return r.listed, nil
 }
 func (r *fakeRepo) GetTaskCountOfAccount(ctx context.Context, ofAccountID uint64) (uint64, error) {
-	return 0, nil
+	return r.count, nil
 }
 func (r *fakeRepo) Delete(ctx context.Context, id uint64) error { return nil }
 
 type fakeMessagePublisher struct {
-	topic   string
-	msgs    []*message.Message
-	closed  bool
+	topic  string
+	msgs   []*message.Message
+	closed bool
 }
 
 func (p *fakeMessagePublisher) Publish(topic string, messages ...*message.Message) error {
@@ -139,6 +146,44 @@ func TestCreateTask_MovesTorrentDataURLToMinioBeforeDBAndKafka(t *testing.T) {
 	require.NotNil(t, writer.metadata)
 	require.Equal(t, "application/x-bittorrent", writer.metadata.ContentType)
 	require.NotZero(t, writer.metadata.Expiry)
+}
+
+func TestListTasks_RequiresFilter(t *testing.T) {
+	svc := NewService(&fakeRepo{}, Publisher{}, fakeTxManager{})
+
+	_, err := svc.ListTasks(context.Background(), &ListTasksParam{})
+	require.Error(t, err)
+}
+
+func TestListTasks_ReturnsRepositoryTotal(t *testing.T) {
+	repo := &fakeRepo{
+		count: 10,
+		listed: []*Task{
+			{ID: 1, OfAccountID: 7},
+			{ID: 2, OfAccountID: 7},
+		},
+	}
+	svc := NewService(repo, Publisher{}, fakeTxManager{})
+
+	out, err := svc.ListTasks(context.Background(), &ListTasksParam{
+		Filter: &TaskFilter{OfAccountID: 7},
+		Limit:  2,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Tasks, 2)
+	require.Equal(t, int32(10), out.Total)
+}
+
+func TestUpdateTaskErrorStoresErrorMessage(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, Publisher{}, fakeTxManager{})
+
+	err := svc.UpdateTaskError(context.Background(), 42, errors.New("boom"))
+	require.NoError(t, err)
+	require.NotNil(t, repo.updated)
+	require.Equal(t, StatusFailed, repo.updated.Status)
+	require.NotNil(t, repo.updated.ErrorMessage)
+	require.Equal(t, "boom", *repo.updated.ErrorMessage)
 }
 
 func TestCreateTask_TorrentDataURLRequiresStorageConfig(t *testing.T) {

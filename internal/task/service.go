@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	stderrors "errors"
 	"fmt"
+	"math"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -392,6 +393,28 @@ func (s *service) GetTask(ctx context.Context, id uint64) (*Task, error) {
 }
 
 func (s *service) ListTasks(ctx context.Context, param *ListTasksParam) (*ListTasksOutput, error) {
+	if param == nil || param.Filter == nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "task filter is required",
+		}
+	}
+	if param.Limit < 0 || param.Offset < 0 {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "limit and offset must be non-negative",
+		}
+	}
+
+	total, err := s.repo.GetTaskCountOfAccount(ctx, param.Filter.OfAccountID)
+	if err != nil {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to count tasks",
+			Cause:   err,
+		}
+	}
+
 	tasks, err := s.repo.ListByAccountID(ctx, *param.Filter, uint32(param.Limit), uint32(param.Offset))
 	if err != nil {
 		return nil, &errors.Error{
@@ -401,7 +424,14 @@ func (s *service) ListTasks(ctx context.Context, param *ListTasksParam) (*ListTa
 		}
 	}
 
-	return &ListTasksOutput{Tasks: tasks, Total: int32(len(tasks))}, nil
+	if total > math.MaxInt32 {
+		return nil, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "task count exceeds response limit",
+		}
+	}
+
+	return &ListTasksOutput{Tasks: tasks, Total: int32(total)}, nil
 }
 
 func (s *service) DeleteTask(ctx context.Context, id uint64) error {
@@ -702,9 +732,14 @@ func (s *service) UpdateTaskProgress(ctx context.Context, id uint64, progress Do
 }
 
 func (s *service) UpdateTaskError(ctx context.Context, id uint64, err error) error {
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
 	_, updateErr := s.repo.Update(ctx, &Task{
-		ID:     id,
-		Status: StatusFailed,
+		ID:           id,
+		Status:       StatusFailed,
+		ErrorMessage: &errMsg,
 	})
 	if updateErr != nil {
 		return &errors.Error{

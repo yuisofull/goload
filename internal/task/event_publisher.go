@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,7 +47,7 @@ func (ep *Publisher) PublishTaskCreated(ctx context.Context, task *Task) error {
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskCreated",
-			"taskID":    string(rune(task.ID)),
+			"taskID":    formatTaskID(task.ID),
 		},
 	}
 
@@ -71,7 +72,7 @@ func (ep *Publisher) PublishTaskStatusUpdated(ctx context.Context, taskID uint64
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskStatusUpdated",
-			"taskID":    string(rune(taskID)),
+			"taskID":    formatTaskID(taskID),
 		},
 	}
 
@@ -95,7 +96,7 @@ func (ep *Publisher) PublishTaskPaused(ctx context.Context, taskID uint64) error
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskPaused",
-			"taskID":    string(rune(taskID)),
+			"taskID":    formatTaskID(taskID),
 		},
 	}
 
@@ -119,7 +120,7 @@ func (ep *Publisher) PublishTaskResumed(ctx context.Context, taskID uint64) erro
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskResumed",
-			"taskID":    string(rune(taskID)),
+			"taskID":    formatTaskID(taskID),
 		},
 	}
 
@@ -143,7 +144,7 @@ func (ep *Publisher) PublishTaskCancelled(ctx context.Context, taskID uint64) er
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskCancelled",
-			"taskID":    string(rune(taskID)),
+			"taskID":    formatTaskID(taskID),
 		},
 	}
 
@@ -178,4 +179,8 @@ func (ep *Publisher) convertDownloadOptions(opts *DownloadOptions) *events.Downl
 
 func generateUUID() string {
 	return uuid.New().String()
+}
+
+func formatTaskID(taskID uint64) string {
+	return strconv.FormatUint(taskID, 10)
 }

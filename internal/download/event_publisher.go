@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/yuisofull/goload/internal/events"
@@ -33,7 +34,7 @@ func (dep *DownloadEventPublisher) PublishTaskStatusUpdated(ctx context.Context,
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskStatusUpdated",
-			"taskID":    string(rune(event.TaskID)),
+			"taskID":    formatTaskID(event.TaskID),
 		},
 	}
 
@@ -52,7 +53,7 @@ func (dep *DownloadEventPublisher) PublishTaskProgressUpdated(ctx context.Contex
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskProgressUpdated",
-			"taskID":    string(rune(event.TaskID)),
+			"taskID":    formatTaskID(event.TaskID),
 		},
 	}
 
@@ -71,7 +72,7 @@ func (dep *DownloadEventPublisher) PublishTaskCompleted(ctx context.Context, eve
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskCompleted",
-			"taskID":    string(rune(event.TaskID)),
+			"taskID":    formatTaskID(event.TaskID),
 		},
 	}
 
@@ -90,7 +91,7 @@ func (dep *DownloadEventPublisher) PublishTaskFailed(ctx context.Context, event 
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskFailed",
-			"taskID":    string(rune(event.TaskID)),
+			"taskID":    formatTaskID(event.TaskID),
 		},
 	}
 
@@ -109,7 +110,7 @@ func (dep *DownloadEventPublisher) PublishTaskRetried(ctx context.Context, event
 		Payload: payload,
 		Metadata: message.Metadata{
 			"eventType": "TaskRetried",
-			"taskID":    string(rune(event.TaskID)),
+			"taskID":    formatTaskID(event.TaskID),
 		},
 	}
 
@@ -118,4 +119,8 @@ func (dep *DownloadEventPublisher) PublishTaskRetried(ctx context.Context, event
 
 func generateUUID() string {
 	return uuid.New().String()
+}
+
+func formatTaskID(taskID uint64) string {
+	return strconv.FormatUint(taskID, 10)
 }
