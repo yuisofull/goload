@@ -44,7 +44,9 @@ func WithErrorHandler(handler ErrorHandler) SubscriberOption {
 
 func WithLog(logger log.Logger) SubscriberOption {
 	return func(s *Subscriber) {
-		s.logger = logger
+		if logger != nil {
+			s.logger = logger
+		}
 	}
 }
 
@@ -78,6 +80,7 @@ func NewSubscriber(
 		closing:      make(chan struct{}),
 		sconfig:      sconfig,
 		errorHandler: func(_ context.Context, _ error) {},
+		logger:       log.NewNopLogger(),
 	}
 	for _, opt := range opts {
 		opt(subscriber)
