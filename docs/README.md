@@ -35,9 +35,9 @@ Goload is a file-download manager built with Go. It can run in two modes:
   │  :8081    │   │   :8082      │
   └─────┬─────┘   └──────┬───────┘
         │                │  Kafka events
-        │         ┌──────┴────────────────┐
-        │         │                       │
-        │  ┌──────▼──────┐        ┌───────▼──────┐
+        ┌────────────────┴────────────────┐
+        │                                 │
+        │  ┌─────────────┐        ┌───────▼──────┐
         │  │  Download   │        │    Kafka     │
         │  │   Service   │◄───────│   Broker     │
         │  └──────┬──────┘        └──────────────┘
@@ -172,6 +172,15 @@ This builds the backend and frontend, creates a `pocket-release.zip` file in the
 
 Download the latest pre-built `pocket-release.zip` from the [Release](https://github.com/yuisofull/goload/releases) section. Extract it and run the binary directly.
 
+
+**Option 3: Build and run with Docker**
+
+```bash
+docker build -t goload-pocket -f Dockerfile.pocket .
+docker run --rm -p 8080:8080 goload-pocket
+```
+
+```bash
 Common environment variables:
 
 | Variable | Default | Purpose |
