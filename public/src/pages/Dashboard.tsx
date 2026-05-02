@@ -243,7 +243,7 @@ const Dashboard = () => {
       });
       const fullUrl = toAbsoluteApiUrl(res.url);
       await navigator.clipboard.writeText(fullUrl);
-      window.open(fullUrl, "_blank", "noopener");
+      // window.open(fullUrl, "_blank", "noopener");
       toast.success("Download link copied", {
         description: "Link is valid for 1 hour.",
       });
