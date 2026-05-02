@@ -7,6 +7,18 @@ Goload is a file-download manager built with Go. It can run in two modes:
 
 ---
 
+## Screenshots
+
+### Pocket Dashboard
+
+![Pocket dashboard](../images/dashboard.png)
+
+### Landing Page
+
+![Landing page](../images/landing_page.png)
+
+---
+
 ## System Overview
 
 ```
