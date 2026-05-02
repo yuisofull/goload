@@ -337,7 +337,11 @@ func (s *service) storeTaskSourceTorrentDataURL(
 
 	content, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return "", &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "invalid torrent base64 payload", Cause: err}
+		return "", &errors.Error{
+			Code:    errors.ErrCodeInvalidInput,
+			Message: "invalid torrent base64 payload",
+			Cause:   err,
+		}
 	}
 
 	// Build a stable-ish object name for observability while ensuring uniqueness.
@@ -448,7 +452,9 @@ func (s *service) DeleteTask(ctx context.Context, id uint64) error {
 	// We do this by publishing a TaskCancelled event.
 	// The download service listens for task.cancelled to stop running tasks.
 	if err := s.pub.PublishTaskCancelled(ctx, id); err != nil {
-		level.Warn(s.logger).Log("msg", "Failed to publish task cancelled event during delete", "task_id", id, "err", err)
+		level.Warn(s.logger).
+			Log("msg", "Failed to publish task cancelled event during delete", "task_id", id, "err", err)
+
 		// We still proceed to delete the record from the DB
 	}
 
@@ -784,7 +790,7 @@ func (s *service) UpdateTaskChecksum(ctx context.Context, id uint64, checksum *C
 	return nil
 }
 
-func (s *service) UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]interface{}) error {
+func (s *service) UpdateTaskMetadata(ctx context.Context, id uint64, metadata map[string]any) error {
 	_, err := s.repo.Update(ctx, &Task{
 		ID:       id,
 		Metadata: metadata,

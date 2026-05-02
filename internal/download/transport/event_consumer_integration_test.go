@@ -9,16 +9,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/go-kit/log"
-	tckafka "github.com/testcontainers/testcontainers-go/modules/kafka"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tckafka "github.com/testcontainers/testcontainers-go/modules/kafka"
 
 	"github.com/yuisofull/goload/internal/download"
 	"github.com/yuisofull/goload/internal/download/downloader"
@@ -357,7 +357,7 @@ func TestTaskCreated_DownloadFromHTTP_StoresFile(t *testing.T) {
 	fileContent := []byte("hello from the integration test file")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileContent)))
+		w.Header().Set("Content-Length", strconv.Itoa(len(fileContent)))
 		w.WriteHeader(http.StatusOK)
 		w.Write(fileContent)
 	}))
@@ -405,7 +405,7 @@ func TestTaskCreated_DownloadFromHTTP_LargerPayload(t *testing.T) {
 	largeContent := bytes.Repeat([]byte("a"), 64*1024)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(largeContent)))
+		w.Header().Set("Content-Length", strconv.Itoa(len(largeContent)))
 		w.WriteHeader(http.StatusOK)
 		w.Write(largeContent)
 	}))
@@ -518,7 +518,7 @@ func TestMultipleTasks_ConcurrentDownloads(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 		w.Write(data)
 	}))
 	defer srv.Close()

@@ -14,9 +14,9 @@ import (
 
 // EventConsumer handles incoming events for the download service.
 type EventConsumer struct {
-	service     download.Service
-	subscriber  message.Subscriber
-	logger      log.Logger
+	service    download.Service
+	subscriber message.Subscriber
+	logger     log.Logger
 }
 
 // NewEventConsumer creates a new event consumer for the download service.

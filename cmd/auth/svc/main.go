@@ -76,7 +76,7 @@ func main() {
 			os.Exit(1)
 		}
 		// ping to verify connection
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			err = mysqlDB.Ping()
 			if err == nil {
 				break

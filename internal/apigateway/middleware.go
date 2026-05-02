@@ -3,10 +3,9 @@ package apigateway
 import (
 	"context"
 
-	"github.com/yuisofull/goload/internal/auth"
-
 	"github.com/go-kit/kit/endpoint"
 
+	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/errors"
 )
 
@@ -24,7 +23,7 @@ type AuthMiddleware struct {
 // NewAuthMiddleware creates a new authentication middleware
 func NewAuthMiddleware(tokenValidator auth.SessionValidator) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (interface{}, error) {
+		return func(ctx context.Context, request any) (any, error) {
 			token, ok := ctx.Value(tokenKey).(string)
 			if !ok || token == "" {
 				return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "missing or invalid token"}
@@ -47,7 +46,7 @@ func NewAuthMiddleware(tokenValidator auth.SessionValidator) endpoint.Middleware
 // is not required.
 func NewNoAuthMiddleware(accountID uint64) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (interface{}, error) {
+		return func(ctx context.Context, request any) (any, error) {
 			ctx = context.WithValue(ctx, accountIDKey, accountID)
 			return next(ctx, request)
 		}

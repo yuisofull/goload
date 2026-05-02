@@ -4,29 +4,33 @@ import (
 	"context"
 	"errors"
 
-	"github.com/go-kit/log/level"
-	authendpoint "github.com/yuisofull/goload/internal/auth/endpoint"
-	internalerrors "github.com/yuisofull/goload/internal/errors"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/transport"
 	grpctransport "github.com/go-kit/kit/transport/grpc"
-	"github.com/yuisofull/goload/internal/auth"
-	pb "github.com/yuisofull/goload/internal/auth/pb"
+	"github.com/go-kit/log/level"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/yuisofull/goload/internal/auth"
+	authendpoint "github.com/yuisofull/goload/internal/auth/endpoint"
+	pb "github.com/yuisofull/goload/internal/auth/pb"
+	internalerrors "github.com/yuisofull/goload/internal/errors"
 )
 
 type grpcServer struct {
 	pb.UnimplementedAuthServiceServer
+
 	createAccount grpctransport.Handler
 	createSession grpctransport.Handler
 	verifySession grpctransport.Handler
 }
 
 // CreateAccount implements the gRPC CreateAccount method
-func (s *grpcServer) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.CreateAccountResponse, error) {
+func (s *grpcServer) CreateAccount(
+	ctx context.Context,
+	req *pb.CreateAccountRequest,
+) (*pb.CreateAccountResponse, error) {
 	_, resp, err := s.createAccount.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, encodeError(ctx, err)
@@ -35,7 +39,10 @@ func (s *grpcServer) CreateAccount(ctx context.Context, req *pb.CreateAccountReq
 }
 
 // CreateSession implements the gRPC CreateSession method
-func (s *grpcServer) CreateSession(ctx context.Context, req *pb.CreateSessionRequest) (*pb.CreateSessionResponse, error) {
+func (s *grpcServer) CreateSession(
+	ctx context.Context,
+	req *pb.CreateSessionRequest,
+) (*pb.CreateSessionResponse, error) {
 	ctx, resp, err := s.createSession.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, encodeError(ctx, err)
@@ -44,7 +51,10 @@ func (s *grpcServer) CreateSession(ctx context.Context, req *pb.CreateSessionReq
 }
 
 // VerifySession implements the gRPC VerifySession method
-func (s *grpcServer) VerifySession(ctx context.Context, req *pb.VerifySessionRequest) (*pb.VerifySessionResponse, error) {
+func (s *grpcServer) VerifySession(
+	ctx context.Context,
+	req *pb.VerifySessionRequest,
+) (*pb.VerifySessionResponse, error) {
 	_, resp, err := s.verifySession.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, encodeError(ctx, err)
@@ -135,35 +145,35 @@ func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) auth.Service {
 // Server-side decode functions (protobuf -> endpoint types)
 
 // decodeCreateAccountRequest converts protobuf CreateAccountRequest to endpoint CreateAccountRequest
-func decodeCreateAccountRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeCreateAccountRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.CreateAccountRequest)
 	return &authendpoint.CreateAccountRequest{
-		AccountName: req.AccountName,
-		Password:    req.Password,
+		AccountName: req.GetAccountName(),
+		Password:    req.GetPassword(),
 	}, nil
 }
 
 // decodeCreateSessionRequest converts protobuf CreateSessionRequest to endpoint CreateSessionRequest
-func decodeCreateSessionRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeCreateSessionRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.CreateSessionRequest)
 	return &authendpoint.CreateSessionRequest{
-		AccountName: req.AccountName,
-		Password:    req.Password,
+		AccountName: req.GetAccountName(),
+		Password:    req.GetPassword(),
 	}, nil
 }
 
 // decodeVerifySessionRequest converts protobuf VerifySessionRequest to endpoint VerifyTokenRequest
-func decodeVerifySessionRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeVerifySessionRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.VerifySessionRequest)
 	return &authendpoint.VerifyTokenRequest{
-		Token: req.Token,
+		Token: req.GetToken(),
 	}, nil
 }
 
 // Server-side encode functions (endpoint types -> protobuf)
 
 // encodeCreateAccountResponse converts endpoint CreateAccountResponse to protobuf CreateAccountResponse
-func encodeCreateAccountResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeCreateAccountResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*authendpoint.CreateAccountResponse)
 	return &pb.CreateAccountResponse{
 		AccountId: resp.AccountId,
@@ -171,13 +181,13 @@ func encodeCreateAccountResponse(_ context.Context, response interface{}) (inter
 }
 
 // encodeCreateSessionResponse converts endpoint CreateSessionResponse to protobuf CreateSessionResponse
-func encodeCreateSessionResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeCreateSessionResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*authendpoint.CreateSessionResponse)
 	var pbAcct *pb.Account
 	if resp.Account != nil {
 		pbAcct = &pb.Account{
-			Id:          resp.Account.Id,
-			AccountName: resp.Account.AccountName,
+			Id:          resp.Account.GetId(),
+			AccountName: resp.Account.GetAccountName(),
 		}
 	}
 	return &pb.CreateSessionResponse{
@@ -187,7 +197,7 @@ func encodeCreateSessionResponse(_ context.Context, response interface{}) (inter
 }
 
 // encodeVerifySessionResponse converts endpoint VerifyTokenResponse to protobuf VerifySessionResponse
-func encodeVerifySessionResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeVerifySessionResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*authendpoint.VerifyTokenResponse)
 	return &pb.VerifySessionResponse{
 		AccountId: resp.AccountId,
@@ -197,7 +207,7 @@ func encodeVerifySessionResponse(_ context.Context, response interface{}) (inter
 // Client-side encode functions (endpoint types -> protobuf)
 
 // encodeCreateAccountRequest converts endpoint CreateAccountRequest to protobuf CreateAccountRequest
-func encodeCreateAccountRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeCreateAccountRequest(_ context.Context, request any) (any, error) {
 	req := request.(*authendpoint.CreateAccountRequest)
 	return &pb.CreateAccountRequest{
 		AccountName: req.AccountName,
@@ -206,7 +216,7 @@ func encodeCreateAccountRequest(_ context.Context, request interface{}) (interfa
 }
 
 // encodeCreateSessionRequest converts endpoint CreateSessionRequest to protobuf CreateSessionRequest
-func encodeCreateSessionRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeCreateSessionRequest(_ context.Context, request any) (any, error) {
 	req := request.(*authendpoint.CreateSessionRequest)
 	return &pb.CreateSessionRequest{
 		AccountName: req.AccountName,
@@ -215,7 +225,7 @@ func encodeCreateSessionRequest(_ context.Context, request interface{}) (interfa
 }
 
 // encodeVerifySessionRequest converts endpoint VerifyTokenRequest to protobuf VerifySessionRequest
-func encodeVerifySessionRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeVerifySessionRequest(_ context.Context, request any) (any, error) {
 	req := request.(*authendpoint.VerifyTokenRequest)
 	return &pb.VerifySessionRequest{
 		Token: req.Token,
@@ -225,33 +235,33 @@ func encodeVerifySessionRequest(_ context.Context, request interface{}) (interfa
 // Client-side decode functions (protobuf -> endpoint types)
 
 // decodeCreateAccountResponse converts protobuf CreateAccountResponse to endpoint CreateAccountResponse
-func decodeCreateAccountResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeCreateAccountResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.CreateAccountResponse)
 	return &authendpoint.CreateAccountResponse{
-		AccountId: resp.AccountId,
+		AccountId: resp.GetAccountId(),
 	}, nil
 }
 
 // decodeCreateSessionResponse converts protobuf CreateSessionResponse to endpoint CreateSessionResponse
-func decodeCreateSessionResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeCreateSessionResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.CreateSessionResponse)
 	var acct *pb.Account
-	if resp.Account != nil {
+	if resp.GetAccount() != nil {
 		acct = &pb.Account{
-			Id:          resp.Account.Id,
-			AccountName: resp.Account.AccountName,
+			Id:          resp.GetAccount().GetId(),
+			AccountName: resp.GetAccount().GetAccountName(),
 		}
 	}
 	return &authendpoint.CreateSessionResponse{
-		Token:   resp.Token,
+		Token:   resp.GetToken(),
 		Account: acct,
 	}, nil
 }
 
 // decodeVerifySessionResponse converts protobuf VerifySessionResponse to endpoint VerifyTokenResponse
-func decodeVerifySessionResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeVerifySessionResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.VerifySessionResponse)
 	return &authendpoint.VerifyTokenResponse{
-		AccountId: resp.AccountId,
+		AccountId: resp.GetAccountId(),
 	}, nil
 }

@@ -42,9 +42,11 @@ func (r *fakeRepo) Update(ctx context.Context, task *Task) (*Task, error) {
 	r.updated = task
 	return task, nil
 }
+
 func (r *fakeRepo) ListByAccountID(ctx context.Context, filter TaskFilter, limit, offset uint32) ([]*Task, error) {
 	return r.listed, nil
 }
+
 func (r *fakeRepo) GetTaskCountOfAccount(ctx context.Context, ofAccountID uint64) (uint64, error) {
 	return r.count, nil
 }

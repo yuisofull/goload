@@ -7,6 +7,7 @@ import (
 
 	sqlite "github.com/go-llsqlite/crawshaw"
 	"github.com/go-llsqlite/crawshaw/sqlitex"
+
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/storage"
 	task "github.com/yuisofull/goload/internal/task"
@@ -49,25 +50,28 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) (*task.Task, error)
 	}
 
 	err := r.withConn(ctx, func(conn *sqlite.Conn) error {
-		err := sqlitex.Execute(conn, `INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
+		err := sqlitex.Execute(
+			conn,
+			`INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
                    storage_type, storage_path, status,
                    checksum_type, checksum_value,
                    concurrency, max_speed, max_retries, timeout, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`, &sqlitex.ExecOptions{
-			Args: []any{
-				t.OfAccountID, t.FileName, t.SourceURL, string(t.SourceType), sourceAuth, headers,
-				string(t.StorageType), t.StoragePath, string(t.Status),
-				getChecksumType(t), getChecksumValue(t),
-				getConcurrency(t), getMaxSpeed(t), getMaxRetries(t), getTimeout(t), metadata,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+			&sqlitex.ExecOptions{
+				Args: []any{
+					t.OfAccountID, t.FileName, t.SourceURL, string(t.SourceType), sourceAuth, headers,
+					string(t.StorageType), t.StoragePath, string(t.Status),
+					getChecksumType(t), getChecksumValue(t),
+					getConcurrency(t), getMaxSpeed(t), getMaxRetries(t), getTimeout(t), metadata,
+				},
 			},
-		})
+		)
 		if err != nil {
 			return err
 		}
 		t.ID = uint64(conn.LastInsertRowID())
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -82,49 +86,85 @@ func (r *taskRepo) updateInternal(ctx context.Context, t *task.Task) (*task.Task
 	err := r.withConn(ctx, func(conn *sqlite.Conn) error {
 		if t.Progress != nil {
 			if t.Progress.Progress > 0 {
-				if err := sqlitex.Execute(conn, `UPDATE tasks SET progress = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{t.Progress.Progress, t.ID}}); err != nil {
+				if err := sqlitex.Execute(
+					conn,
+					`UPDATE tasks SET progress = ? WHERE id = ?`,
+					&sqlitex.ExecOptions{Args: []any{t.Progress.Progress, t.ID}},
+				); err != nil {
 					return err
 				}
 			}
 			if t.Progress.TotalBytes > 0 {
-				if err := sqlitex.Execute(conn, `UPDATE tasks SET total_bytes = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{t.Progress.TotalBytes, t.ID}}); err != nil {
+				if err := sqlitex.Execute(
+					conn,
+					`UPDATE tasks SET total_bytes = ? WHERE id = ?`,
+					&sqlitex.ExecOptions{Args: []any{t.Progress.TotalBytes, t.ID}},
+				); err != nil {
 					return err
 				}
 			}
 			if t.Progress.DownloadedBytes > 0 {
-				if err := sqlitex.Execute(conn, `UPDATE tasks SET downloaded_bytes = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{t.Progress.DownloadedBytes, t.ID}}); err != nil {
+				if err := sqlitex.Execute(
+					conn,
+					`UPDATE tasks SET downloaded_bytes = ? WHERE id = ?`,
+					&sqlitex.ExecOptions{Args: []any{t.Progress.DownloadedBytes, t.ID}},
+				); err != nil {
 					return err
 				}
 			}
 		}
 		if t.FileName != "" {
-			if err := sqlitex.Execute(conn, `UPDATE tasks SET file_name = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{t.FileName, t.ID}}); err != nil {
+			if err := sqlitex.Execute(
+				conn,
+				`UPDATE tasks SET file_name = ? WHERE id = ?`,
+				&sqlitex.ExecOptions{Args: []any{t.FileName, t.ID}},
+			); err != nil {
 				return err
 			}
 		}
 		if t.Status != "" {
-			if err := sqlitex.Execute(conn, `UPDATE tasks SET status = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{string(t.Status), t.ID}}); err != nil {
+			if err := sqlitex.Execute(
+				conn,
+				`UPDATE tasks SET status = ? WHERE id = ?`,
+				&sqlitex.ExecOptions{Args: []any{string(t.Status), t.ID}},
+			); err != nil {
 				return err
 			}
 		}
 		if t.CompletedAt != nil {
-			if err := sqlitex.Execute(conn, `UPDATE tasks SET completed_at = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{t.CompletedAt.Format(time.RFC3339), t.ID}}); err != nil {
+			if err := sqlitex.Execute(
+				conn,
+				`UPDATE tasks SET completed_at = ? WHERE id = ?`,
+				&sqlitex.ExecOptions{Args: []any{t.CompletedAt.Format(time.RFC3339), t.ID}},
+			); err != nil {
 				return err
 			}
 		}
 		if t.ErrorMessage != nil && *t.ErrorMessage != "" {
-			if err := sqlitex.Execute(conn, `UPDATE tasks SET error_message = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{*t.ErrorMessage, t.ID}}); err != nil {
+			if err := sqlitex.Execute(
+				conn,
+				`UPDATE tasks SET error_message = ? WHERE id = ?`,
+				&sqlitex.ExecOptions{Args: []any{*t.ErrorMessage, t.ID}},
+			); err != nil {
 				return err
 			}
 		}
 		if t.StorageType != "" || t.StoragePath != "" {
-			if err := sqlitex.Execute(conn, `UPDATE tasks SET storage_type = ?, storage_path = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{string(t.StorageType), t.StoragePath, t.ID}}); err != nil {
+			if err := sqlitex.Execute(
+				conn,
+				`UPDATE tasks SET storage_type = ?, storage_path = ? WHERE id = ?`,
+				&sqlitex.ExecOptions{Args: []any{string(t.StorageType), t.StoragePath, t.ID}},
+			); err != nil {
 				return err
 			}
 		}
 		if t.Metadata != nil {
 			metadata, _ := json.Marshal(t.Metadata)
-			if err := sqlitex.Execute(conn, `UPDATE tasks SET metadata = ? WHERE id = ?`, &sqlitex.ExecOptions{Args: []any{metadata, t.ID}}); err != nil {
+			if err := sqlitex.Execute(
+				conn,
+				`UPDATE tasks SET metadata = ? WHERE id = ?`,
+				&sqlitex.ExecOptions{Args: []any{metadata, t.ID}},
+			); err != nil {
 				return err
 			}
 		}
@@ -157,20 +197,28 @@ func (r *taskRepo) GetByID(ctx context.Context, id uint64) (*task.Task, error) {
 	return t, nil
 }
 
-func (r *taskRepo) ListByAccountID(ctx context.Context, filter task.TaskFilter, limit, offset uint32) ([]*task.Task, error) {
+func (r *taskRepo) ListByAccountID(
+	ctx context.Context,
+	filter task.TaskFilter,
+	limit, offset uint32,
+) ([]*task.Task, error) {
 	var tasks []*task.Task
 	err := r.withConn(ctx, func(conn *sqlite.Conn) error {
-		return sqlitex.Execute(conn, `SELECT * FROM tasks WHERE of_account_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, &sqlitex.ExecOptions{
-			Args: []any{filter.OfAccountID, int64(limit), int64(offset)},
-			ResultFunc: func(stmt *sqlite.Stmt) error {
-				t, err := scanTask(stmt)
-				if err != nil {
-					return err
-				}
-				tasks = append(tasks, t)
-				return nil
+		return sqlitex.Execute(
+			conn,
+			`SELECT * FROM tasks WHERE of_account_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+			&sqlitex.ExecOptions{
+				Args: []any{filter.OfAccountID, int64(limit), int64(offset)},
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					t, err := scanTask(stmt)
+					if err != nil {
+						return err
+					}
+					tasks = append(tasks, t)
+					return nil
+				},
 			},
-		})
+		)
 	})
 	if err != nil {
 		return nil, err
@@ -210,7 +258,7 @@ func scanTask(stmt *sqlite.Stmt) (*task.Task, error) {
 	t.FileName = stmt.ColumnText(cols["file_name"])
 	t.SourceURL = stmt.ColumnText(cols["source_url"])
 	t.SourceType = task.SourceType(stmt.ColumnText(cols["source_type"]))
-	
+
 	sourceAuthBytes := make([]byte, stmt.ColumnLen(cols["source_auth"]))
 	stmt.ColumnBytes(cols["source_auth"], sourceAuthBytes)
 	json.Unmarshal(sourceAuthBytes, &t.SourceAuth)

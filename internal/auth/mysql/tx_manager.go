@@ -3,6 +3,7 @@ package authmysql
 import (
 	"context"
 	"database/sql"
+
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
 )

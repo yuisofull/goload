@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+
 	"github.com/yuisofull/goload/internal/download"
 	internalerrors "github.com/yuisofull/goload/internal/errors"
 )
@@ -72,7 +73,10 @@ func (m *loggingMiddleware) CancelTask(ctx context.Context, taskID uint64) error
 	return err
 }
 
-func (m *loggingMiddleware) StreamFile(ctx context.Context, req download.FileStreamRequest) (*download.FileStreamResponse, error) {
+func (m *loggingMiddleware) StreamFile(
+	ctx context.Context,
+	req download.FileStreamRequest,
+) (*download.FileStreamResponse, error) {
 	start := time.Now()
 	resp, err := m.next.StreamFile(ctx, req)
 	m.logErr("StreamFile", time.Since(start), err)

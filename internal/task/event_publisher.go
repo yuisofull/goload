@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/yuisofull/goload/internal/events"
 	"github.com/yuisofull/goload/pkg/message"
 )

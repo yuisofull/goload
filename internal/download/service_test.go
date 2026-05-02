@@ -54,7 +54,12 @@ func (d *fakeDownloader) GetFileInfo(ctx context.Context, rawURL string, auth *A
 	}, nil
 }
 
-func (d *fakeDownloader) Download(ctx context.Context, rawURL string, auth *AuthConfig, opts DownloadOptions) (io.ReadCloser, int64, error) {
+func (d *fakeDownloader) Download(
+	ctx context.Context,
+	rawURL string,
+	auth *AuthConfig,
+	opts DownloadOptions,
+) (io.ReadCloser, int64, error) {
 	d.downloads++
 	return io.NopCloser(strings.NewReader("content")), int64(len("content")), nil
 }

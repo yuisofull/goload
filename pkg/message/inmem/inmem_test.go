@@ -1,19 +1,18 @@
 package inmem
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/go-kit/log"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/yuisofull/goload/pkg/message"
 )
 
 func TestPublishSubscribe_Ack(t *testing.T) {
 	pub, sub := NewPublisherAndSubscriber(log.NewNopLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	ch, err := sub.Subscribe(ctx, "topic1")
 	if err != nil {
@@ -42,8 +41,7 @@ func TestPublishSubscribe_Ack(t *testing.T) {
 
 func TestPublishSubscribe_NackRedeliver(t *testing.T) {
 	pub, sub := NewPublisherAndSubscriber(log.NewNopLogger())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	ch, err := sub.Subscribe(ctx, "topic2")
 	if err != nil {

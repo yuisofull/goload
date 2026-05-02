@@ -8,14 +8,14 @@ import (
 )
 
 type CreateTaskParam struct {
-	ID              uint64           `json:"id"`
-	OfAccountID     uint64           `json:"of_account_id"`
-	FileName        string           `json:"file_name"`
-	SourceURL       string           `json:"source_url"`
-	SourceType      SourceType       `json:"source_type"`
-	SourceAuth      *AuthConfig      `json:"source_auth,omitempty"`
-	Checksum        *ChecksumInfo    `json:"checksum,omitempty"`
-	Metadata        map[string]any   `json:"metadata,omitempty"`
+	ID          uint64         `json:"id"`
+	OfAccountID uint64         `json:"of_account_id"`
+	FileName    string         `json:"file_name"`
+	SourceURL   string         `json:"source_url"`
+	SourceType  SourceType     `json:"source_type"`
+	SourceAuth  *AuthConfig    `json:"source_auth,omitempty"`
+	Checksum    *ChecksumInfo  `json:"checksum,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type UpdateTaskParam struct {
@@ -127,10 +127,10 @@ type DownloadProgress struct {
 
 // DownloadOptions configures download behavior
 type DownloadOptions struct {
-	Concurrency int    `json:"concurrency" db:"concurrency"`
+	Concurrency int    `json:"concurrency"         db:"concurrency"`
 	MaxSpeed    *int64 `json:"max_speed,omitempty" db:"max_speed"`
-	MaxRetries  int    `json:"max_retries" db:"max_retries"`
-	Timeout     *int   `json:"timeout,omitempty" db:"timeout"`
+	MaxRetries  int    `json:"max_retries"         db:"max_retries"`
+	Timeout     *int   `json:"timeout,omitempty"   db:"timeout"`
 }
 
 // AuthConfig for authenticated sources

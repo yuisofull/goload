@@ -17,6 +17,7 @@ import (
 
 type grpcServer struct {
 	pb.UnimplementedTaskServiceServer
+
 	createTask            grpctransport.Handler
 	getTask               grpctransport.Handler
 	listTasks             grpctransport.Handler
@@ -354,275 +355,275 @@ func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {
 }
 
 // Server-side decoders
-func decodeCreateTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeCreateTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.CreateTaskRequest)
 	return (*taskendpoint.CreateTaskRequest)(req), nil
 }
 
-func decodeGetTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeGetTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.GetTaskRequest)
 	return (*taskendpoint.GetTaskRequest)(req), nil
 }
 
-func decodeUpdateTaskStoragePathRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeUpdateTaskStoragePathRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.UpdateTaskStoragePathRequest)
 	return (*taskendpoint.UpdateTaskStoragePathRequest)(req), nil
 }
 
-func decodeUpdateTaskStatusRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeUpdateTaskStatusRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.UpdateTaskStatusRequest)
 	return (*taskendpoint.UpdateTaskStatusRequest)(req), nil
 }
 
-func decodeUpdateTaskProgressRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeUpdateTaskProgressRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.UpdateTaskProgressRequest)
 	return (*taskendpoint.UpdateTaskProgressRequest)(req), nil
 }
 
-func decodeUpdateTaskErrorRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeUpdateTaskErrorRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.UpdateTaskErrorRequest)
 	return (*taskendpoint.UpdateTaskErrorRequest)(req), nil
 }
 
-func decodeCompleteTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeCompleteTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.CompleteTaskRequest)
 	return (*taskendpoint.CompleteTaskRequest)(req), nil
 }
 
-func decodeListTasksRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeListTasksRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.ListTasksRequest)
 	return (*taskendpoint.ListTasksRequest)(req), nil
 }
 
-func decodeDeleteTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeDeleteTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.DeleteTaskRequest)
 	return (*taskendpoint.DeleteTaskRequest)(req), nil
 }
 
-func decodePauseTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodePauseTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.PauseTaskRequest)
 	return (*taskendpoint.PauseTaskRequest)(req), nil
 }
 
-func decodeResumeTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeResumeTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.ResumeTaskRequest)
 	return (*taskendpoint.ResumeTaskRequest)(req), nil
 }
 
-func decodeCancelTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeCancelTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.CancelTaskRequest)
 	return (*taskendpoint.CancelTaskRequest)(req), nil
 }
 
-func decodeRetryTaskRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeRetryTaskRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.RetryTaskRequest)
 	return (*taskendpoint.RetryTaskRequest)(req), nil
 }
 
-func decodeCheckFileExistsRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeCheckFileExistsRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.CheckFileExistsRequest)
-	return &taskendpoint.CheckFileExistsRequest{TaskId: req.TaskId}, nil
+	return &taskendpoint.CheckFileExistsRequest{TaskId: req.GetTaskId()}, nil
 }
 
-func decodeGetTaskProgressRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeGetTaskProgressRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.GetTaskProgressRequest)
 	return (*taskendpoint.GetTaskProgressRequest)(req), nil
 }
 
-func decodeUpdateTaskChecksumRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeUpdateTaskChecksumRequest(_ context.Context, grpcReq any) (any, error) {
 	return grpcReq.(*pb.UpdateTaskChecksumRequest), nil
 }
 
-func decodeUpdateTaskMetadataRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeUpdateTaskMetadataRequest(_ context.Context, grpcReq any) (any, error) {
 	return grpcReq.(*pb.UpdateTaskMetadataRequest), nil
 }
 
 // Server-side encoders
-func encodeTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeTaskResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.TaskResponse)
 	return (*pb.TaskResponse)(resp), nil
 }
 
-func encodeListTasksResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeListTasksResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.ListTasksResponse)
 	return (*pb.ListTasksResponse)(resp), nil
 }
 
-func encodeDeleteTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeDeleteTaskResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.DeleteTaskResponse)
 	return (*pb.DeleteTaskResponse)(resp), nil
 }
 
-func encodePauseTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodePauseTaskResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.PauseTaskResponse)
 	return (*pb.PauseTaskResponse)(resp), nil
 }
 
-func encodeResumeTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeResumeTaskResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.ResumeTaskResponse)
 	return (*pb.ResumeTaskResponse)(resp), nil
 }
 
-func encodeCancelTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeCancelTaskResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.CancelTaskResponse)
 	return (*pb.CancelTaskResponse)(resp), nil
 }
 
-func encodeRetryTaskResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeRetryTaskResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.RetryTaskResponse)
 	return (*pb.RetryTaskResponse)(resp), nil
 }
 
-func encodeCheckFileExistsResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeCheckFileExistsResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.CheckFileExistsResponse)
 	return &pb.CheckFileExistsResponse{Exists: resp.Exists}, nil
 }
 
-func encodeGetTaskProgressResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeGetTaskProgressResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.GetTaskProgressResponse)
 	return (*pb.GetTaskProgressResponse)(resp), nil
 }
 
 // Client-side encoders
-func encodeCreateTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeCreateTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.CreateTaskRequest)
 	return (*pb.CreateTaskRequest)(req), nil
 }
 
-func encodeGetTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeGetTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.GetTaskRequest)
 	return (*pb.GetTaskRequest)(req), nil
 }
 
-func encodeUpdateTaskStoragePathRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeUpdateTaskStoragePathRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.UpdateTaskStoragePathRequest)
 	return (*pb.UpdateTaskStoragePathRequest)(req), nil
 }
 
-func encodeUpdateTaskStatusRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeUpdateTaskStatusRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.UpdateTaskStatusRequest)
 	return (*pb.UpdateTaskStatusRequest)(req), nil
 }
 
-func encodeUpdateTaskProgressRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeUpdateTaskProgressRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.UpdateTaskProgressRequest)
 	return (*pb.UpdateTaskProgressRequest)(req), nil
 }
 
-func encodeUpdateTaskErrorRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeUpdateTaskErrorRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.UpdateTaskErrorRequest)
 	return (*pb.UpdateTaskErrorRequest)(req), nil
 }
 
-func encodeCompleteTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeCompleteTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.CompleteTaskRequest)
 	return (*pb.CompleteTaskRequest)(req), nil
 }
 
-func encodeListTasksRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeListTasksRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.ListTasksRequest)
 	return (*pb.ListTasksRequest)(req), nil
 }
 
-func encodeDeleteTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeDeleteTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.DeleteTaskRequest)
 	return (*pb.DeleteTaskRequest)(req), nil
 }
 
-func encodePauseTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodePauseTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.PauseTaskRequest)
 	return (*pb.PauseTaskRequest)(req), nil
 }
 
-func encodeResumeTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeResumeTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.ResumeTaskRequest)
 	return (*pb.ResumeTaskRequest)(req), nil
 }
 
-func encodeCancelTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeCancelTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.CancelTaskRequest)
 	return (*pb.CancelTaskRequest)(req), nil
 }
 
-func encodeRetryTaskRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeRetryTaskRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.RetryTaskRequest)
 	return (*pb.RetryTaskRequest)(req), nil
 }
 
-func encodeCheckFileExistsRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeCheckFileExistsRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.CheckFileExistsRequest)
 	return (*pb.CheckFileExistsRequest)(req), nil
 }
 
-func encodeGetTaskProgressRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeGetTaskProgressRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.GetTaskProgressRequest)
 	return (*pb.GetTaskProgressRequest)(req), nil
 }
 
 // Client-side decoders
-func decodeTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeTaskResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.TaskResponse)
 	return (*taskendpoint.TaskResponse)(resp), nil
 }
 
-func decodeListTasksResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeListTasksResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.ListTasksResponse)
 	return (*taskendpoint.ListTasksResponse)(resp), nil
 }
 
-func decodeDeleteTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeDeleteTaskResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.DeleteTaskResponse)
 	return (*taskendpoint.DeleteTaskResponse)(resp), nil
 }
 
-func decodePauseTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodePauseTaskResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.PauseTaskResponse)
 	return (*taskendpoint.PauseTaskResponse)(resp), nil
 }
 
-func decodeResumeTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeResumeTaskResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.ResumeTaskResponse)
 	return (*taskendpoint.ResumeTaskResponse)(resp), nil
 }
 
-func decodeCancelTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeCancelTaskResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.CancelTaskResponse)
 	return (*taskendpoint.CancelTaskResponse)(resp), nil
 }
 
-func decodeRetryTaskResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeRetryTaskResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.RetryTaskResponse)
 	return (*taskendpoint.RetryTaskResponse)(resp), nil
 }
 
-func decodeCheckFileExistsResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeCheckFileExistsResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.CheckFileExistsResponse)
 	return (*taskendpoint.CheckFileExistsResponse)(resp), nil
 }
 
-func decodeGetTaskProgressResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeGetTaskProgressResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.GetTaskProgressResponse)
 	return (*taskendpoint.GetTaskProgressResponse)(resp), nil
 }
 
 // GenerateDownloadURL server-side decoder/encoder
-func decodeGenerateDownloadURLRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
+func decodeGenerateDownloadURLRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*pb.GenerateDownloadURLRequest)
 	return (*taskendpoint.GenerateDownloadURLRequest)(req), nil
 }
 
-func encodeGenerateDownloadURLResponse(_ context.Context, response interface{}) (interface{}, error) {
+func encodeGenerateDownloadURLResponse(_ context.Context, response any) (any, error) {
 	resp := response.(*taskendpoint.GenerateDownloadURLResponse)
 	return (*pb.GenerateDownloadURLResponse)(resp), nil
 }
 
 // GenerateDownloadURL client-side encoder/decoder
-func encodeGenerateDownloadURLRequest(_ context.Context, request interface{}) (interface{}, error) {
+func encodeGenerateDownloadURLRequest(_ context.Context, request any) (any, error) {
 	req := request.(*taskendpoint.GenerateDownloadURLRequest)
 	return (*pb.GenerateDownloadURLRequest)(req), nil
 }
 
-func decodeGenerateDownloadURLResponse(_ context.Context, grpcResp interface{}) (interface{}, error) {
+func decodeGenerateDownloadURLResponse(_ context.Context, grpcResp any) (any, error) {
 	resp := grpcResp.(*pb.GenerateDownloadURLResponse)
 	return (*taskendpoint.GenerateDownloadURLResponse)(resp), nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	stderrors "errors"
+
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
 	"github.com/yuisofull/goload/internal/errors"
@@ -41,7 +42,10 @@ func (a *accountPasswordStore) UpdateAccountPassword(ctx context.Context, accoun
 	})
 }
 
-func (a *accountPasswordStore) GetAccountPassword(ctx context.Context, ofAccountID uint64) (auth.AccountPassword, error) {
+func (a *accountPasswordStore) GetAccountPassword(
+	ctx context.Context,
+	ofAccountID uint64,
+) (auth.AccountPassword, error) {
 	q := a.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)

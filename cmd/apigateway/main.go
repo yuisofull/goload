@@ -131,7 +131,8 @@ func main() {
 		pathTemplate, _ := route.GetPathTemplate()
 		methods, _ := route.GetMethods()
 		if pathTemplate != "" {
-			level.Info(logger).Log("msg", "API endpoint registered", "methods", strings.Join(methods, ","), "path", pathTemplate)
+			level.Info(logger).
+				Log("msg", "API endpoint registered", "methods", strings.Join(methods, ","), "path", pathTemplate)
 		}
 		return nil
 	})

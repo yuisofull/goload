@@ -3,12 +3,11 @@ package auth
 import (
 	"context"
 	"errors"
+
 	"github.com/yuisofull/goload/pkg/crypto"
 )
 
-var (
-	ErrInvalidPassword = errors.New("invalid password")
-)
+var ErrInvalidPassword = errors.New("invalid password")
 
 type passwordHasher struct {
 	hasher crypto.Hasher

@@ -207,7 +207,8 @@ func (h *HTTPDownloader) Download(
 ) (io.ReadCloser, int64, error) {
 	if opts.Concurrency > 1 {
 		meta, err := h.GetFileInfo(ctx, rawURL, auth)
-		if err == nil && meta.FileSize > 0 && strings.Contains(strings.ToLower(meta.Headers["Accept-Ranges"]), "bytes") {
+		if err == nil && meta.FileSize > 0 &&
+			strings.Contains(strings.ToLower(meta.Headers["Accept-Ranges"]), "bytes") {
 			return h.downloadParallel(ctx, rawURL, auth, opts, meta.FileSize)
 		}
 	}
@@ -229,7 +230,7 @@ func (h *HTTPDownloader) Download(
 		return nil, 0, fmt.Errorf("GET %s: unexpected status %s", rawURL, resp.Status)
 	}
 
-	var reader io.ReadCloser = resp.Body
+	reader := resp.Body
 
 	// Wrap with a rate-limiter when MaxSpeed is configured.
 	if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
@@ -290,7 +291,7 @@ func (h *HTTPDownloader) downloadParallel(
 	if resp.StatusCode == http.StatusOK {
 		level.Debug(h.logger).Log("msg", "server ignored range header, falling back to sequential download")
 		// Server ignored Range header, fallback to normal download
-		var reader io.ReadCloser = resp.Body
+		reader := resp.Body
 		if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
 			reader = newRateLimitedReader(ctx, resp.Body, *opts.MaxSpeed)
 		}
@@ -329,10 +330,8 @@ func (h *HTTPDownloader) downloadParallel(
 	cancelCtx, cancel := context.WithCancel(ctx)
 
 	var wg sync.WaitGroup
-	for i := 0; i < opts.Concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range opts.Concurrency {
+		wg.Go(func() {
 			for job := range jobs {
 				level.Debug(h.logger).Log(
 					"msg", "starting chunk download",
@@ -420,7 +419,7 @@ func (h *HTTPDownloader) downloadParallel(
 
 				results <- chunkResult{index: job.index, data: data}
 			}
-		}()
+		})
 	}
 
 	go func() {

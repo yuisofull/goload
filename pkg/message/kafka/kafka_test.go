@@ -5,20 +5,16 @@ import (
 	"testing"
 	"time"
 
-	tckafka "github.com/testcontainers/testcontainers-go/modules/kafka"
-
-	"github.com/yuisofull/goload/pkg/message/kafka"
-
-	"github.com/yuisofull/goload/pkg/message"
-
 	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tckafka "github.com/testcontainers/testcontainers-go/modules/kafka"
+
+	"github.com/yuisofull/goload/pkg/message"
+	"github.com/yuisofull/goload/pkg/message/kafka"
 )
 
-var (
-	version = sarama.V4_0_0_0
-)
+var version = sarama.V4_0_0_0
 
 // startKafka starts a Kafka container and returns the broker address and a cleanup function.
 func startKafka(t *testing.T) (brokers []string, cleanup func()) {
@@ -190,7 +186,7 @@ func TestNackRedelivery(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	//require.NoError(t, sub.SubscribeInitialize(topic))
+	// require.NoError(t, sub.SubscribeInitialize(topic))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

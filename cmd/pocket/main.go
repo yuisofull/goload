@@ -88,7 +88,13 @@ func main() {
 	tokenManager := auth.NewNoopTokenManager(24 * time.Hour)
 
 	// Auth service
-	authSvc := auth.NewService(authStore.AccountStore, authStore.AccountPasswordStore, authStore.TxManager, hasher, tokenManager)
+	authSvc := auth.NewService(
+		authStore.AccountStore,
+		authStore.AccountPasswordStore,
+		authStore.TxManager,
+		hasher,
+		tokenManager,
+	)
 
 	// Task service: use in-memory pubsub publisher
 	taskPub := task.NewEventPublisher(pub)
@@ -146,7 +152,10 @@ func main() {
 			// set an empty password (not used) so other code expecting a password won't fail
 			hashed, err := hasher.Hash(ctx, "")
 			must(err)
-			_ = authStore.AccountPasswordStore.CreateAccountPassword(ctx, &auth.AccountPassword{OfAccountId: id, HashedPassword: hashed})
+			_ = authStore.AccountPasswordStore.CreateAccountPassword(
+				ctx,
+				&auth.AccountPassword{OfAccountId: id, HashedPassword: hashed},
+			)
 			defaultAccountID = id
 		}
 	}
@@ -154,49 +163,52 @@ func main() {
 	authMiddleware := apigateway.NewNoAuthMiddleware(defaultAccountID)
 	endpoints := apigateway.NewGatewayEndpoints(taskSvc, authMiddleware, authSvc)
 	handler := apigateway.NewHTTPHandlerWithDownload(endpoints, logger, storageBackend, tokenStore)
-	handler.HandleFunc("/api/v1/pocket/tasks/reveal", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	if !cfg.ContainerMode {
+		handler.HandleFunc("/api/v1/pocket/tasks/reveal", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
 
-		idRaw := strings.TrimSpace(r.URL.Query().Get("id"))
-		id, err := strconv.ParseUint(idRaw, 10, 64)
-		if err != nil || id == 0 {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
+			idRaw := strings.TrimSpace(r.URL.Query().Get("id"))
+			id, err := strconv.ParseUint(idRaw, 10, 64)
+			if err != nil || id == 0 {
+				http.Error(w, "invalid task id", http.StatusBadRequest)
+				return
+			}
 
-		t, err := taskSvc.GetTask(r.Context(), id)
-		if err != nil {
-			http.Error(w, "task not found", http.StatusNotFound)
-			return
-		}
-		if t.StoragePath == "" {
-			http.Error(w, "task has no stored file", http.StatusBadRequest)
-			return
-		}
+			t, err := taskSvc.GetTask(r.Context(), id)
+			if err != nil {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			if t.StoragePath == "" {
+				http.Error(w, "task has no stored file", http.StatusBadRequest)
+				return
+			}
 
-		localPath, err := storageBackend.PathForKey(t.StoragePath)
-		if err != nil {
-			http.Error(w, "failed to resolve local path", http.StatusInternalServerError)
-			return
-		}
-		if ok, err := storageBackend.Exists(r.Context(), t.StoragePath); err != nil || !ok {
-			http.Error(w, "stored file not found", http.StatusNotFound)
-			return
-		}
-		if err := revealInFileManager(r.Context(), localPath, logger); err != nil {
-			level.Error(logger).Log("msg", "failed to reveal file", "path", localPath, "err", err)
-			http.Error(w, "failed to open file manager", http.StatusInternalServerError)
-			return
-		}
+			localPath, err := storageBackend.PathForKey(t.StoragePath)
+			if err != nil {
+				http.Error(w, "failed to resolve local path", http.StatusInternalServerError)
+				return
+			}
+			if ok, err := storageBackend.Exists(r.Context(), t.StoragePath); err != nil || !ok {
+				http.Error(w, "stored file not found", http.StatusNotFound)
+				return
+			}
+			if err := revealInFileManager(r.Context(), localPath, logger); err != nil {
+				level.Error(logger).Log("msg", "failed to reveal file", "path", localPath, "err", err)
+				http.Error(w, "failed to open file manager", http.StatusInternalServerError)
+				return
+			}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"path": localPath,
-		})
-	}).Methods(http.MethodPost)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"path": localPath,
+			})
+		}).Methods(http.MethodPost)
+	}
+
 	if cfg.PocketWebDir != "" {
 		handler.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/" {
@@ -237,7 +249,6 @@ func main() {
 	}
 	g.Add(func() error {
 		return taskEventConsumer.Start(ctx)
-
 	}, func(error) {
 	})
 

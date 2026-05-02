@@ -2,10 +2,9 @@ package kafka
 
 import (
 	"github.com/IBM/sarama"
+	"github.com/pkg/errors"
 
 	"github.com/yuisofull/goload/pkg/message"
-
-	"github.com/pkg/errors"
 )
 
 const UUIDHeaderKey = "_watermill_message_uuid"

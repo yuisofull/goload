@@ -41,6 +41,7 @@ func startMinio(t *testing.T) (*storage.Minio, func()) {
 		}
 	}
 }
+
 func TestMinio_StoreAndGet(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -61,6 +62,7 @@ func TestMinio_StoreAndGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, content, string(got))
 }
+
 func TestMinio_GetNonExistent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -71,6 +73,7 @@ func TestMinio_GetNonExistent(t *testing.T) {
 	_, err := backend.Get(ctx, "does/not/exist.txt")
 	assert.Error(t, err, "Get on missing key should return an error")
 }
+
 func TestMinio_Exists(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -90,6 +93,7 @@ func TestMinio_Exists(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists, "key should exist after storing")
 }
+
 func TestMinio_Delete(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -109,6 +113,7 @@ func TestMinio_Delete(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists, "key should not exist after delete")
 }
+
 func TestMinio_GetInfo(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -149,6 +154,7 @@ func TestMinio_GetWithRange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2345", string(got))
 }
+
 func TestMinio_StoreWithNoMetadata(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -167,6 +173,7 @@ func TestMinio_StoreWithNoMetadata(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, data, got)
 }
+
 func TestMinio_PresignGet(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -182,6 +189,7 @@ func TestMinio_PresignGet(t *testing.T) {
 	assert.NotEmpty(t, url, "presigned URL should not be empty")
 	assert.Contains(t, url, key, "presigned URL should contain the object key")
 }
+
 func TestMinio_PresignGet_EmptyBucket(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -197,6 +205,7 @@ func TestMinio_PresignGet_EmptyBucket(t *testing.T) {
 	require.NoError(t, err, "PresignGet with empty bucket should use default bucket")
 	assert.NotEmpty(t, url)
 }
+
 func TestMinio_OverwriteExistingKey(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

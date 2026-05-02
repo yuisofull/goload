@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	stderrors "errors"
+
 	_ "github.com/go-sql-driver/mysql"
+
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
 	"github.com/yuisofull/goload/internal/errors"

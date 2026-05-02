@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	stderrors "errors"
+
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
 	"github.com/yuisofull/goload/internal/errors"
@@ -19,7 +20,10 @@ func NewTokenPublicKeyStore(db *sql.DB) auth.TokenPublicKeyStore {
 	}
 }
 
-func (t *tokenPublicKeyStore) CreateTokenPublicKey(ctx context.Context, tokenPublicKey *auth.TokenPublicKey) (kid uint64, err error) {
+func (t *tokenPublicKeyStore) CreateTokenPublicKey(
+	ctx context.Context,
+	tokenPublicKey *auth.TokenPublicKey,
+) (kid uint64, err error) {
 	q := t.queries
 	if tx, ok := getTxFrom(ctx); ok {
 		q = q.WithTx(tx)

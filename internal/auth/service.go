@@ -3,8 +3,9 @@ package auth
 import (
 	"context"
 	stderrors "errors"
-	"github.com/yuisofull/goload/internal/errors"
 	"time"
+
+	"github.com/yuisofull/goload/internal/errors"
 )
 
 type CreateAccountParams struct {
@@ -94,12 +95,19 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 	exists := s.isAccountNameTaken(ctx, params.AccountName)
 
 	if exists {
-		return CreateAccountOutput{}, &errors.Error{Code: errors.ErrCodeAlreadyExists, Message: "account already exists"}
+		return CreateAccountOutput{}, &errors.Error{
+			Code:    errors.ErrCodeAlreadyExists,
+			Message: "account already exists",
+		}
 	}
 
 	hash, err := s.passwordHasher.Hash(ctx, params.Password)
 	if err != nil {
-		return CreateAccountOutput{}, &errors.Error{Code: errors.ErrCodeInternal, Message: "hashing password failed", Cause: err}
+		return CreateAccountOutput{}, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "hashing password failed",
+			Cause:   err,
+		}
 	}
 
 	var (
@@ -142,11 +150,19 @@ func (s *service) CreateSession(ctx context.Context, params CreateSessionParams)
 
 	accountPassword, err := s.accountPasswordStore.GetAccountPassword(ctx, account.Id)
 	if err != nil {
-		return CreateSessionOutput{}, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get password", Cause: err}
+		return CreateSessionOutput{}, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to get password",
+			Cause:   err,
+		}
 	}
 
 	if err := s.passwordHasher.Verify(ctx, params.Password, accountPassword.HashedPassword); err != nil {
-		return CreateSessionOutput{}, &errors.Error{Code: ErrCodeInvalidPassword, Message: "invalid password", Cause: err}
+		return CreateSessionOutput{}, &errors.Error{
+			Code:    ErrCodeInvalidPassword,
+			Message: "invalid password",
+			Cause:   err,
+		}
 	}
 
 	token, err := s.tokenManager.Sign(account.Id)

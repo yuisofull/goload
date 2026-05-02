@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/samber/lo"
+
 	"github.com/yuisofull/goload/internal/apigateway/gen"
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/errors"
@@ -84,26 +85,40 @@ type GetTaskRequest = gen.GetTaskParams
 
 type GetTaskResponse = gen.GetTaskResponse
 
-type DeleteTaskRequest = gen.DeleteTaskParams
-type DeleteTaskResponse = gen.SuccessResponse
+type (
+	DeleteTaskRequest  = gen.DeleteTaskParams
+	DeleteTaskResponse = gen.SuccessResponse
+)
 
-type PauseTaskRequest = gen.PauseTaskParams
-type PauseTaskResponse = gen.SuccessResponse
+type (
+	PauseTaskRequest  = gen.PauseTaskParams
+	PauseTaskResponse = gen.SuccessResponse
+)
 
-type ResumeTaskRequest = gen.ResumeTaskParams
-type ResumeTaskResponse = gen.SuccessResponse
+type (
+	ResumeTaskRequest  = gen.ResumeTaskParams
+	ResumeTaskResponse = gen.SuccessResponse
+)
 
-type CancelTaskRequest = gen.CancelTaskParams
-type CancelTaskResponse = gen.SuccessResponse
+type (
+	CancelTaskRequest  = gen.CancelTaskParams
+	CancelTaskResponse = gen.SuccessResponse
+)
 
-type RetryTaskRequest = gen.RetryTaskParams
-type RetryTaskResponse = gen.SuccessResponse
+type (
+	RetryTaskRequest  = gen.RetryTaskParams
+	RetryTaskResponse = gen.SuccessResponse
+)
 
-type CheckFileExistsRequest = gen.CheckFileExistsParams
-type CheckFileExistsResponse = gen.CheckFileExistsResponse
+type (
+	CheckFileExistsRequest  = gen.CheckFileExistsParams
+	CheckFileExistsResponse = gen.CheckFileExistsResponse
+)
 
-type GetTaskProgressRequest = gen.GetTaskProgressParams
-type GetTaskProgressResponse = gen.GetTaskProgressResponse
+type (
+	GetTaskProgressRequest  = gen.GetTaskProgressParams
+	GetTaskProgressResponse = gen.GetTaskProgressResponse
+)
 
 type GenerateDownloadURLRequest = gen.GenerateDownloadURLRequest
 
@@ -112,7 +127,7 @@ type GenerateDownloadURLResponse = gen.GenerateDownloadURLResponse
 // MakeGenerateDownloadURLEndpoint calls the task service GenerateDownloadURL,
 // which internally handles presigning (direct MinIO URL) or token fallback.
 func MakeGenerateDownloadURLEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*GenerateDownloadURLRequest)
 
 		userID, ok := UserIDFromContext(ctx)
@@ -142,7 +157,7 @@ func MakeGenerateDownloadURLEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*ListTasksRequest)
 
 		// Ensure user is authenticated. The auth middleware should have
@@ -174,7 +189,7 @@ func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
 			return nil, err
 		}
 
-		var count int32 = result.Total
+		count := result.Total
 		tasks := lo.Map(result.Tasks, func(t *task.Task, _ int) Task { return *taskToAPI(t) })
 		return &ListTasksResponse{
 			Tasks:      &tasks,
@@ -186,7 +201,7 @@ func MakeListTasksEndpoint(svc task.Service) endpoint.Endpoint {
 // MakeCreateTaskEndpoint allows creating a new task. The endpoint enforces that the
 // authenticated user (from context) is set as the task owner.
 func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CreateTaskRequest)
 
 		userID, ok := UserIDFromContext(ctx)
@@ -236,7 +251,7 @@ func MakeCreateTaskEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeGetTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*GetTaskRequest)
 		t, err := svc.GetTask(ctx, req.Id)
 		if err != nil {
@@ -258,7 +273,7 @@ type CreateSessionGatewayResponse = gen.CreateSessionGatewayResponse
 type AuthAccount = gen.AuthAccount
 
 func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CreateAccountGatewayRequest)
 		out, err := svc.CreateAccount(
 			ctx,
@@ -272,7 +287,7 @@ func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
 }
 
 func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CreateSessionGatewayRequest)
 		out, err := svc.CreateSession(
 			ctx,
@@ -290,7 +305,7 @@ func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 }
 
 func MakeDeleteTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*DeleteTaskRequest)
 		if err := svc.DeleteTask(ctx, req.Id); err != nil {
 			return nil, err
@@ -300,7 +315,7 @@ func MakeDeleteTaskEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakePauseTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*PauseTaskRequest)
 		if err := svc.PauseTask(ctx, req.Id); err != nil {
 			return nil, err
@@ -310,7 +325,7 @@ func MakePauseTaskEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeResumeTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*ResumeTaskRequest)
 		if err := svc.ResumeTask(ctx, req.Id); err != nil {
 			return nil, err
@@ -320,7 +335,7 @@ func MakeResumeTaskEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeCancelTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CancelTaskRequest)
 		if err := svc.CancelTask(ctx, req.Id); err != nil {
 			return nil, err
@@ -330,7 +345,7 @@ func MakeCancelTaskEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeRetryTaskEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*RetryTaskRequest)
 		if err := svc.RetryTask(ctx, req.Id); err != nil {
 			return nil, err
@@ -340,7 +355,7 @@ func MakeRetryTaskEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeCheckFileExistsEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CheckFileExistsRequest)
 		okExists, err := svc.CheckFileExists(ctx, req.TaskId)
 		if err != nil {
@@ -351,7 +366,7 @@ func MakeCheckFileExistsEndpoint(svc task.Service) endpoint.Endpoint {
 }
 
 func MakeGetTaskProgressEndpoint(svc task.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*GetTaskProgressRequest)
 
 		progress, err := svc.GetTaskProgress(ctx, req.TaskId)
@@ -389,7 +404,7 @@ func NewGatewayEndpoints(
 		GetTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*GetTaskRequest).Id },
+				func(req any) uint64 { return req.(*GetTaskRequest).Id },
 			)(
 				MakeGetTaskEndpoint(downloadTaskSvc),
 			),
@@ -398,7 +413,7 @@ func NewGatewayEndpoints(
 		DeleteTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*DeleteTaskRequest).Id },
+				func(req any) uint64 { return req.(*DeleteTaskRequest).Id },
 			)(
 				MakeDeleteTaskEndpoint(downloadTaskSvc),
 			),
@@ -406,7 +421,7 @@ func NewGatewayEndpoints(
 		PauseTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*PauseTaskRequest).Id },
+				func(req any) uint64 { return req.(*PauseTaskRequest).Id },
 			)(
 				MakePauseTaskEndpoint(downloadTaskSvc),
 			),
@@ -414,7 +429,7 @@ func NewGatewayEndpoints(
 		ResumeTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*ResumeTaskRequest).Id },
+				func(req any) uint64 { return req.(*ResumeTaskRequest).Id },
 			)(
 				MakeResumeTaskEndpoint(downloadTaskSvc),
 			),
@@ -422,7 +437,7 @@ func NewGatewayEndpoints(
 		CancelTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*CancelTaskRequest).Id },
+				func(req any) uint64 { return req.(*CancelTaskRequest).Id },
 			)(
 				MakeCancelTaskEndpoint(downloadTaskSvc),
 			),
@@ -430,7 +445,7 @@ func NewGatewayEndpoints(
 		RetryTaskEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*RetryTaskRequest).Id },
+				func(req any) uint64 { return req.(*RetryTaskRequest).Id },
 			)(
 				MakeRetryTaskEndpoint(downloadTaskSvc),
 			),
@@ -438,7 +453,7 @@ func NewGatewayEndpoints(
 		CheckFileExistsEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*CheckFileExistsRequest).TaskId },
+				func(req any) uint64 { return req.(*CheckFileExistsRequest).TaskId },
 			)(
 				MakeCheckFileExistsEndpoint(downloadTaskSvc),
 			),
@@ -446,7 +461,7 @@ func NewGatewayEndpoints(
 		GetTaskProgressEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*GetTaskProgressRequest).TaskId },
+				func(req any) uint64 { return req.(*GetTaskProgressRequest).TaskId },
 			)(
 				MakeGetTaskProgressEndpoint(downloadTaskSvc),
 			),
@@ -454,7 +469,7 @@ func NewGatewayEndpoints(
 		GenerateDownloadURLEndpoint: authMW(
 			RequireTaskOwnerMiddleware(
 				downloadTaskSvc,
-				func(req interface{}) uint64 { return req.(*GenerateDownloadURLRequest).TaskId },
+				func(req any) uint64 { return req.(*GenerateDownloadURLRequest).TaskId },
 			)(
 				MakeGenerateDownloadURLEndpoint(downloadTaskSvc),
 			),

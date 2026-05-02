@@ -151,7 +151,12 @@ func (ec *EventConsumer) handleTaskCompleted(ctx context.Context, msg *message.M
 	}
 
 	if event.StorageType != "" || event.StorageKey != "" {
-		if err := ec.taskService.UpdateStorageInfo(ctx, event.TaskID, storage.TypeValue(event.StorageType), event.StorageKey); err != nil {
+		if err := ec.taskService.UpdateStorageInfo(
+			ctx,
+			event.TaskID,
+			storage.TypeValue(event.StorageType),
+			event.StorageKey,
+		); err != nil {
 			return err
 		}
 	}

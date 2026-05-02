@@ -143,7 +143,6 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) (*task.Task, error)
 				return nil, err
 			}
 		}
-
 	}
 	if t.FileName != "" {
 		if err = q.UpdateFileName(ctx, sqlc.UpdateFileNameParams{
@@ -215,7 +214,11 @@ func (r *taskRepo) GetByID(ctx context.Context, id uint64) (*task.Task, error) {
 	return toTask(t)
 }
 
-func (r *taskRepo) ListByAccountID(ctx context.Context, filter task.TaskFilter, limit, offset uint32) ([]*task.Task, error) {
+func (r *taskRepo) ListByAccountID(
+	ctx context.Context,
+	filter task.TaskFilter,
+	limit, offset uint32,
+) ([]*task.Task, error) {
 	q := r.queries
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
 		q = q.WithTx(tx)
@@ -253,7 +256,7 @@ func toTask(t sqlc.Task) (*task.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal SourceAuth: %w", err)
 	}
-	metadata, err := fromJSON[map[string]interface{}](t.Metadata)
+	metadata, err := fromJSON[map[string]any](t.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal Metadata: %w", err)
 	}

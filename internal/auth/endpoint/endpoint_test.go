@@ -135,8 +135,8 @@ func TestMakeCreateSessionEndpoint_Success(t *testing.T) {
 	out := resp.(*authendpoint.CreateSessionResponse)
 	assert.Equal(t, "jwt-token", out.Token)
 	require.NotNil(t, out.Account)
-	assert.Equal(t, uint64(1), out.Account.Id)
-	assert.Equal(t, "alice", out.Account.AccountName)
+	assert.Equal(t, uint64(1), out.Account.GetId())
+	assert.Equal(t, "alice", out.Account.GetAccountName())
 }
 
 func TestMakeCreateSessionEndpoint_AccountNotFound(t *testing.T) {

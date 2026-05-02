@@ -33,7 +33,7 @@ type Set struct {
 
 // MakeCreateAccountEndpoint creates an endpoint for the CreateAccount service method
 func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CreateAccountRequest)
 
 		params := auth.CreateAccountParams{
@@ -54,7 +54,7 @@ func MakeCreateAccountEndpoint(svc auth.Service) endpoint.Endpoint {
 
 // MakeCreateSessionEndpoint creates an endpoint for the CreateSession service method.
 func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*CreateSessionRequest)
 
 		params := auth.CreateSessionParams{
@@ -79,7 +79,7 @@ func MakeCreateSessionEndpoint(svc auth.Service) endpoint.Endpoint {
 
 // MakeVerifyTokenEndpoint creates an endpoint for the VerifySession service method
 func MakeVerifyTokenEndpoint(svc auth.Service) endpoint.Endpoint {
-	return func(ctx context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request any) (any, error) {
 		req := request.(*VerifyTokenRequest)
 		params := auth.VerifySessionParams{
 			Token: req.Token,
@@ -151,8 +151,8 @@ func (e *Set) CreateSession(ctx context.Context, params auth.CreateSessionParams
 	return auth.CreateSessionOutput{
 		Token: out.Token,
 		Account: &auth.Account{
-			Id:          out.Account.Id,
-			AccountName: out.Account.AccountName,
+			Id:          out.Account.GetId(),
+			AccountName: out.Account.GetAccountName(),
 		},
 	}, nil
 }

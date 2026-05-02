@@ -4,10 +4,9 @@ import (
 	"context"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"google.golang.org/grpc/metadata"
-
-	"github.com/go-kit/log"
 )
 
 func NewLogRequestFunc(logger log.Logger) grpctransport.ClientRequestFunc {

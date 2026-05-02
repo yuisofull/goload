@@ -10,14 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/yuisofull/goload/pkg/message"
-
-	"github.com/IBM/sarama"
 )
 
 type ErrorHandler func(context.Context, error)

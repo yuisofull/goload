@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,7 +41,12 @@ func WithExpiry(d time.Duration) MinioOption {
 
 // NewMinioBackend creates a new MinioBackend. It will ensure the bucket exists.
 // Pass WithExpiry to configure automatic object expiry via a lifecycle rule.
-func NewMinioBackend(endpoint, accessKey, secretKey string, useSSL bool, bucket string, opts ...MinioOption) (*Minio, error) {
+func NewMinioBackend(
+	endpoint, accessKey, secretKey string,
+	useSSL bool,
+	bucket string,
+	opts ...MinioOption,
+) (*Minio, error) {
 	// allow endpoints that are full URLs (e.g. http://minio:9000) by parsing and
 	// extracting the host:port portion which the minio client expects.
 	if u, err := url.Parse(endpoint); err == nil && u.Scheme != "" {
@@ -76,10 +82,7 @@ func NewMinioBackend(endpoint, accessKey, secretKey string, useSSL bool, bucket 
 
 	// Apply bucket lifecycle policy when a default expiry is configured.
 	if m.defaultExpiry > 0 {
-		days := int(m.defaultExpiry.Hours() / 24)
-		if days < 1 {
-			days = 1
-		}
+		days := max(int(m.defaultExpiry.Hours()/24), 1)
 		cfg := lifecycle.NewConfiguration()
 		cfg.Rules = []lifecycle.Rule{
 			{
@@ -159,7 +162,6 @@ func (m *Minio) Store(ctx context.Context, key string, reader io.Reader, metadat
 
 func (m *Minio) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	obj, err := m.client.GetObject(ctx, m.bucket, key, minio.GetObjectOptions{})
-
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +169,7 @@ func (m *Minio) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	if _, err := obj.Stat(); err != nil {
 		obj.Close()
 		if minio.ToErrorResponse(err).StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("not found")
+			return nil, errors.New("not found")
 		}
 		return nil, err
 	}
@@ -189,7 +191,7 @@ func (m *Minio) GetWithRange(ctx context.Context, key string, start, end int64) 
 	// Trigger the actual request by reading 1 byte into a peek buffer.
 	buf := make([]byte, 1)
 	n, peekErr := obj.Read(buf)
-	if peekErr != nil && peekErr != io.EOF {
+	if peekErr != nil && !errors.Is(peekErr, io.EOF) {
 		obj.Close()
 		return nil, peekErr
 	}
@@ -199,6 +201,7 @@ func (m *Minio) GetWithRange(ctx context.Context, key string, start, end int64) 
 // prependReader wraps a ReadCloser and prepends already-read bytes.
 type prependReader struct {
 	io.ReadCloser
+
 	prefix []byte
 	pos    int
 }

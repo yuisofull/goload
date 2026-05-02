@@ -61,7 +61,7 @@ func main() {
 			os.Exit(1)
 		}
 		// simple ping retry
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			if err = db.Ping(); err == nil {
 				break
 			}
@@ -117,7 +117,8 @@ func main() {
 			storagepkg.WithExpiry(24*time.Hour),
 		)
 		if err != nil {
-			level.Error(logger).Log("msg", "failed to create minio backend for task sources", "bucket", taskSourcesBucket, "err", err)
+			level.Error(logger).
+				Log("msg", "failed to create minio backend for task sources", "bucket", taskSourcesBucket, "err", err)
 			os.Exit(1)
 		}
 		svcOpts = append(svcOpts, taskpkg.WithTaskSourceStore(sourceStore))
@@ -160,7 +161,8 @@ func main() {
 				taskSourcesBucket,
 			)
 			if err != nil {
-				level.Error(logger).Log("msg", "failed to create minio presigner for task sources", "bucket", taskSourcesBucket, "err", err)
+				level.Error(logger).
+					Log("msg", "failed to create minio presigner for task sources", "bucket", taskSourcesBucket, "err", err)
 				os.Exit(1)
 			}
 			svcOpts = append(svcOpts, taskpkg.WithTaskSourcePresigner(taskSourcePresigner))

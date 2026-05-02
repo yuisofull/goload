@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rsa"
 	errstderrors "errors"
+	"time"
+
 	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/yuisofull/goload/internal/errors"
 	pkgrsa "github.com/yuisofull/goload/pkg/crypto/rsa"
-	"time"
 )
 
 type TokenPublicKeyStore interface {
@@ -77,7 +79,7 @@ func (t *jwtRS256TokenManager) Sign(accountID uint64) (string, error) {
 }
 
 func (t *jwtRS256TokenManager) parseToken(tokenStr string) (*jwt.Token, error) {
-	return jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+	return jwt.Parse(tokenStr, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok || token.Method.Alg() != jwt.SigningMethodRS512.Alg() {
 			return nil, errstderrors.New("unexpected signing method")
 		}
@@ -103,7 +105,6 @@ func (t *jwtRS256TokenManager) parseToken(tokenStr string) (*jwt.Token, error) {
 
 func (t *jwtRS256TokenManager) GetAccountIDFrom(tokenStr string) (uint64, error) {
 	parsedToken, err := t.parseToken(tokenStr)
-
 	if err != nil {
 		return 0, &errors.Error{
 			Code:    ErrCodeInvalidToken,
@@ -139,7 +140,6 @@ func (t *jwtRS256TokenManager) GetAccountIDFrom(tokenStr string) (uint64, error)
 	}
 
 	return uint64(accountID), nil
-
 }
 
 func (t *jwtRS256TokenManager) GetExpiryFrom(token string) (time.Time, error) {

@@ -19,7 +19,17 @@ type CORSOptions struct {
 // CORSHTTPMiddleware applies CORS headers and handles valid preflight requests.
 func CORSHTTPMiddleware(opts CORSOptions) func(http.Handler) http.Handler {
 	allowedOrigins := withDefault(opts.AllowedOrigins, []string{"*"})
-	allowedMethods := withDefault(opts.AllowedMethods, []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions})
+	allowedMethods := withDefault(
+		opts.AllowedMethods,
+		[]string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+			http.MethodOptions,
+		},
+	)
 	allowedHeaders := withDefault(opts.AllowedHeaders, []string{"Authorization", "Content-Type", "Accept", "Origin"})
 	allowAllOrigins := containsIgnoreCase(allowedOrigins, "*")
 	allowMethodsHeader := strings.Join(allowedMethods, ", ")

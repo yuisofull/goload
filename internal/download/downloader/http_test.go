@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func serve(
 		if contentType != "" {
 			w.Header().Set("Content-Type", contentType)
 		}
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		for k, v := range extraHeaders {
 			w.Header().Set(k, v)
 		}

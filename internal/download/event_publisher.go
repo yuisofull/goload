@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+
 	"github.com/yuisofull/goload/internal/events"
 	"github.com/yuisofull/goload/pkg/message"
 )
@@ -23,7 +24,10 @@ func NewDownloadEventPublisher(publisher message.Publisher) *DownloadEventPublis
 }
 
 // PublishTaskStatusUpdated publishes a task status update event
-func (dep *DownloadEventPublisher) PublishTaskStatusUpdated(ctx context.Context, event events.TaskStatusUpdatedEvent) error {
+func (dep *DownloadEventPublisher) PublishTaskStatusUpdated(
+	ctx context.Context,
+	event events.TaskStatusUpdatedEvent,
+) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -42,7 +46,10 @@ func (dep *DownloadEventPublisher) PublishTaskStatusUpdated(ctx context.Context,
 }
 
 // PublishTaskProgressUpdated publishes a task progress update event
-func (dep *DownloadEventPublisher) PublishTaskProgressUpdated(ctx context.Context, event events.TaskProgressUpdatedEvent) error {
+func (dep *DownloadEventPublisher) PublishTaskProgressUpdated(
+	ctx context.Context,
+	event events.TaskProgressUpdatedEvent,
+) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err

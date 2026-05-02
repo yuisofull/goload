@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -106,12 +107,12 @@ func (f *FTPDownloader) connect(
 	}
 
 	if parsedURL.Host == "" {
-		return nil, "", nil, fmt.Errorf("ftp url missing host")
+		return nil, "", nil, errors.New("ftp url missing host")
 	}
 
 	filePath := parsedURL.Path
 	if filePath == "" || filePath == "/" {
-		return nil, "", nil, fmt.Errorf("ftp url missing file path")
+		return nil, "", nil, errors.New("ftp url missing file path")
 	}
 
 	conn, err := ftp.Dial(

@@ -2,6 +2,7 @@ package authcache
 
 import (
 	"context"
+	"errors"
 	stdErrors "errors"
 	"fmt"
 
@@ -52,7 +53,7 @@ func (t *tokenPublicKeyStoreCache) GetTokenPublicKey(ctx context.Context, kid ui
 	if !stdErrors.Is(err, cache.Nil) {
 		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: %w", err))
 	} else {
-		t.cacheErrorHandler(ctx, fmt.Errorf("failed to get token public key from cache: cache miss"))
+		t.cacheErrorHandler(ctx, errors.New("failed to get token public key from cache: cache miss"))
 	}
 
 	tokenPublicKey, err := t.next.GetTokenPublicKey(ctx, kid)

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-kit/log/level"
+
 	"github.com/yuisofull/goload/pkg/message"
 )
 
@@ -17,7 +18,8 @@ func NewPublisher(b *broker) *Publisher {
 
 func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 	subs := p.broker.getSubs(topic)
-	_ = level.Debug(p.broker.logger).Log("msg", "inmem.publish", "topic", topic, "messages", len(msgs), "subscribers", len(subs))
+	_ = level.Debug(p.broker.logger).
+		Log("msg", "inmem.publish", "topic", topic, "messages", len(msgs), "subscribers", len(subs))
 	for mi, msg := range msgs {
 		for si, s := range subs {
 			// deliver a copy per subscriber
@@ -26,12 +28,14 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 
 			// non-blocking send with goroutine to avoid blocking publisher
 			go func(ch chan *message.Message, mm *message.Message, subCtx context.Context, topic string, mi, si int) {
-				level.Debug(p.broker.logger).Log("msg", "inmem.sending", "topic", topic, "msg_index", mi, "sub_index", si)
+				level.Debug(p.broker.logger).
+					Log("msg", "inmem.sending", "topic", topic, "msg_index", mi, "sub_index", si)
 				select {
 				case ch <- mm:
 					level.Debug(p.broker.logger).Log("msg", "inmem.sent", "msg_index", mi, "sub_index", si)
 				case <-subCtx.Done():
-					level.Debug(p.broker.logger).Log("msg", "inmem.subscriber_done_before_send", "msg_index", mi, "sub_index", si)
+					level.Debug(p.broker.logger).
+						Log("msg", "inmem.subscriber_done_before_send", "msg_index", mi, "sub_index", si)
 					return
 				}
 
@@ -48,13 +52,16 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 						mm.SetContext(subCtx)
 						select {
 						case ch <- mm:
-							level.Debug(p.broker.logger).Log("msg", "inmem.redelivered", "msg_index", mi, "sub_index", si)
+							level.Debug(p.broker.logger).
+								Log("msg", "inmem.redelivered", "msg_index", mi, "sub_index", si)
 						case <-subCtx.Done():
-							level.Debug(p.broker.logger).Log("msg", "inmem.subscriber_done_during_redeliver", "msg_index", mi, "sub_index", si)
+							level.Debug(p.broker.logger).
+								Log("msg", "inmem.subscriber_done_during_redeliver", "msg_index", mi, "sub_index", si)
 							return
 						}
 					case <-subCtx.Done():
-						_ = level.Debug(p.broker.logger).Log("msg", "inmem.subscriber_done_waiting_ack", "msg_index", mi, "sub_index", si)
+						_ = level.Debug(p.broker.logger).
+							Log("msg", "inmem.subscriber_done_waiting_ack", "msg_index", mi, "sub_index", si)
 						return
 					}
 				}

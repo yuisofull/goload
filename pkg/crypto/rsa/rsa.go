@@ -12,7 +12,7 @@ func SerializePublicKey(publicKey *rsa.PublicKey) (pemBytes []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	var PEMBlock = &pem.Block{
+	PEMBlock := &pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: pubASN1,
 	}
@@ -42,7 +42,7 @@ func SerializePrivateKey(privateKey *rsa.PrivateKey) (pemBytes []byte, err error
 	if err != nil {
 		return nil, err
 	}
-	var PEMBlock = &pem.Block{
+	PEMBlock := &pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: privASN1,
 	}

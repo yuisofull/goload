@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -21,6 +22,7 @@ type Local struct {
 
 type localObjectMetadata struct {
 	FileMetadata
+
 	StoredAt time.Time `json:"stored_at"`
 }
 
@@ -28,7 +30,7 @@ type localObjectMetadata struct {
 func NewLocalBackend(root string) (*Local, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
-		return nil, fmt.Errorf("local storage root is empty")
+		return nil, errors.New("local storage root is empty")
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, fmt.Errorf("create local storage root: %w", err)
@@ -260,7 +262,7 @@ func (l *Local) readMetadata(objectPath string) (*FileMetadata, error) {
 func (l *Local) cleanKey(key string) (string, error) {
 	key = strings.TrimSpace(strings.ReplaceAll(key, "\\", "/"))
 	if key == "" {
-		return "", fmt.Errorf("storage key is empty")
+		return "", errors.New("storage key is empty")
 	}
 	for _, segment := range strings.Split(key, "/") {
 		if segment == ".." {

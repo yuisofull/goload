@@ -5,12 +5,13 @@ import (
 	"sync"
 
 	"github.com/go-kit/log"
+
 	"github.com/yuisofull/goload/pkg/message"
 )
 
 type subscription struct {
-	ch  chan *message.Message
-	ctx context.Context
+	ch     chan *message.Message
+	ctx    context.Context
 	cancle context.CancelFunc
 }
 
@@ -27,17 +28,18 @@ func newBroker(buffer int, logger log.Logger) *broker {
 	}
 	return &broker{buffer: buffer, subs: make(map[string][]*subscription), logger: logger}
 }
+
 func (b *broker) Close() error {
-    // best-effort: drop all subs
-    b.mu.Lock()
-    defer b.mu.Unlock()
-    for topic, arr := range b.subs {
-        for _, sub := range arr {
-            close(sub.ch)
-        }
-        delete(b.subs, topic)
-    }
-    return nil
+	// best-effort: drop all subs
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for topic, arr := range b.subs {
+		for _, sub := range arr {
+			close(sub.ch)
+		}
+		delete(b.subs, topic)
+	}
+	return nil
 }
 
 func (b *broker) addSub(topic string, s *subscription) {
@@ -81,7 +83,7 @@ func NewSubscriber(b *broker) *Subscriber {
 
 func (s *Subscriber) Subscribe(ctx context.Context, topic string) (<-chan *message.Message, error) {
 	ch := make(chan *message.Message, s.b.buffer)
-    ctx, cancle := context.WithCancel(ctx)   
+	ctx, cancle := context.WithCancel(ctx)
 	sub := &subscription{ch: ch, ctx: ctx, cancle: cancle}
 	s.b.addSub(topic, sub)
 
@@ -102,7 +104,7 @@ func (s *Subscriber) Close() error {
 	for topic, arr := range s.b.subs {
 		for _, sub := range arr {
 			close(sub.ch)
-            sub.cancle()
+			sub.cancle()
 		}
 		delete(s.b.subs, topic)
 	}

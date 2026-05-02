@@ -6,10 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	apperrors "github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/storage"
@@ -48,60 +47,78 @@ type mockTaskService struct {
 func (m *mockTaskService) CreateTask(ctx context.Context, param *task.CreateTaskParam) (*task.Task, error) {
 	return m.createTaskFn(ctx, param)
 }
+
 func (m *mockTaskService) GetTask(ctx context.Context, id uint64) (*task.Task, error) {
 	return m.getTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) ListTasks(ctx context.Context, param *task.ListTasksParam) (*task.ListTasksOutput, error) {
 	return m.listTasksFn(ctx, param)
 }
+
 func (m *mockTaskService) DeleteTask(ctx context.Context, id uint64) error {
 	return m.deleteTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) PauseTask(ctx context.Context, id uint64) error {
 	return m.pauseTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) ResumeTask(ctx context.Context, id uint64) error {
 	return m.resumeTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) CancelTask(ctx context.Context, id uint64) error {
 	return m.cancelTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) RetryTask(ctx context.Context, id uint64) error {
 	return m.retryTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) UpdateTaskStoragePath(ctx context.Context, id uint64, path string) error {
 	return m.updateStoragePathFn(ctx, id, path)
 }
+
 func (m *mockTaskService) UpdateTaskStatus(ctx context.Context, id uint64, status task.TaskStatus) error {
 	return m.updateStatusFn(ctx, id, status)
 }
+
 func (m *mockTaskService) UpdateTaskProgress(ctx context.Context, id uint64, progress task.DownloadProgress) error {
 	return m.updateProgressFn(ctx, id, progress)
 }
+
 func (m *mockTaskService) UpdateTaskError(ctx context.Context, id uint64, err error) error {
 	return m.updateErrorFn(ctx, id, err)
 }
+
 func (m *mockTaskService) CompleteTask(ctx context.Context, id uint64) error {
 	return m.completeTaskFn(ctx, id)
 }
+
 func (m *mockTaskService) CheckFileExists(ctx context.Context, id uint64) (bool, error) {
 	return m.checkFileExistsFn(ctx, id)
 }
+
 func (m *mockTaskService) GetTaskProgress(ctx context.Context, id uint64) (*task.DownloadProgress, error) {
 	return m.getTaskProgressFn(ctx, id)
 }
+
 func (m *mockTaskService) UpdateTaskChecksum(ctx context.Context, id uint64, checksum *task.ChecksumInfo) error {
 	return m.updateChecksumFn(ctx, id, checksum)
 }
+
 func (m *mockTaskService) UpdateTaskMetadata(ctx context.Context, id uint64, meta map[string]any) error {
 	return m.updateMetadataFn(ctx, id, meta)
 }
+
 func (m *mockTaskService) UpdateFileName(ctx context.Context, id uint64, fileName string) error {
 	if m.updateFileNameFn != nil {
 		return m.updateFileNameFn(ctx, id, fileName)
 	}
 	return nil
 }
+
 func (m *mockTaskService) UpdateStorageInfo(ctx context.Context, id uint64, stype storage.Type, path string) error {
 	if m.updateStorageInfoFn != nil {
 		return m.updateStorageInfoFn(ctx, id, stype, path)
@@ -172,7 +189,7 @@ func TestMakeCreateTaskEndpoint_Success(t *testing.T) {
 	require.NoError(t, err)
 	out := resp.(*taskendpoint.TaskResponse)
 	require.NotNil(t, out.Task)
-	assert.Equal(t, uint64(10), out.Task.Id)
+	assert.Equal(t, uint64(10), out.Task.GetId())
 }
 
 func TestMakeCreateTaskEndpoint_MissingSourceURL(t *testing.T) {
@@ -206,7 +223,7 @@ func TestMakeGetTaskEndpoint_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	out := resp.(*taskendpoint.TaskResponse)
-	assert.Equal(t, uint64(5), out.Task.Id)
+	assert.Equal(t, uint64(5), out.Task.GetId())
 }
 
 func TestMakeGetTaskEndpoint_NotFound(t *testing.T) {
@@ -652,7 +669,7 @@ func TestMakeGetTaskProgressEndpoint_WithProgress(t *testing.T) {
 	require.NoError(t, err)
 	out := resp.(*taskendpoint.GetTaskProgressResponse)
 	require.NotNil(t, out.Progress)
-	assert.Equal(t, int64(2048), out.Progress.TotalBytes)
+	assert.Equal(t, int64(2048), out.Progress.GetTotalBytes())
 }
 
 func TestMakeGetTaskProgressEndpoint_NilProgress(t *testing.T) {

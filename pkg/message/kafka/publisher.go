@@ -41,7 +41,7 @@ func NewPublisher(cfg *PublisherConfig, options ...PublisherOption) (*Publisher,
 		return p, err
 	}
 	if p.producer == nil {
-		return p, fmt.Errorf("sarama.NewSyncProducer returned nil producer without error")
+		return p, errors.New("sarama.NewSyncProducer returned nil producer without error")
 	}
 
 	for _, option := range options {

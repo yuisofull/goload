@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
@@ -215,10 +216,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
 
-	maxRetries := downloadOpts.MaxRetries
-	if maxRetries < 0 {
-		maxRetries = 0
-	}
+	maxRetries := max(downloadOpts.MaxRetries, 0)
 	maxAttempts := maxRetries + 1
 	if taskReq.DownloadOptions != nil {
 		downloadOpts.MaxRetries = maxRetries
@@ -244,7 +242,10 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 			}
 		}
 
-		s.errorHandler(ctx, fmt.Errorf("downloading %s failed, retry %d/%d: %w", taskReq.SourceURL, attempt, maxRetries, dlErr))
+		s.errorHandler(
+			ctx,
+			fmt.Errorf("downloading %s failed, retry %d/%d: %w", taskReq.SourceURL, attempt, maxRetries, dlErr),
+		)
 		backoff := time.Second * time.Duration(1<<attempt)
 		jitter := time.Duration(time.Now().UnixNano() % int64(time.Second))
 		select {
@@ -296,7 +297,7 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		_ = s.storage.Delete(context.Background(), storageKey)
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
-	md5Hash := fmt.Sprintf("%x", hash.Sum(nil))
+	md5Hash := hex.EncodeToString(hash.Sum(nil))
 
 	completedEvent := events.TaskCompletedEvent{
 		TaskID:      taskReq.TaskID,

@@ -13,9 +13,9 @@ import (
 // authenticated user (from context) is the owner of the task identified by
 // idFn(request). It returns Unauthenticated if user not in context, NotFound
 // if svc.GetTask returns not found, or PermissionDenied if owner mismatch.
-func RequireTaskOwnerMiddleware(svc task.Service, idFn func(req interface{}) uint64) endpoint.Middleware {
+func RequireTaskOwnerMiddleware(svc task.Service, idFn func(req any) uint64) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (interface{}, error) {
+		return func(ctx context.Context, request any) (any, error) {
 			userID, ok := UserIDFromContext(ctx)
 			if !ok {
 				return nil, &errors.Error{Code: errors.ErrCodeUnauthenticated, Message: "unauthenticated"}

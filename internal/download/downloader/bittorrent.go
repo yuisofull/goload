@@ -32,7 +32,9 @@ func WithBitTorrentLogger(logger log.Logger) BitTorrentDownloaderOption {
 	}
 }
 
-func NewBitTorrentDownloader(opts ...BitTorrentDownloaderOption) (btDl *BitTorrentDownloader, closeFunc func(), err error) {
+func NewBitTorrentDownloader(
+	opts ...BitTorrentDownloaderOption,
+) (btDl *BitTorrentDownloader, closeFunc func(), err error) {
 	b := &BitTorrentDownloader{
 		logger: log.NewNopLogger(),
 	}
@@ -73,8 +75,8 @@ func (b *BitTorrentDownloader) Close() {
 func (b *BitTorrentDownloader) SupportsResume() bool { return false }
 
 func (b *BitTorrentDownloader) addTorrent(ctx context.Context, rawURL string) (*torrent.Torrent, error) {
-	if strings.HasPrefix(rawURL, "data:application/x-bittorrent;base64,") {
-		encoded := strings.TrimPrefix(rawURL, "data:application/x-bittorrent;base64,")
+	if after, ok := strings.CutPrefix(rawURL, "data:application/x-bittorrent;base64,"); ok {
+		encoded := after
 		data, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil {
 			return nil, fmt.Errorf("decode base64 torrent: %w", err)
@@ -127,8 +129,8 @@ func (b *BitTorrentDownloader) addTorrent(ctx context.Context, rawURL string) (*
 		return t, nil
 	}
 
-	if strings.HasPrefix(rawURL, "file://") {
-		path := strings.TrimPrefix(rawURL, "file://")
+	if after, ok := strings.CutPrefix(rawURL, "file://"); ok {
+		path := after
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("open torrent file: %w", err)

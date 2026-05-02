@@ -11,17 +11,17 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/transport"
-	"github.com/go-kit/log/level"
-	"github.com/gorilla/mux"
-
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
+	"github.com/gorilla/mux"
 	"github.com/samber/lo"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/yuisofull/goload/docs"
 	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type HTTPListTasksRequest struct {
@@ -60,8 +60,6 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 		httptransport.ServerErrorEncoder(encodeError),
 		httptransport.ServerErrorHandler(transport.NewLogErrorHandler(level.Error(logger))),
 	}
-
-
 
 	r := mux.NewRouter()
 
@@ -151,7 +149,7 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 
 	tasks.Handle("/download-url", addTokenToContext(httptransport.NewServer(
 		endpoints.GenerateDownloadURLEndpoint,
-		func(_ context.Context, r *http.Request) (interface{}, error) {
+		func(_ context.Context, r *http.Request) (any, error) {
 			var req GenerateDownloadURLRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				return nil, err
@@ -167,7 +165,7 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 
 	auth.Handle("/create", httptransport.NewServer(
 		endpoints.AuthCreateEndpoint,
-		func(_ context.Context, r *http.Request) (interface{}, error) {
+		func(_ context.Context, r *http.Request) (any, error) {
 			var req CreateAccountGatewayRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				return nil, err
@@ -180,7 +178,7 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 
 	auth.Handle("/session", httptransport.NewServer(
 		endpoints.AuthSessionEndpoint,
-		func(_ context.Context, r *http.Request) (interface{}, error) {
+		func(_ context.Context, r *http.Request) (any, error) {
 			var req CreateSessionGatewayRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				return nil, err
@@ -325,7 +323,7 @@ func addTokenToContext(next http.Handler) http.Handler {
 	})
 }
 
-func decodeHTTPListTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPListTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	offsetStr := r.URL.Query().Get("offset")
 	limitStr := r.URL.Query().Get("limit")
 
@@ -357,7 +355,7 @@ func decodeHTTPListTaskRequest(_ context.Context, r *http.Request) (interface{},
 	}, nil
 }
 
-func decodeHTTPCreateRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPCreateRequest(_ context.Context, r *http.Request) (any, error) {
 	var req CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, err
@@ -365,7 +363,7 @@ func decodeHTTPCreateRequest(_ context.Context, r *http.Request) (interface{}, e
 	return &req, nil
 }
 
-func decodeHTTPGetRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPGetRequest(_ context.Context, r *http.Request) (any, error) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		return nil, http.ErrMissingFile
@@ -377,11 +375,11 @@ func decodeHTTPGetRequest(_ context.Context, r *http.Request) (interface{}, erro
 	return &GetTaskRequest{Id: id}, nil
 }
 
-func decodeHTTPIDRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPIDRequest(_ context.Context, r *http.Request) (any, error) {
 	return decodeHTTPIDRequestName("id")(context.Background(), r)
 }
 
-func decodeHTTPPauseTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPPauseTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	id, err := decodeHTTPQueryUint64(r, "id")
 	if err != nil {
 		return nil, err
@@ -389,7 +387,7 @@ func decodeHTTPPauseTaskRequest(_ context.Context, r *http.Request) (interface{}
 	return &PauseTaskRequest{Id: id}, nil
 }
 
-func decodeHTTPResumeTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPResumeTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	id, err := decodeHTTPQueryUint64(r, "id")
 	if err != nil {
 		return nil, err
@@ -397,7 +395,7 @@ func decodeHTTPResumeTaskRequest(_ context.Context, r *http.Request) (interface{
 	return &ResumeTaskRequest{Id: id}, nil
 }
 
-func decodeHTTPCancelTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPCancelTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	id, err := decodeHTTPQueryUint64(r, "id")
 	if err != nil {
 		return nil, err
@@ -405,7 +403,7 @@ func decodeHTTPCancelTaskRequest(_ context.Context, r *http.Request) (interface{
 	return &CancelTaskRequest{Id: id}, nil
 }
 
-func decodeHTTPRetryTaskRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPRetryTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	id, err := decodeHTTPQueryUint64(r, "id")
 	if err != nil {
 		return nil, err
@@ -413,7 +411,7 @@ func decodeHTTPRetryTaskRequest(_ context.Context, r *http.Request) (interface{}
 	return &RetryTaskRequest{Id: id}, nil
 }
 
-func decodeHTTPCheckFileExistsRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPCheckFileExistsRequest(_ context.Context, r *http.Request) (any, error) {
 	id, err := decodeHTTPQueryUint64(r, "task_id")
 	if err != nil {
 		return nil, err
@@ -421,7 +419,7 @@ func decodeHTTPCheckFileExistsRequest(_ context.Context, r *http.Request) (inter
 	return &CheckFileExistsRequest{TaskId: id}, nil
 }
 
-func decodeHTTPGetTaskProgressRequest(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPGetTaskProgressRequest(_ context.Context, r *http.Request) (any, error) {
 	id, err := decodeHTTPQueryUint64(r, "task_id")
 	if err != nil {
 		return nil, err
@@ -441,8 +439,8 @@ func decodeHTTPQueryUint64(r *http.Request, name string) (uint64, error) {
 	return id, nil
 }
 
-func decodeHTTPIDRequestName(name string) func(ctx context.Context, r *http.Request) (interface{}, error) {
-	return func(_ context.Context, r *http.Request) (interface{}, error) {
+func decodeHTTPIDRequestName(name string) func(ctx context.Context, r *http.Request) (any, error) {
+	return func(_ context.Context, r *http.Request) (any, error) {
 		id, err := decodeHTTPQueryUint64(r, name)
 		if err != nil {
 			return nil, err
@@ -451,7 +449,7 @@ func decodeHTTPIDRequestName(name string) func(ctx context.Context, r *http.Requ
 	}
 }
 
-func encodeHTTPResponse(_ context.Context, w http.ResponseWriter, response interface{}) error {
+func encodeHTTPResponse(_ context.Context, w http.ResponseWriter, response any) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	return json.NewEncoder(w).Encode(response)
 }
@@ -505,7 +503,7 @@ func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 		errMsg = "internal server error"
 	}
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"error": errMsg,
 	})
 }

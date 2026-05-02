@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yuisofull/goload/pkg/cache"
-
 	"github.com/redis/go-redis/v9"
+
+	"github.com/yuisofull/goload/pkg/cache"
 )
 
 type RedisCache[K comparable, V any] struct {
@@ -167,7 +167,7 @@ func (c *RedisCache[K, V]) Len(ctx context.Context) (int, error) {
 }
 
 func (c *RedisCache[K, V]) Add(ctx context.Context, key K, members ...V) error {
-	vals := make([]interface{}, len(members))
+	vals := make([]any, len(members))
 	for i, m := range members {
 		b, err := c.marshaler.Marshal(m)
 		if err != nil {
@@ -187,7 +187,7 @@ func (c *RedisCache[K, V]) Remove(ctx context.Context, key K, members ...V) erro
 	if err != nil {
 		return fmt.Errorf("failed to encode key: %w", err)
 	}
-	vals := make([]interface{}, len(members))
+	vals := make([]any, len(members))
 	for i, m := range members {
 		b, err := c.marshaler.Marshal(m)
 		if err != nil {
