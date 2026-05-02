@@ -82,22 +82,29 @@ func WithTaskTimeout(taskTimeout time.Duration) Option {
 	}
 }
 
+func WithStorageType(storageType storage.Type) Option {
+	return func(s *service) {
+		s.storageType = storageType
+	}
+}
+
 func WithErrorHandler(errorHandler ErrorHandler) Option {
 	return func(s *service) {
 		s.errorHandler = errorHandler
 	}
 }
 
-func NewService(storage storage.Backend, publisher EventPublisher, opts ...Option) *service {
+func NewService(storageBackend storage.Backend, publisher EventPublisher, opts ...Option) *service {
 	s := &service{
 		downloaders:        make(map[string]Downloader),
-		storage:            storage,
+		storage:            storageBackend,
 		publisher:          publisher,
 		activeTasks:        make(map[uint64]*taskExecution),
 		lastProgressUpdate: make(map[uint64]time.Time),
 		taskTimeOut:        30 * time.Minute,
 		errorHandler:       func(ctx context.Context, err error) {},
 		maxConcurrent:      5,
+		storageType:        storage.TypeLocal,
 	}
 
 	for _, opt := range opts {
@@ -183,8 +190,13 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	if taskReq.DownloadOptions != nil {
 		downloadOpts = DownloadOptions{
 			Concurrency: taskReq.DownloadOptions.Concurrency,
+			MaxSpeed:    taskReq.DownloadOptions.MaxSpeed,
 			MaxRetries:  taskReq.DownloadOptions.MaxRetries,
+			Timeout:     taskReq.DownloadOptions.Timeout,
 		}
+	}
+	if downloadOpts.Concurrency <= 0 {
+		downloadOpts.Concurrency = 1
 	}
 
 	var sourceAuth *AuthConfig
@@ -203,26 +215,27 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
 
-	maxRetries := 3
+	maxRetries := downloadOpts.MaxRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	maxAttempts := maxRetries + 1
 	if taskReq.DownloadOptions != nil {
-		maxRetries = int(taskReq.DownloadOptions.MaxRetries)
-		if maxRetries < 0 {
-			maxRetries = 0
-		}
+		downloadOpts.MaxRetries = maxRetries
 	}
 
 	var reader io.ReadCloser
 	var totalSize int64
 	var dlErr error
 
-	for attempt := 1; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		reader, totalSize, dlErr = downloader.Download(ctx, taskReq.SourceURL, sourceAuth, downloadOpts)
 		if dlErr == nil {
 			break
 		}
 
 		// If this was the last attempt, fail
-		if attempt == maxRetries {
+		if attempt == maxAttempts {
 			s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to start download: %w", dlErr))
 			return &errors.Error{
 				Code:    errors.ErrCodeInternal,
@@ -234,7 +247,12 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		s.errorHandler(ctx, fmt.Errorf("downloading %s failed, retry %d/%d: %w", taskReq.SourceURL, attempt, maxRetries, dlErr))
 		backoff := time.Second * time.Duration(1<<attempt)
 		jitter := time.Duration(time.Now().UnixNano() % int64(time.Second))
-		time.Sleep(backoff + jitter)
+		select {
+		case <-time.After(backoff + jitter):
+		case <-ctx.Done():
+			s.markTaskFailed(ctx, taskReq.TaskID, ctx.Err())
+			return &errors.Error{Code: errors.ErrCodeInternal, Message: "download cancelled", Cause: ctx.Err()}
+		}
 	}
 	defer reader.Close()
 
