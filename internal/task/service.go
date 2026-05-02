@@ -369,7 +369,7 @@ func (s *service) storeTaskSourceTorrentDataURL(
 	if err := s.taskSourceStore.Store(ctx, key, bytes.NewReader(content), &storage.FileMetadata{
 		FileName:    baseName,
 		ContentType: "application/x-bittorrent",
-		Expiry:      expiresAt,
+		ExpireAt:    expiresAt,
 	}); err != nil {
 		return "", &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store torrent source", Cause: err}
 	}

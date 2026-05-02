@@ -147,7 +147,7 @@ func TestCreateTask_MovesTorrentDataURLToMinioBeforeDBAndKafka(t *testing.T) {
 	require.NotEmpty(t, writer.key)
 	require.NotNil(t, writer.metadata)
 	require.Equal(t, "application/x-bittorrent", writer.metadata.ContentType)
-	require.NotZero(t, writer.metadata.Expiry)
+	require.NotZero(t, writer.metadata.ExpireAt)
 }
 
 func TestListTasks_RequiresFilter(t *testing.T) {

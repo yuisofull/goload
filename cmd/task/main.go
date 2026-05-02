@@ -114,7 +114,7 @@ func main() {
 			config.MinioSecretKey,
 			config.MinioUseSSL,
 			taskSourcesBucket,
-			storagepkg.WithExpiry(24*time.Hour),
+			storagepkg.WithMinioExpiry(24*time.Hour),
 		)
 		if err != nil {
 			level.Error(logger).
@@ -216,7 +216,9 @@ func main() {
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to create kafka subscriber for task service", "err", err)
 		} else {
-			taskEventConsumer = tasktransport.NewEventConsumer(svc, taskSub)
+			taskEventConsumer = tasktransport.NewEventConsumer(svc, taskSub, func(ctx context.Context, err error) {
+				level.Error(logger).Log("msg", "task event consumer error", "err", err)
+			})
 		}
 	}
 

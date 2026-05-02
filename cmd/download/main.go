@@ -47,7 +47,7 @@ func main() {
 			config.MinioBucket != "" {
 			var minioOpts []storage.MinioOption
 			if config.MinioFileExpiry > 0 {
-				minioOpts = append(minioOpts, storage.WithExpiry(config.MinioFileExpiry))
+				minioOpts = append(minioOpts, storage.WithMinioExpiry(config.MinioFileExpiry))
 				level.Info(logger).Log("msg", "minio file expiry configured", "expiry", config.MinioFileExpiry)
 			}
 			if m, err := storage.NewMinioBackend(

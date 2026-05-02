@@ -31,11 +31,11 @@ var keyHashSuffixRe = regexp.MustCompile(`^(.*)-[0-9a-fA-F]{8}$`)
 // MinioOption configures a Minio backend.
 type MinioOption func(*Minio)
 
-// WithExpiry sets a default expiry duration for stored objects. When non-zero,
+// WithMinioExpiry sets a default expiry duration for stored objects. When non-zero,
 // a bucket lifecycle rule is applied so MinIO automatically deletes objects
 // after the equivalent number of days. Individual Store calls can override
 // on a per-object basis via FileMetadata.Expiry.
-func WithExpiry(d time.Duration) MinioOption {
+func WithMinioExpiry(d time.Duration) MinioOption {
 	return func(m *Minio) { m.defaultExpiry = d }
 }
 
@@ -142,8 +142,8 @@ func (m *Minio) Store(ctx context.Context, key string, reader io.Reader, metadat
 	// Attach expiry as user-metadata so clients and cleanup jobs can inspect it.
 	// Prefer the per-object Expiry from metadata; fall back to defaultExpiry.
 	var expiry time.Time
-	if metadata != nil && !metadata.Expiry.IsZero() {
-		expiry = metadata.Expiry
+	if metadata != nil && !metadata.ExpireAt.IsZero() {
+		expiry = metadata.ExpireAt
 	} else if m.defaultExpiry > 0 {
 		expiry = time.Now().Add(m.defaultExpiry)
 	}
@@ -238,7 +238,7 @@ func (m *Minio) GetInfo(ctx context.Context, key string) (*FileMetadata, error) 
 	// Restore expiry from user metadata if present.
 	if expiresStr := userMetadataValueCaseInsensitive(info.UserMetadata, userMetaExpiryAt); expiresStr != "" {
 		if t, err := time.Parse(time.RFC3339, expiresStr); err == nil {
-			fm.Expiry = t
+			fm.ExpireAt = t
 		}
 	}
 

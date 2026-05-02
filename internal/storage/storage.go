@@ -44,10 +44,10 @@ type FileMetadata struct {
 	ChecksumType string            `json:"checksum_type"`
 	Checksum     []byte            `json:"checksum"`
 	Headers      map[string]string `json:"headers"`
-	// Expiry, when non-zero, is the time at which the stored object should
+	// ExpireAt, when non-zero, is the time at which the stored object should
 	// be considered expired. Backends that support it will apply this as
 	// object metadata or a lifecycle rule.
-	Expiry time.Time `json:"expiry,omitempty"`
+	ExpireAt time.Time `json:"expire_at,omitzero"`
 }
 
 // TokenMetadata describes stored information for one-time download tokens.
