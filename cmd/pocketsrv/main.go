@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/rand"
+	"crypto/rsa"
+	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,6 +21,7 @@ import (
 
 	"github.com/yuisofull/goload/internal/apigateway"
 	"github.com/yuisofull/goload/internal/auth"
+	authcache "github.com/yuisofull/goload/internal/auth/cache"
 	authsqlite "github.com/yuisofull/goload/internal/auth/sqlite"
 	"github.com/yuisofull/goload/internal/download"
 	"github.com/yuisofull/goload/internal/download/downloader"
@@ -29,6 +30,7 @@ import (
 	"github.com/yuisofull/goload/internal/task"
 	tasksqlite "github.com/yuisofull/goload/internal/task/sqlite"
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
+	inmemcache "github.com/yuisofull/goload/pkg/cache/inmem"
 	"github.com/yuisofull/goload/pkg/crypto/bcrypt"
 	"github.com/yuisofull/goload/pkg/message/inmem"
 	"github.com/yuisofull/goload/pkg/middleware"
@@ -38,6 +40,41 @@ func must(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+// inmemTokenPublicKeyStore is a thread-safe in-memory implementation of auth.TokenPublicKeyStore.
+// RSA public keys are ephemeral and regenerated on each restart, so SQLite persistence is unnecessary.
+type inmemTokenPublicKeyStore struct {
+	mu   sync.RWMutex
+	keys map[uint64]auth.TokenPublicKey
+	seq  uint64
+}
+
+func newInmemTokenPublicKeyStore() *inmemTokenPublicKeyStore {
+	return &inmemTokenPublicKeyStore{
+		keys: make(map[uint64]auth.TokenPublicKey),
+		seq:  1,
+	}
+}
+
+func (s *inmemTokenPublicKeyStore) CreateTokenPublicKey(_ context.Context, k *auth.TokenPublicKey) (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.seq
+	s.seq++
+	k.Id = id
+	s.keys[id] = *k
+	return id, nil
+}
+
+func (s *inmemTokenPublicKeyStore) GetTokenPublicKey(_ context.Context, kid uint64) (auth.TokenPublicKey, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	k, ok := s.keys[kid]
+	if !ok {
+		return auth.TokenPublicKey{}, fmt.Errorf("token public key not found: %d", kid)
+	}
+	return k, nil
 }
 
 func main() {
@@ -55,43 +92,51 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Open SQLite DB for pocket mode
-	dbPath := cfg.PocketDBPath
-
-	pool, err := sqlitex.Open(dbPath, 0, 10)
+	pool, err := sqlitex.Open(cfg.PocketDBPath, 0, 10)
 	must(err)
 	defer pool.Close()
 
-	// Run simple migrations (create tables if not exists)
 	must(runMigrations(pool))
 
-	// Initialize storage backend (local filesystem)
-	dataDir := cfg.PocketDataDir
 	storageBackend, err := storage.NewLocalBackend(
-		dataDir,
+		cfg.PocketDataDir,
 		storage.WithLocalLogger(logger),
 		storage.WithLocalExpiry(24*time.Hour),
 	)
 	must(err)
 
-	// Create in-memory broker
 	b := inmem.NewBroker(100, logger)
 	pub := inmem.NewPublisher(b)
 	sub := inmem.NewSubscriber(b)
 
-	// Initialize auth and task persistence using direct crawshaw implementations
 	authStore := authsqlite.New(pool)
 	taskRepo := tasksqlite.NewTaskRepo(pool)
 	tx := tasksqlite.NewTxManager(pool)
 
-	// Password hasher
-	bcryptHasher := bcrypt.NewHasher(10)
+	var tokenManager auth.TokenManager
+	{
+		privateKey, err := rsa.GenerateKey(rand.Reader, cfg.AuthTokenRSABits)
+		must(err)
+
+		tokenExpiresIn, err := time.ParseDuration(cfg.AuthTokenExpiresIn)
+		must(err)
+
+		cacheErrorHandler := func(_ context.Context, err error) {
+			level.Error(logger).Log("msg", "token public key cache error", "err", err)
+		}
+		cachedPKStore := authcache.NewTokenPublicKeyStore(
+			inmemcache.New[authcache.TokenPublicKeyCacheKey, []byte](5*time.Minute),
+			newInmemTokenPublicKeyStore(),
+			cacheErrorHandler,
+		)
+
+		tokenManager, err = auth.NewJWTRS512TokenManager(privateKey, tokenExpiresIn, cachedPKStore)
+		must(err)
+	}
+
+	bcryptHasher := bcrypt.NewHasher(cfg.AuthHashBcryptCost)
 	hasher := auth.NewPasswordHasher(bcryptHasher)
 
-	// Token manager: use a no-op manager for pocket single-user mode
-	tokenManager := auth.NewNoopTokenManager(24 * time.Hour)
-
-	// Auth service
 	authSvc := auth.NewService(
 		authStore.AccountStore,
 		authStore.AccountPasswordStore,
@@ -100,36 +145,33 @@ func main() {
 		tokenManager,
 	)
 
-	// Task service: use in-memory pubsub publisher
+	authMiddleware := apigateway.NewAuthMiddleware(authSvc)
+
 	taskPub := task.NewEventPublisher(pub)
-	tokenStore := task.NewInmemTokenStore()
+	secret := []byte(cfg.TokenHMACSecret)
+	tokenStore := task.NewTokenStore(
+		inmemcache.New[string, storage.TokenMetadata](5*time.Minute),
+		secret,
+	)
 	taskSvc := task.NewService(taskRepo, *taskPub, tx,
 		task.WithTokenStore(tokenStore),
-		// Local filesystem presigns are file:// URLs, which browsers will not
-		// open from the web UI. Use the HTTP /download token route in pocket mode.
 		task.WithTaskSourceStore(storageBackend),
 		task.WithTaskSourcePresigner(storageBackend),
 	)
 
-	// Task event consumer
-	var taskEventConsumer *tasktransport.EventConsumer
-	{
-		taskEventConsumer = tasktransport.NewEventConsumer(taskSvc, sub, func(ctx context.Context, err error) {
-			level.Error(logger).Log("msg", "task event consumer error", "err", err)
-		})
-	}
+	taskEventConsumer := tasktransport.NewEventConsumer(taskSvc, sub, func(_ context.Context, err error) {
+		level.Error(logger).Log("msg", "task event consumer error", "err", err)
+	})
 
-	// Download service
 	downloadPub := download.NewDownloadEventPublisher(pub)
 	dlSvc := download.NewService(
 		storageBackend,
 		downloadPub,
 		download.WithStorageType(storage.TypeLocal),
-		download.WithErrorHandler(func(ctx context.Context, err error) {
+		download.WithErrorHandler(func(_ context.Context, err error) {
 			level.Error(logger).Log("msg", "download failed", "err", err)
 		}),
 	)
-	// register downloaders
 	httpDL := downloader.NewHTTPDownloader(nil)
 	ftpDL := downloader.NewFTPDownloader(0)
 	btDL, btDlClose, err := downloader.NewBitTorrentDownloader(downloader.WithBitTorrentLogger(logger))
@@ -139,79 +181,10 @@ func main() {
 	dlSvc.RegisterDownloader("FTP", ftpDL)
 	dlSvc.RegisterDownloader("BITTORRENT", btDL)
 
-	// Start event consumer (download service listens for task events)
 	consumer := downloadtransport.NewEventConsumer(dlSvc, sub, logger)
 
-	// Create a default pocket account and use a no-auth middleware that
-	// injects this account ID into requests (single-user mode).
-	var defaultAccountID uint64
-	if acct, err := authStore.AccountStore.GetAccountByAccountName(ctx, "pocket"); err == nil && acct != nil {
-		defaultAccountID = acct.Id
-	} else {
-		id, err := authStore.AccountStore.CreateAccount(ctx, &auth.Account{AccountName: "pocket"})
-		if err != nil {
-			// try to read it back if creation failed due to race
-			acct2, err2 := authStore.AccountStore.GetAccountByAccountName(ctx, "pocket")
-			must(err2)
-			defaultAccountID = acct2.Id
-		} else {
-			// set an empty password (not used) so other code expecting a password won't fail
-			hashed, err := hasher.Hash(ctx, "")
-			must(err)
-			_ = authStore.AccountPasswordStore.CreateAccountPassword(
-				ctx,
-				&auth.AccountPassword{OfAccountId: id, HashedPassword: hashed},
-			)
-			defaultAccountID = id
-		}
-	}
-
-	authMiddleware := apigateway.NewNoAuthMiddleware(defaultAccountID)
 	endpoints := apigateway.NewGatewayEndpoints(taskSvc, authMiddleware, authSvc)
 	handler := apigateway.NewHTTPHandlerWithDownload(endpoints, logger, storageBackend, tokenStore)
-	handler.HandleFunc("/api/v1/pocket/tasks/reveal", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		idRaw := strings.TrimSpace(r.URL.Query().Get("id"))
-		id, err := strconv.ParseUint(idRaw, 10, 64)
-		if err != nil || id == 0 {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-
-		t, err := taskSvc.GetTask(r.Context(), id)
-		if err != nil {
-			http.Error(w, "task not found", http.StatusNotFound)
-			return
-		}
-		if t.StoragePath == "" {
-			http.Error(w, "task has no stored file", http.StatusBadRequest)
-			return
-		}
-
-		localPath, err := storageBackend.PathForKey(t.StoragePath)
-		if err != nil {
-			http.Error(w, "failed to resolve local path", http.StatusInternalServerError)
-			return
-		}
-		if ok, err := storageBackend.Exists(r.Context(), t.StoragePath); err != nil || !ok {
-			http.Error(w, "stored file not found", http.StatusNotFound)
-			return
-		}
-		if err := revealInFileManager(r.Context(), localPath, logger); err != nil {
-			level.Error(logger).Log("msg", "failed to reveal file", "path", localPath, "err", err)
-			http.Error(w, "failed to open file manager", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"path": localPath,
-		})
-	}).Methods(http.MethodPost)
 
 	if cfg.PocketWebDir != "" {
 		handler.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -242,10 +215,10 @@ func main() {
 	{
 		srv := &http.Server{Addr: cfg.HTTPAddress, Handler: httpHandler}
 		g.Add(func() error {
-			level.Info(logger).Log("msg", "serving pocket-mode API", "addr", srv.Addr)
+			level.Info(logger).Log("msg", "serving pocket-server API", "addr", srv.Addr)
 			return srv.ListenAndServe()
 		}, func(error) {
-			btDlClose() // ensure BitTorrent downloader is closed to release any resources
+			btDlClose()
 			ctxSh, cancelSh := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancelSh()
 			srv.Shutdown(ctxSh)
@@ -253,8 +226,7 @@ func main() {
 	}
 	g.Add(func() error {
 		return taskEventConsumer.Start(ctx)
-	}, func(error) {
-	})
+	}, func(error) {})
 
 	g.Add(func() error {
 		return consumer.Start(ctx)
@@ -270,61 +242,6 @@ func main() {
 	level.Info(logger).Log("exit", g.Run())
 }
 
-func revealInFileManager(ctx context.Context, path string, logger log.Logger) error {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "open", "-R", path)
-	case "windows":
-		cmd = exec.CommandContext(ctx, "explorer.exe", "/select,", path)
-	default:
-		if isWSL() {
-			windowsPath, err := wslWindowsPath(ctx, path)
-			if err != nil {
-				return err
-			}
-			cmd = exec.CommandContext(ctx, "explorer.exe", "/select,", windowsPath)
-			break
-		}
-
-		dir := filepath.Dir(path)
-		if opener, err := exec.LookPath("xdg-open"); err == nil {
-			cmd = exec.CommandContext(ctx, opener, dir)
-		} else if opener, err := exec.LookPath("gio"); err == nil {
-			cmd = exec.CommandContext(ctx, opener, "open", dir)
-		} else {
-			return err
-		}
-	}
-
-	logger.Log("msg", "executing file manager command", "cmd", cmd.String())
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	cmd.Wait()
-	return nil
-}
-
-func isWSL() bool {
-	version, err := os.ReadFile("/proc/version")
-	if err != nil {
-		return false
-	}
-	v := strings.ToLower(string(version))
-	return strings.Contains(v, "microsoft") || strings.Contains(v, "wsl")
-}
-
-func wslWindowsPath(ctx context.Context, path string) (string, error) {
-	out, err := exec.CommandContext(ctx, "wslpath", "-w", path).Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// runMigrations creates minimal tables compatible with sqlc queries used by existing code.
 func runMigrations(pool *sqlitex.Pool) error {
 	conn := pool.Get(context.Background())
 	if conn == nil {
@@ -332,7 +249,6 @@ func runMigrations(pool *sqlitex.Pool) error {
 	}
 	defer pool.Put(conn)
 
-	// Accounts
 	err := sqlitex.ExecuteTransient(conn, `CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         account_name TEXT NOT NULL
@@ -347,15 +263,6 @@ func runMigrations(pool *sqlitex.Pool) error {
 	if err != nil {
 		return err
 	}
-	err = sqlitex.ExecuteTransient(conn, `CREATE TABLE IF NOT EXISTS token_public_keys (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        public_key TEXT NOT NULL
-    );`, nil)
-	if err != nil {
-		return err
-	}
-
-	// Tasks table adapted for SQLite
 	err = sqlitex.ExecuteTransient(conn, `CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         of_account_id INTEGER NOT NULL,

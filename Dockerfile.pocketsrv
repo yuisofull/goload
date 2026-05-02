@@ -12,7 +12,7 @@ RUN bun install --frozen-lockfile
 # Copy source code
 COPY ./public .
 
-RUN VITE_GOLOAD_API_URL=http://localhost:8080 bun run build
+RUN VITE_GOLOAD_API_URL=https://goload-236216685918.asia-northeast1.run.app bun run build
 
 # Stage 2: Build the pocket backend (Go)
 FROM golang:1.25 AS go-builder
@@ -26,7 +26,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # Build the pocket binary
-RUN go build -o pocket ./cmd/pocket
+RUN go build -o pocket ./cmd/pocketsrv
 
 # Stage 3: Final runtime image
 FROM debian:12-slim
