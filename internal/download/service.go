@@ -29,6 +29,8 @@ type EventPublisher interface {
 }
 
 type Service interface {
+	// ExecuteTask waits for a download slot, then starts the task asynchronously.
+	// Execution failures are reported through task events and the error handler.
 	ExecuteTask(ctx context.Context, req TaskRequest) error
 	PauseTask(ctx context.Context, taskID uint64) error
 	ResumeTask(ctx context.Context, taskID uint64) error
@@ -123,13 +125,9 @@ func (s *service) RegisterDownloader(sourceType string, downloader Downloader) {
 	s.downloaders[sourceType] = downloader
 }
 
-// ExecuteTask starts a download task based on an internal TaskRequest
+// ExecuteTask starts a download task and returns once it has a concurrency slot.
+// The caller's context controls the lifetime of the download.
 func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
-	if err := s.sem.Acquire(ctx, 1); err != nil {
-		return fmt.Errorf("failed to acquire semaphore: %w", err)
-	}
-	defer s.sem.Release(1)
-
 	s.mu.Lock()
 	if _, ok := s.activeTasks[req.TaskID]; ok {
 		s.mu.Unlock()
@@ -162,13 +160,27 @@ func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
 	s.activeTasks[req.TaskID] = execution
 	s.mu.Unlock()
 
-	defer func() {
+	cleanup := func() {
+		cancel()
 		s.mu.Lock()
 		delete(s.activeTasks, req.TaskID)
 		s.mu.Unlock()
-	}()
+	}
 
-	return s.executeDownload(execution, downloader)
+	// Wait before spawning so a full service applies backpressure to the consumer.
+	if err := s.sem.Acquire(taskCtx, 1); err != nil {
+		cleanup()
+		return fmt.Errorf("failed to acquire download slot: %w", err)
+	}
+
+	go func() {
+		defer s.sem.Release(1)
+		defer cleanup()
+		if err := s.executeDownload(execution, downloader); err != nil {
+			s.markTaskFailed(taskCtx, req.TaskID, err)
+		}
+	}()
+	return nil
 }
 
 // executeDownload performs the actual download and storage
@@ -212,7 +224,6 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 
 	metadata, err := downloader.GetFileInfo(ctx, taskReq.SourceURL, sourceAuth)
 	if err != nil {
-		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to get file info: %w", err))
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
 
@@ -234,7 +245,6 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 
 		// If this was the last attempt, fail
 		if attempt == maxAttempts {
-			s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to start download: %w", dlErr))
 			return &errors.Error{
 				Code:    errors.ErrCodeInternal,
 				Message: "failed to start download",
@@ -251,7 +261,6 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		select {
 		case <-time.After(backoff + jitter):
 		case <-ctx.Done():
-			s.markTaskFailed(ctx, taskReq.TaskID, ctx.Err())
 			return &errors.Error{Code: errors.ErrCodeInternal, Message: "download cancelled", Cause: ctx.Err()}
 		}
 	}
@@ -273,7 +282,9 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		}
 	})
 
+	s.mu.Lock()
 	execution.progressReader = progressReader
+	s.mu.Unlock()
 
 	if err := s.publisher.PublishTaskStatusUpdated(ctx, events.TaskStatusUpdatedEvent{
 		TaskID:    taskReq.TaskID,
@@ -293,7 +304,6 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 		ContentType:  metadata.ContentType,
 		LastModified: time.Now(),
 	}); err != nil {
-		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to store file: %w", err))
 		_ = s.storage.Delete(context.Background(), storageKey)
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to store file", Cause: err}
 	}
@@ -314,7 +324,6 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 	}
 
 	if err := s.publisher.PublishTaskCompleted(ctx, completedEvent); err != nil {
-		s.markTaskFailed(ctx, taskReq.TaskID, fmt.Errorf("failed to publish completion event: %w", err))
 		return &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to publish completion event", Cause: err}
 	}
 
@@ -329,17 +338,21 @@ func (s *service) executeDownload(execution *taskExecution, downloader Downloade
 func (s *service) PauseTask(ctx context.Context, taskID uint64) error {
 	s.mu.RLock()
 	execution, exists := s.activeTasks[taskID]
+	var progressReader *PausableProgressReader
+	if exists {
+		progressReader = execution.progressReader
+	}
 	s.mu.RUnlock()
 
 	if !exists {
 		return &errors.Error{Code: errors.ErrCodeNotFound, Message: "task not found in active tasks"}
 	}
 
-	if execution.progressReader == nil {
+	if progressReader == nil {
 		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "task is not in a pausable state"}
 	}
 
-	execution.progressReader.Pause()
+	progressReader.Pause()
 	return nil
 }
 
@@ -347,17 +360,21 @@ func (s *service) PauseTask(ctx context.Context, taskID uint64) error {
 func (s *service) ResumeTask(ctx context.Context, taskID uint64) error {
 	s.mu.RLock()
 	execution, exists := s.activeTasks[taskID]
+	var progressReader *PausableProgressReader
+	if exists {
+		progressReader = execution.progressReader
+	}
 	s.mu.RUnlock()
 
 	if !exists {
 		return &errors.Error{Code: errors.ErrCodeNotFound, Message: "task not found in active tasks"}
 	}
 
-	if execution.progressReader == nil {
+	if progressReader == nil {
 		return &errors.Error{Code: errors.ErrCodeInvalidInput, Message: "task is not in a resumable state"}
 	}
 
-	execution.progressReader.Resume()
+	progressReader.Resume()
 	return nil
 }
 

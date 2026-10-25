@@ -92,6 +92,7 @@ func (ec *EventConsumer) processTaskCreatedEvents(ctx context.Context, ch <-chan
 			msg.Nack()
 			continue
 		}
+		// ExecuteTask returns after starting the download; completion is reported by task events.
 		msg.Ack()
 	}
 }
