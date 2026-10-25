@@ -135,7 +135,6 @@ func (ec *EventConsumer) handleTaskCompleted(ctx context.Context, msg *message.M
 	}
 
 	if err := ec.taskService.CompleteTask(ctx, event.TaskID); err != nil {
-		ec.errorHandler(ctx, err)
 		return err
 	}
 
@@ -181,7 +180,6 @@ func (ec *EventConsumer) handleTaskCompleted(ctx context.Context, msg *message.M
 func (ec *EventConsumer) handleTaskFailed(ctx context.Context, msg *message.Message) error {
 	var event events.TaskFailedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		ec.errorHandler(ctx, err)
 		return err
 	}
 

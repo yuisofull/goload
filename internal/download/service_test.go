@@ -142,3 +142,25 @@ func TestExecuteTaskAttemptsDownloadWhenMaxRetriesZero(t *testing.T) {
 		t.Fatalf("expected storage type %q, got %q", storage.TypeMinio, pub.completed.StorageType)
 	}
 }
+
+func TestPausableProgressReader_ConcurrentPauseAndRead(t *testing.T) {
+	reader := NewPausableProgressReader(strings.NewReader(strings.Repeat("x", 1<<20)), func(int64) {})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 4096)
+		for {
+			_, err := reader.Read(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for range 1000 {
+		reader.Pause()
+		reader.Resume()
+	}
+	reader.Resume()
+	<-done
+}

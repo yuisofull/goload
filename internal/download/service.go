@@ -400,9 +400,9 @@ func (s *service) markTaskFailed(ctx context.Context, taskID uint64, err error) 
 		FailedAt: time.Now(),
 	}
 
-	if publishErr := s.publisher.PublishTaskFailed(context.Background(), failEvent); publishErr != nil {
+	if publishErr := s.publisher.PublishTaskFailed(ctx, failEvent); publishErr != nil {
 		s.errorHandler(
-			context.Background(),
+			ctx,
 			fmt.Errorf("failed to publish task failed event for task %d: %w", taskID, publishErr),
 		)
 	}
@@ -505,7 +505,7 @@ func NewPausableProgressReader(reader io.Reader, onProgress func(int64)) *Pausab
 	return pr
 }
 
-// Read implements the io.Reader interface. It blocks if the reader is paused.
+// Read implements the [io.Reader] interface. It blocks if the reader is paused.
 func (pr *PausableProgressReader) Read(p []byte) (n int, err error) {
 	pr.mu.Lock()
 	for pr.isPaused {
@@ -515,8 +515,14 @@ func (pr *PausableProgressReader) Read(p []byte) (n int, err error) {
 
 	n, err = pr.reader.Read(p)
 	if n > 0 {
+		pr.mu.Lock()
 		pr.totalRead += int64(n)
-		pr.onProgress(pr.totalRead)
+		total := pr.totalRead
+		onProgress := pr.onProgress
+		pr.mu.Unlock()
+		if onProgress != nil {
+			onProgress(total)
+		}
 	}
 	return n, err
 }
