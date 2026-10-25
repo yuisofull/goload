@@ -738,10 +738,7 @@ func (s *service) UpdateTaskProgress(ctx context.Context, id uint64, progress Do
 }
 
 func (s *service) UpdateTaskError(ctx context.Context, id uint64, err error) error {
-	errMsg := ""
-	if err != nil {
-		errMsg = err.Error()
-	}
+	errMsg := userFacingTaskError(err)
 	_, updateErr := s.repo.Update(ctx, &Task{
 		ID:           id,
 		Status:       StatusFailed,
@@ -755,6 +752,20 @@ func (s *service) UpdateTaskError(ctx context.Context, id uint64, err error) err
 		}
 	}
 	return nil
+}
+
+// userFacingTaskError extracts a message suitable for the dashboard. Prefer
+// errors.Error.Message over Error() so codes like "INTERNAL:" are not shown.
+func userFacingTaskError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if e := errors.AsError(err); e != nil {
+		if e.Message != "" {
+			return e.Message
+		}
+	}
+	return err.Error()
 }
 
 func (s *service) CompleteTask(ctx context.Context, id uint64) error {

@@ -169,6 +169,21 @@ func TestGetFileInfo_ReturnsBestEffortMetadataWhenAllProbesForbidden(t *testing.
 	assert.Equal(t, int64(0), meta.FileSize)
 }
 
+func TestGetFileInfo_ReturnsBestEffortMetadataWhenTransportFails(t *testing.T) {
+	dl := downloader.NewHTTPDownloader(&http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("stream error")
+		}),
+	})
+
+	meta, err := dl.GetFileInfo(context.Background(), "https://example.com/files/blocked.pdf", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	assert.Equal(t, "blocked.pdf", meta.FileName)
+	assert.Equal(t, int64(0), meta.FileSize)
+}
+
 func TestGetFileInfo_FilenameFromURL_WhenNoContentDisposition(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "video/mp4")
@@ -189,6 +204,12 @@ func TestGetFileInfo_ErrorOn4xx(t *testing.T) {
 	_, err := newDL().GetFileInfo(context.Background(), srv.URL+"/missing", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestGetFileInfo_ContentRangeFallback(t *testing.T) {

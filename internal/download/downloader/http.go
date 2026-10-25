@@ -21,7 +21,10 @@ import (
 	"github.com/yuisofull/goload/internal/download"
 )
 
-const defaultUserAgent = "Mozilla/5.0 (compatible; GoLoad/1.0; +https://github.com/yuisofull/goload)"
+// defaultUserAgent mimics a common desktop browser. Many origins (CDNs, WAFs,
+// parliamentary/gov sites) reject non-browser agents with HTTP 403 or HTTP/2
+// INTERNAL_ERROR, while the same request with a browser UA succeeds.
+const defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 // HTTPDownloader implements download.Downloader for HTTP and HTTPS sources.
 // It supports:
@@ -75,45 +78,114 @@ func NewHTTPDownloader(client *http.Client, opts ...HTTPDownloaderOption) *HTTPD
 // the server advertises "Accept-Ranges: bytes".
 func (h *HTTPDownloader) SupportsResume() bool { return true }
 
-// GetFileInfo issues a HEAD request (falling back to a zero-byte GET) to
-// retrieve the file name, size, and content-type without downloading the body.
+// metadataProbe is one strategy for learning file metadata without a full download.
+type metadataProbe struct {
+	method     string
+	rangeBytes string // optional; e.g. "bytes=0-0"
+}
+
+// GetFileInfo probes for file name, size, and content-type.
+//
+// Probe order: HEAD → ranged GET → plain GET. Many origins/CDNs/WAFs reject
+// earlier probes while still allowing a later one (or the real download).
+// Soft failures (transport errors, 403) fall through; if every probe soft-fails
+// we return URL-derived best-effort metadata so Download can still be attempted.
+// Hard failures (e.g. 404) stop the cascade and are returned to the caller.
 func (h *HTTPDownloader) GetFileInfo(
 	ctx context.Context,
 	rawURL string,
 	auth *download.AuthConfig,
 ) (*download.FileMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build HEAD request: %w", err)
+	probes := []metadataProbe{
+		{method: http.MethodHead},
+		{method: http.MethodGet, rangeBytes: "bytes=0-0"},
+		{method: http.MethodGet},
 	}
 
+	var lastSoft error
+	for _, probe := range probes {
+		meta, soft, err := h.probeMetadata(ctx, rawURL, auth, probe)
+		switch {
+		case err == nil:
+			return meta, nil
+		case soft:
+			lastSoft = err
+			continue
+		default:
+			return nil, err
+		}
+	}
+	if lastSoft != nil {
+		level.Debug(h.logger).Log(
+			"msg", "metadata probes soft-failed; using URL-derived metadata",
+			"url", rawURL,
+			"err", lastSoft,
+		)
+	}
+	return bestEffortMetadata(rawURL), nil
+}
+
+// probeMetadata runs a single metadata probe.
+// soft=true means the caller should try the next probe (or best-effort).
+func (h *HTTPDownloader) probeMetadata(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+	probe metadataProbe,
+) (meta *download.FileMetadata, soft bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, probe.method, rawURL, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("build %s request: %w", probe.method, err)
+	}
 	applyAuth(req, auth)
+	if probe.rangeBytes != "" {
+		req.Header.Set("Range", probe.rangeBytes)
+	}
 
 	resp, err := h.client.Do(req)
-	if err != nil || shouldFallbackFromHead(resp.StatusCode) {
-		// Some servers do not support HEAD; fall back to a range-0 GET.
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return h.getFileInfoViaGet(ctx, rawURL, auth)
+	if err != nil {
+		return nil, true, fmt.Errorf("%s %s: %w", probe.method, rawURL, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusForbidden {
-			// Some hosts block metadata probes even when file retrieval may still be allowed.
-			// Return best-effort metadata so the caller can proceed to the actual download attempt.
-			return bestEffortMetadata(rawURL), nil
-		}
-		return nil, fmt.Errorf("HEAD %s: unexpected status %s", rawURL, resp.Status)
+	if isSuccessStatus(resp.StatusCode) {
+		return buildMetadata(rawURL, resp.Header), false, nil
 	}
-
-	return buildMetadata(rawURL, resp.Header), nil
+	if isSoftProbeStatus(resp.StatusCode) {
+		return nil, true, fmt.Errorf("%s %s: %s", probe.method, rawURL, resp.Status)
+	}
+	return nil, false, fmt.Errorf("%s %s: unexpected status %s", probe.method, rawURL, resp.Status)
 }
 
-func shouldFallbackFromHead(status int) bool {
-	// Some origins/CDNs block or do not implement HEAD while allowing GET.
-	switch status {
+func isSuccessStatus(code int) bool {
+	return code >= 200 && code < 300
+}
+
+// httpStatusError returns a short, user-facing description of an HTTP failure.
+func httpStatusError(code int, status string) error {
+	if status == "" {
+		status = fmt.Sprintf("%d", code)
+	}
+	switch code {
+	case http.StatusUnauthorized:
+		return fmt.Errorf("remote server requires authentication (%s)", status)
+	case http.StatusForbidden:
+		return fmt.Errorf("remote server denied access (%s)", status)
+	case http.StatusNotFound:
+		return fmt.Errorf("remote file not found (%s)", status)
+	case http.StatusTooManyRequests:
+		return fmt.Errorf("remote server rate-limited the download (%s)", status)
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return fmt.Errorf("remote server temporarily unavailable (%s)", status)
+	default:
+		return fmt.Errorf("remote server returned %s", status)
+	}
+}
+
+// isSoftProbeStatus reports statuses where a later probe (or the real download)
+// may still succeed. Origins often block HEAD/Range while allowing GET.
+func isSoftProbeStatus(code int) bool {
+	switch code {
 	case http.StatusForbidden,
 		http.StatusMethodNotAllowed,
 		http.StatusNotImplemented,
@@ -124,69 +196,6 @@ func shouldFallbackFromHead(status int) bool {
 	default:
 		return false
 	}
-}
-
-// getFileInfoViaGet falls back to a GET with "Range: bytes=0-0" so we only
-// pull one byte but can still read all the response headers.
-func (h *HTTPDownloader) getFileInfoViaGet(
-	ctx context.Context,
-	rawURL string,
-	auth *download.AuthConfig,
-) (*download.FileMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build GET request for file info: %w", err)
-	}
-	applyAuth(req, auth)
-	req.Header.Set("Range", "bytes=0-0")
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s for file info: %w", rawURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK &&
-		resp.StatusCode != http.StatusPartialContent {
-		if resp.StatusCode == http.StatusForbidden {
-			// Some origins reject ranged probes but allow a regular GET.
-			meta, err := h.getFileInfoViaPlainGet(ctx, rawURL, auth)
-			if err == nil {
-				return meta, nil
-			}
-			return bestEffortMetadata(rawURL), nil
-		}
-		return nil, fmt.Errorf("GET %s: unexpected status %s", rawURL, resp.Status)
-	}
-
-	return buildMetadata(rawURL, resp.Header), nil
-}
-
-func (h *HTTPDownloader) getFileInfoViaPlainGet(
-	ctx context.Context,
-	rawURL string,
-	auth *download.AuthConfig,
-) (*download.FileMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build plain GET request for file info: %w", err)
-	}
-	applyAuth(req, auth)
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("plain GET %s for file info: %w", rawURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusForbidden {
-			return bestEffortMetadata(rawURL), nil
-		}
-		return nil, fmt.Errorf("GET %s: unexpected status %s", rawURL, resp.Status)
-	}
-
-	return buildMetadata(rawURL, resp.Header), nil
 }
 
 func bestEffortMetadata(rawURL string) *download.FileMetadata {
@@ -222,22 +231,15 @@ func (h *HTTPDownloader) Download(
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("GET %s: %w", rawURL, err)
+		return nil, 0, fmt.Errorf("request failed: %w", err)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if !isSuccessStatus(resp.StatusCode) {
 		resp.Body.Close()
-		return nil, 0, fmt.Errorf("GET %s: unexpected status %s", rawURL, resp.Status)
+		return nil, 0, httpStatusError(resp.StatusCode, resp.Status)
 	}
 
-	reader := resp.Body
-
-	// Wrap with a rate-limiter when MaxSpeed is configured.
-	if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
-		reader = newRateLimitedReader(ctx, resp.Body, *opts.MaxSpeed)
-	}
-
-	return reader, resp.ContentLength, nil
+	return maybeRateLimited(ctx, resp.Body, opts), resp.ContentLength, nil
 }
 
 type chunkJob struct {
@@ -252,6 +254,8 @@ type chunkResult struct {
 	err   error
 }
 
+const parallelChunkSize = int64(5 * 1024 * 1024) // 5MB
+
 func (h *HTTPDownloader) downloadParallel(
 	ctx context.Context,
 	rawURL string,
@@ -259,218 +263,275 @@ func (h *HTTPDownloader) downloadParallel(
 	opts download.DownloadOptions,
 	fileSize int64,
 ) (io.ReadCloser, int64, error) {
-	chunkSize := int64(5 * 1024 * 1024) // 5MB chunks
-	numChunks := int((fileSize + chunkSize - 1) / chunkSize)
+	numChunks := int((fileSize + parallelChunkSize - 1) / parallelChunkSize)
 
 	level.Debug(h.logger).Log(
 		"msg", "starting parallel chunk download",
 		"file_size", fileSize,
-		"chunk_size", chunkSize,
+		"chunk_size", parallelChunkSize,
 		"num_chunks", numChunks,
 		"concurrency", opts.Concurrency,
 	)
 
-	// Start the first chunk synchronously to verify Range support
-	firstJob := chunkJob{index: 0, start: 0, end: chunkSize - 1}
-	if firstJob.end >= fileSize {
-		firstJob.end = fileSize - 1
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	firstData, fallback, err := h.fetchFirstChunk(ctx, rawURL, auth, opts, fileSize)
 	if err != nil {
 		return nil, 0, err
 	}
-	applyAuth(req, auth)
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", firstJob.start, firstJob.end))
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if resp.StatusCode == http.StatusOK {
-		level.Debug(h.logger).Log("msg", "server ignored range header, falling back to sequential download")
-		// Server ignored Range header, fallback to normal download
-		reader := resp.Body
-		if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
-			reader = newRateLimitedReader(ctx, resp.Body, *opts.MaxSpeed)
-		}
-		return reader, resp.ContentLength, nil
-	}
-
-	if resp.StatusCode != http.StatusPartialContent {
-		resp.Body.Close()
-		return nil, 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	firstData, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return nil, 0, err
+	if fallback != nil {
+		return fallback.reader, fallback.total, nil
 	}
 
 	pr, pw := io.Pipe()
-
 	jobs := make(chan chunkJob, numChunks)
 	results := make(chan chunkResult, numChunks)
 
-	// Push the first chunk result immediately
 	results <- chunkResult{index: 0, data: firstData}
-
 	for i := 1; i < numChunks; i++ {
-		start := int64(i) * chunkSize
-		end := start + chunkSize - 1
-		if end >= fileSize {
-			end = fileSize - 1
-		}
-		jobs <- chunkJob{index: i, start: start, end: end}
+		jobs <- chunkBounds(i, fileSize)
 	}
 	close(jobs)
 
 	cancelCtx, cancel := context.WithCancel(ctx)
-
-	var wg sync.WaitGroup
-	for range opts.Concurrency {
-		wg.Go(func() {
-			for job := range jobs {
-				level.Debug(h.logger).Log(
-					"msg", "starting chunk download",
-					"chunk_index", job.index,
-					"start_byte", job.start,
-					"end_byte", job.end,
-				)
-
-				select {
-				case <-cancelCtx.Done():
-					return
-				default:
-				}
-
-				maxRetries := opts.MaxRetries
-				if maxRetries <= 0 {
-					maxRetries = 3
-				}
-
-				var data []byte
-				var lastErr error
-
-				for attempt := 0; attempt <= maxRetries; attempt++ {
-					if attempt > 0 {
-						backoff := time.Second * time.Duration(1<<attempt)
-						jitter := time.Duration(time.Now().UnixNano() % int64(time.Second))
-
-						level.Warn(h.logger).Log(
-							"msg", "retrying chunk download",
-							"chunk_index", job.index,
-							"attempt", attempt,
-							"max_retries", maxRetries,
-							"backoff", backoff+jitter,
-							"last_error", lastErr,
-						)
-
-						select {
-						case <-time.After(backoff + jitter):
-						case <-cancelCtx.Done():
-							return
-						}
-					}
-
-					req, err := http.NewRequestWithContext(cancelCtx, http.MethodGet, rawURL, nil)
-					if err != nil {
-						lastErr = err
-						continue
-					}
-					applyAuth(req, auth)
-					req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", job.start, job.end))
-
-					resp, err := h.client.Do(req)
-					if err != nil {
-						lastErr = err
-						continue
-					}
-
-					if resp.StatusCode != http.StatusPartialContent {
-						resp.Body.Close()
-						lastErr = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-						continue
-					}
-
-					data, err = io.ReadAll(resp.Body)
-					resp.Body.Close()
-					if err != nil {
-						lastErr = err
-						continue
-					}
-
-					lastErr = nil
-					break
-				}
-
-				if lastErr != nil {
-					results <- chunkResult{index: job.index, err: lastErr}
-					return
-				}
-
-				level.Debug(h.logger).Log(
-					"msg", "finished chunk download",
-					"chunk_index", job.index,
-					"bytes_downloaded", len(data),
-				)
-
-				results <- chunkResult{index: job.index, data: data}
-			}
-		})
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	h.startChunkWorkers(cancelCtx, rawURL, auth, opts, jobs, results)
 
 	go func() {
 		defer pw.Close()
 		defer cancel()
-
-		buffer := make(map[int][]byte)
-		nextIndex := 0
-
-		for res := range results {
-			if res.err != nil {
-				pw.CloseWithError(res.err)
-				return
-			}
-
-			if res.index == nextIndex {
-				level.Debug(h.logger).Log("msg", "writing chunk to pipe", "chunk_index", res.index)
-				if _, err := pw.Write(res.data); err != nil {
-					return
-				}
-				nextIndex++
-
-				for {
-					if data, ok := buffer[nextIndex]; ok {
-						level.Debug(h.logger).Log("msg", "writing buffered chunk to pipe", "chunk_index", nextIndex)
-						if _, err := pw.Write(data); err != nil {
-							return
-						}
-						delete(buffer, nextIndex)
-						nextIndex++
-					} else {
-						break
-					}
-				}
-			} else {
-				buffer[res.index] = res.data
-			}
-		}
+		writeOrderedChunks(h.logger, pw, results)
 	}()
 
-	var reader io.ReadCloser = pr
-	if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
-		reader = newRateLimitedReader(ctx, pr, *opts.MaxSpeed)
+	return maybeRateLimited(ctx, pr, opts), fileSize, nil
+}
+
+type sequentialFallback struct {
+	reader io.ReadCloser
+	total  int64
+}
+
+// fetchFirstChunk verifies Range support. On 200 (Range ignored) it returns a
+// sequential fallback reader; on 206 it returns the first chunk bytes.
+func (h *HTTPDownloader) fetchFirstChunk(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+	opts download.DownloadOptions,
+	fileSize int64,
+) (firstData []byte, fallback *sequentialFallback, err error) {
+	job := chunkBounds(0, fileSize)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	applyAuth(req, auth)
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", job.start, job.end))
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return reader, fileSize, nil
+	if resp.StatusCode == http.StatusOK {
+		level.Debug(h.logger).Log("msg", "server ignored range header, falling back to sequential download")
+		return nil, &sequentialFallback{
+			reader: maybeRateLimited(ctx, resp.Body, opts),
+			total:  resp.ContentLength,
+		}, nil
+	}
+
+	if resp.StatusCode != http.StatusPartialContent {
+		resp.Body.Close()
+		return nil, nil, httpStatusError(resp.StatusCode, resp.Status)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, nil, err
+	}
+	return data, nil, nil
+}
+
+func chunkBounds(index int, fileSize int64) chunkJob {
+	start := int64(index) * parallelChunkSize
+	end := start + parallelChunkSize - 1
+	if end >= fileSize {
+		end = fileSize - 1
+	}
+	return chunkJob{index: index, start: start, end: end}
+}
+
+func (h *HTTPDownloader) startChunkWorkers(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+	opts download.DownloadOptions,
+	jobs <-chan chunkJob,
+	results chan<- chunkResult,
+) {
+	var wg sync.WaitGroup
+	for range opts.Concurrency {
+		wg.Go(func() {
+			for job := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				data, err := h.downloadChunkWithRetry(ctx, rawURL, auth, opts, job)
+				if err != nil {
+					results <- chunkResult{index: job.index, err: err}
+					return
+				}
+				results <- chunkResult{index: job.index, data: data}
+			}
+		})
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+}
+
+func (h *HTTPDownloader) downloadChunkWithRetry(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+	opts download.DownloadOptions,
+	job chunkJob,
+) ([]byte, error) {
+	level.Debug(h.logger).Log(
+		"msg", "starting chunk download",
+		"chunk_index", job.index,
+		"start_byte", job.start,
+		"end_byte", job.end,
+	)
+
+	maxRetries := opts.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := waitChunkRetry(ctx, h.logger, job.index, attempt, maxRetries, lastErr); err != nil {
+				return nil, err
+			}
+		}
+
+		data, err := h.fetchChunkRange(ctx, rawURL, auth, job)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		level.Debug(h.logger).Log(
+			"msg", "finished chunk download",
+			"chunk_index", job.index,
+			"bytes_downloaded", len(data),
+		)
+		return data, nil
+	}
+	return nil, lastErr
+}
+
+func waitChunkRetry(
+	ctx context.Context,
+	logger log.Logger,
+	chunkIndex, attempt, maxRetries int,
+	lastErr error,
+) error {
+	backoff := time.Second * time.Duration(1<<attempt)
+	jitter := time.Duration(time.Now().UnixNano() % int64(time.Second))
+
+	level.Warn(logger).Log(
+		"msg", "retrying chunk download",
+		"chunk_index", chunkIndex,
+		"attempt", attempt,
+		"max_retries", maxRetries,
+		"backoff", backoff+jitter,
+		"last_error", lastErr,
+	)
+
+	select {
+	case <-time.After(backoff + jitter):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (h *HTTPDownloader) fetchChunkRange(
+	ctx context.Context,
+	rawURL string,
+	auth *download.AuthConfig,
+	job chunkJob,
+) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	applyAuth(req, auth)
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", job.start, job.end))
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		return nil, httpStatusError(resp.StatusCode, resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// writeOrderedChunks writes chunk results to pw in index order, buffering
+// out-of-order arrivals until the next expected index is available.
+func writeOrderedChunks(logger log.Logger, pw *io.PipeWriter, results <-chan chunkResult) {
+	buffer := make(map[int][]byte)
+	nextIndex := 0
+
+	for res := range results {
+		if res.err != nil {
+			pw.CloseWithError(res.err)
+			return
+		}
+
+		if res.index != nextIndex {
+			buffer[res.index] = res.data
+			continue
+		}
+
+		if err := writeChunk(logger, pw, res.index, res.data); err != nil {
+			return
+		}
+		nextIndex++
+
+		for {
+			data, ok := buffer[nextIndex]
+			if !ok {
+				break
+			}
+			if err := writeChunk(logger, pw, nextIndex, data); err != nil {
+				return
+			}
+			delete(buffer, nextIndex)
+			nextIndex++
+		}
+	}
+}
+
+func writeChunk(logger log.Logger, pw *io.PipeWriter, index int, data []byte) error {
+	level.Debug(logger).Log("msg", "writing chunk to pipe", "chunk_index", index)
+	_, err := pw.Write(data)
+	return err
+}
+
+func maybeRateLimited(ctx context.Context, r io.ReadCloser, opts download.DownloadOptions) io.ReadCloser {
+	if opts.MaxSpeed != nil && *opts.MaxSpeed > 0 {
+		return newRateLimitedReader(ctx, r, *opts.MaxSpeed)
+	}
+	return r
 }
 
 // applyAuth decorates a request with credentials from AuthConfig.
@@ -568,7 +629,7 @@ func filenameFromURL(rawURL string) string {
 	return name
 }
 
-// rateLimitedReader wraps an io.ReadCloser and throttles reads to maxBytesPerSec.
+// rateLimitedReader wraps an [io.ReadCloser] and throttles reads to maxBytesPerSec.
 type rateLimitedReader struct {
 	ctx     context.Context
 	inner   io.ReadCloser
