@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	stderrors "errors"
 
 	"github.com/go-kit/kit/transport"
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -56,6 +57,8 @@ type HTTPTask struct {
 	CompletedAt     *time.Time     `json:"completed_at,omitempty"`
 }
 
+const maxBodyBytes = 10 << 20 // 10MB
+
 // NewHTTPHandler creates HTTP handlers for all gateway endpoints.
 // If authCreate and authSession endpoints are non-nil, register auth handlers.
 func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler {
@@ -65,6 +68,13 @@ func NewHTTPHandler(endpoints GatewayEndpoints, logger log.Logger) http.Handler 
 	}
 
 	r := mux.NewRouter()
+
+	r.Use(func (next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			req.Body = http.MaxBytesReader(w,req.Body, maxBodyBytes)
+			next.ServeHTTP(w, req)
+		})
+	})
 
 	// --- health ---------------------------------------------------------
 	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -466,6 +476,17 @@ func encodeHTTPResponse(_ context.Context, w http.ResponseWriter, response any) 
 
 func encodeError(ctx context.Context, err error, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	
+	// Body exceeded maxBodyBytes, return 413
+	var maxByteError *http.MaxBytesError
+
+	if stderrors.As(err, &maxByteError) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error": "request body too large",
+		})
+		return
+	}
 
 	statusCode, errMsg := httpStatusAndMessage(err)
 	if statusCode >= http.StatusInternalServerError {
