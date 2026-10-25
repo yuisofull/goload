@@ -63,29 +63,42 @@ func (e *Error) Unwrap() error {
 	return e.Cause
 }
 
+// EncodeGRPCError maps a domain error to a gRPC status.
+// The client-facing message is Error.Message only; Cause is for server-side logs.
 func EncodeGRPCError(err error) error {
 	var svcErr *Error
 
 	if errors.As(err, &svcErr) {
-		msg := svcErr.Message
-		if svcErr.Cause != nil {
-			msg += ": " + svcErr.Cause.Error()
-		}
-		switch svcErr.Code {
-		case ErrCodeAlreadyExists:
-			return status.Error(codes.AlreadyExists, msg)
-		case ErrCodeNotFound:
-			return status.Error(codes.NotFound, msg)
-		case ErrCodeInternal:
-			return status.Error(codes.Internal, msg)
-		case ErrCodeUnauthenticated:
-			return status.Error(codes.Unauthenticated, msg)
-		case ErrCodePermissionDenied:
-			return status.Error(codes.PermissionDenied, msg)
-		default:
-			return status.Error(codes.Unknown, msg)
-		}
+		return status.Error(GRPCCode(svcErr.Code), svcErr.Message)
 	}
 
-	return status.Error(codes.Unknown, err.Error())
+	return status.Error(codes.Unknown, "internal server error")
+}
+
+// GRPCCode maps a domain error code to a gRPC status code.
+func GRPCCode(code Code) codes.Code {
+	switch code {
+	case ErrCodeAlreadyExists:
+		return codes.AlreadyExists
+	case ErrCodeNotFound:
+		return codes.NotFound
+	case ErrCodeInternal:
+		return codes.Internal
+	case ErrCodeUnauthenticated:
+		return codes.Unauthenticated
+	case ErrCodePermissionDenied:
+		return codes.PermissionDenied
+	case ErrCodeInvalidInput:
+		return codes.InvalidArgument
+	case ErrCodeConflict:
+		return codes.Aborted
+	case ErrCodeInvalidState:
+		return codes.FailedPrecondition
+	case ErrCodeTooManyRequests:
+		return codes.ResourceExhausted
+	case ErrCodeUnknown:
+		return codes.Unknown
+	default:
+		return codes.Unknown
+	}
 }

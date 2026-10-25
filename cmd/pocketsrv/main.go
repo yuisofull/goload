@@ -210,6 +210,7 @@ func main() {
 	})(httpHandler)
 	httpHandler = middleware.RecoveryHTTPMiddleware(logger)(httpHandler)
 	httpHandler = middleware.LoggingHTTPMiddleware(logger)(httpHandler)
+	httpHandler = middleware.RequestIDHTTPMiddleware(httpHandler)
 
 	var g run.Group
 	{

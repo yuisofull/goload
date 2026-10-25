@@ -622,3 +622,5 @@ components:
       properties:
         error:
           type: string
+        request_id:
+          type: string

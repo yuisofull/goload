@@ -158,6 +158,7 @@ func main() {
 		}
 
 		baseServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
+			middleware.RecoveryGRPCInterceptor(logger),
 			middleware.LoggingGRPCInterceptor(logger),
 			kitgrpc.Interceptor,
 		))

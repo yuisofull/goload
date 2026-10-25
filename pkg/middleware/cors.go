@@ -30,11 +30,15 @@ func CORSHTTPMiddleware(opts CORSOptions) func(http.Handler) http.Handler {
 			http.MethodOptions,
 		},
 	)
-	allowedHeaders := withDefault(opts.AllowedHeaders, []string{"Authorization", "Content-Type", "Accept", "Origin"})
+	allowedHeaders := withDefault(
+		opts.AllowedHeaders,
+		[]string{"Authorization", "Content-Type", "Accept", "Origin", RequestIDHeader},
+	)
+	exposedHeaders := withDefault(opts.ExposedHeaders, []string{RequestIDHeader})
 	allowAllOrigins := containsIgnoreCase(allowedOrigins, "*")
 	allowMethodsHeader := strings.Join(allowedMethods, ", ")
 	allowHeadersHeader := strings.Join(allowedHeaders, ", ")
-	exposeHeadersHeader := strings.Join(opts.ExposedHeaders, ", ")
+	exposeHeadersHeader := strings.Join(exposedHeaders, ", ")
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

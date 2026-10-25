@@ -191,6 +191,7 @@ func main() {
 	endpointSet := taskendpoint.New(svc)
 
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
+		middleware.RecoveryGRPCInterceptor(logger),
 		middleware.LoggingGRPCInterceptor(logger),
 		kitgrpc.Interceptor,
 	))

@@ -60,7 +60,7 @@ func (s *grpcServer) UpdateTaskStoragePath(
 ) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskStoragePath.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }
@@ -71,7 +71,7 @@ func (s *grpcServer) UpdateTaskStatus(
 ) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskStatus.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }
@@ -82,7 +82,7 @@ func (s *grpcServer) UpdateTaskProgress(
 ) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskProgress.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }
@@ -93,7 +93,7 @@ func (s *grpcServer) UpdateTaskError(
 ) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskError.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }
@@ -101,7 +101,7 @@ func (s *grpcServer) UpdateTaskError(
 func (s *grpcServer) CompleteTask(ctx context.Context, req *pb.CompleteTaskRequest) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.completeTask.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }
@@ -193,7 +193,7 @@ func (s *grpcServer) UpdateTaskChecksum(
 ) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskChecksum.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }
@@ -204,7 +204,7 @@ func (s *grpcServer) UpdateTaskMetadata(
 ) (*pb.UpdateTaskResponse, error) {
 	_, resp, err := s.updateTaskMetadata.ServeGRPC(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, encodeError(ctx, err)
 	}
 	return resp.(*pb.UpdateTaskResponse), nil
 }

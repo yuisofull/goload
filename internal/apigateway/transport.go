@@ -20,8 +20,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/yuisofull/goload/docs"
+	"github.com/yuisofull/goload/internal/auth"
+	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
+	"github.com/yuisofull/goload/pkg/middleware"
 )
 
 type HTTPListTasksRequest struct {
@@ -272,14 +275,16 @@ func NewHTTPHandlerWithDownload(
 			}
 			reader, err = store.GetWithRange(ctx, meta.Key, start, end)
 			if err != nil {
-				http.Error(w, "failed to fetch range: "+err.Error(), http.StatusInternalServerError)
+				level.Error(logger).Log("msg", "failed to fetch range", "err", err, "key", meta.Key)
+				http.Error(w, "failed to retrieve file", http.StatusInternalServerError)
 				return
 			}
 			w.WriteHeader(http.StatusPartialContent)
 		} else {
 			reader, err = store.Get(ctx, meta.Key)
 			if err != nil {
-				http.Error(w, "failed to fetch file: "+err.Error(), http.StatusInternalServerError)
+				level.Error(logger).Log("msg", "failed to fetch file", "err", err, "key", meta.Key)
+				http.Error(w, "failed to retrieve file", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -296,30 +301,35 @@ func NewHTTPHandlerWithDownload(
 // addTokenToContext extracts JWT token from HTTP Authorization header and adds it to context
 func addTokenToContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+			encodeError(r.Context(), &errors.Error{
+				Code:    errors.ErrCodeUnauthenticated,
+				Message: "missing authorization header",
+			}, w)
 			return
 		}
 
-		// Check for Bearer token format
 		const bearerPrefix = "Bearer "
 		if !strings.HasPrefix(authHeader, bearerPrefix) {
-			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+			encodeError(r.Context(), &errors.Error{
+				Code:    errors.ErrCodeUnauthenticated,
+				Message: "invalid authorization header format",
+			}, w)
 			return
 		}
 
 		token := strings.TrimPrefix(authHeader, bearerPrefix)
 		if token == "" {
-			http.Error(w, "Missing token", http.StatusUnauthorized)
+			encodeError(r.Context(), &errors.Error{
+				Code:    errors.ErrCodeUnauthenticated,
+				Message: "missing token",
+			}, w)
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), tokenKey, token)
-		r = r.WithContext(ctx)
-
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -454,56 +464,88 @@ func encodeHTTPResponse(_ context.Context, w http.ResponseWriter, response any) 
 	return json.NewEncoder(w).Encode(response)
 }
 
-func encodeError(_ context.Context, err error, w http.ResponseWriter) {
+func encodeError(ctx context.Context, err error, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
-	var statusCode int
-	errMsg := err.Error()
+	statusCode, errMsg := httpStatusAndMessage(err)
+	if statusCode >= http.StatusInternalServerError {
+		errMsg = "internal server error"
+	}
 
-	if grpcStatus, ok := status.FromError(err); ok {
-		errMsg = grpcStatus.Message()
-		switch grpcStatus.Code() {
-		case codes.NotFound:
-			statusCode = http.StatusNotFound
-		case codes.InvalidArgument:
-			statusCode = http.StatusBadRequest
-		case codes.Unauthenticated:
-			statusCode = http.StatusUnauthorized
-		case codes.PermissionDenied:
-			statusCode = http.StatusForbidden
-		case codes.AlreadyExists:
-			statusCode = http.StatusConflict
-		case codes.Internal:
-			statusCode = http.StatusInternalServerError
-		case codes.Unavailable:
-			statusCode = http.StatusServiceUnavailable
-		case codes.DeadlineExceeded:
-			statusCode = http.StatusRequestTimeout
-		case codes.ResourceExhausted:
-			statusCode = http.StatusTooManyRequests
-		case codes.FailedPrecondition:
-			statusCode = http.StatusPreconditionFailed
-		case codes.Aborted:
-			statusCode = http.StatusConflict
-		case codes.OutOfRange:
-			statusCode = http.StatusBadRequest
-		case codes.Unimplemented:
-			statusCode = http.StatusNotImplemented
-		case codes.Unknown:
-			statusCode = http.StatusInternalServerError
-		default:
-			statusCode = http.StatusInternalServerError
+	w.WriteHeader(statusCode)
+	body := map[string]any{"error": errMsg}
+	if reqID := middleware.RequestIDFromContext(ctx); reqID != "" {
+		body["request_id"] = reqID
+	}
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func httpStatusAndMessage(err error) (int, string) {
+	if svcErr := errors.AsError(err); svcErr != nil {
+		if statusCode, ok := httpStatusFromCode(svcErr.Code); ok {
+			return statusCode, svcErr.Message
 		}
 	}
 
-	if statusCode == 0 {
-		statusCode = http.StatusInternalServerError
+	if grpcStatus, ok := status.FromError(err); ok {
+		return httpStatusFromGRPC(grpcStatus.Code()), grpcStatus.Message()
 	}
-	if statusCode >= 500 {
-		errMsg = "internal server error"
+
+	return http.StatusInternalServerError, "internal server error"
+}
+
+func httpStatusFromCode(code errors.Code) (int, bool) {
+	switch code {
+	case errors.ErrCodeAlreadyExists, errors.ErrCodeConflict:
+		return http.StatusConflict, true
+	case errors.ErrCodeNotFound:
+		return http.StatusNotFound, true
+	case errors.ErrCodeInternal, errors.ErrCodeUnknown:
+		return http.StatusInternalServerError, true
+	case errors.ErrCodeUnauthenticated, auth.ErrCodeInvalidPassword, auth.ErrCodeInvalidToken:
+		return http.StatusUnauthorized, true
+	case errors.ErrCodePermissionDenied:
+		return http.StatusForbidden, true
+	case errors.ErrCodeInvalidInput:
+		return http.StatusBadRequest, true
+	case errors.ErrCodeTooManyRequests:
+		return http.StatusTooManyRequests, true
+	case errors.ErrCodeInvalidState:
+		return http.StatusPreconditionFailed, true
+	default:
+		return 0, false
 	}
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": errMsg,
-	})
+}
+
+func httpStatusFromGRPC(code codes.Code) int {
+	switch code {
+	case codes.NotFound:
+		return http.StatusNotFound
+	case codes.InvalidArgument, codes.OutOfRange:
+		return http.StatusBadRequest
+	case codes.Unauthenticated:
+		return http.StatusUnauthorized
+	case codes.PermissionDenied:
+		return http.StatusForbidden
+	case codes.AlreadyExists, codes.Aborted:
+		return http.StatusConflict
+	case codes.Internal, codes.Unknown, codes.DataLoss:
+		return http.StatusInternalServerError
+	case codes.Unavailable:
+		return http.StatusServiceUnavailable
+	case codes.DeadlineExceeded:
+		return http.StatusRequestTimeout
+	case codes.ResourceExhausted:
+		return http.StatusTooManyRequests
+	case codes.FailedPrecondition:
+		return http.StatusPreconditionFailed
+	case codes.Unimplemented:
+		return http.StatusNotImplemented
+	case codes.Canceled:
+		return http.StatusRequestTimeout
+	case codes.OK:
+		return http.StatusOK
+	default:
+		return http.StatusInternalServerError
+	}
 }

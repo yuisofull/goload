@@ -246,6 +246,9 @@ components:
       properties:
         error:
           type: string
+        request_id:
+          type: string
+          description: Correlation ID for the request, also returned in the X-Request-Id header.
 
 paths:
   /health:

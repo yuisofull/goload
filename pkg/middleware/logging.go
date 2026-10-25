@@ -80,29 +80,34 @@ func LoggingHTTPMiddleware(logger log.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(rw, r)
 
 			duration := time.Since(start)
+			reqID := RequestIDFromContext(r.Context())
 
-			if rw.statusCode >= 500 {
+			switch {
+			case rw.statusCode >= http.StatusInternalServerError:
 				level.Error(logger).Log(
 					"method", r.Method,
 					"url", r.URL.String(),
 					"status", rw.statusCode,
 					"duration", duration,
+					"request_id", reqID,
 					"msg", "http request failed with server error",
 				)
-			} else if rw.statusCode >= 400 {
+			case rw.statusCode >= http.StatusBadRequest:
 				level.Debug(logger).Log(
 					"method", r.Method,
 					"url", r.URL.String(),
 					"status", rw.statusCode,
 					"duration", duration,
+					"request_id", reqID,
 					"msg", "http request failed with client error",
 				)
-			} else {
+			default:
 				level.Info(logger).Log(
 					"method", r.Method,
 					"url", r.URL.String(),
 					"status", rw.statusCode,
 					"duration", duration,
+					"request_id", reqID,
 					"msg", "http request handled successfully",
 				)
 			}
