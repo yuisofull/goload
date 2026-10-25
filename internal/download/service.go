@@ -174,8 +174,14 @@ func (s *service) ExecuteTask(ctx context.Context, req TaskRequest) error {
 	}
 
 	go func() {
-		defer s.sem.Release(1)
-		defer cleanup()
+		defer func() {
+			if r := recover(); r != nil {
+				s.markTaskFailed(taskCtx, req.TaskID, fmt.Errorf("recovered from panic while executing task: %v", r))
+			}
+			s.sem.Release(1)
+			cleanup()
+		}()
+
 		if err := s.executeDownload(execution, downloader); err != nil {
 			s.markTaskFailed(taskCtx, req.TaskID, err)
 		}

@@ -263,7 +263,21 @@ func (h *HTTPDownloader) downloadParallel(
 	opts download.DownloadOptions,
 	fileSize int64,
 ) (io.ReadCloser, int64, error) {
-	numChunks := int((fileSize + parallelChunkSize - 1) / parallelChunkSize)
+	if fileSize <= 0 {
+		return nil, 0, fmt.Errorf("invalid file size %d for parallel download", fileSize)
+	}
+
+	numChunks64 := fileSize / parallelChunkSize
+	if fileSize%parallelChunkSize != 0 {
+		numChunks64++
+	}
+
+	const maxChunks = 100000
+	if numChunks64 > maxChunks {
+		return nil, 0, fmt.Errorf("file size %d exceeds the maximum allowed for parallel download", fileSize)
+	}
+
+	numChunks := int(numChunks64)
 
 	level.Debug(h.logger).Log(
 		"msg", "starting parallel chunk download",
