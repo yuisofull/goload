@@ -12,7 +12,8 @@ CREATE TABLE
     IF NOT EXISTS accounts (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         account_name VARCHAR(256) NOT NULL,
-        PRIMARY KEY (id)
+        PRIMARY KEY (id),
+        UNIQUE KEY accounts_account_name_key (account_name)
     );
 
 CREATE TABLE

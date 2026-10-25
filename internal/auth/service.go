@@ -92,15 +92,6 @@ func NewService(
 }
 
 func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error) {
-	exists := s.isAccountNameTaken(ctx, params.AccountName)
-
-	if exists {
-		return CreateAccountOutput{}, &errors.Error{
-			Code:    errors.ErrCodeAlreadyExists,
-			Message: "account already exists",
-		}
-	}
-
 	hash, err := s.passwordHasher.Hash(ctx, params.Password)
 	if err != nil {
 		return CreateAccountOutput{}, &errors.Error{
@@ -111,29 +102,36 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 	}
 
 	var (
-		accountID       uint64
-		account         *Account
-		accountPassword *AccountPassword
+		accountID uint64
+		account   *Account
 	)
 
-	if err := s.txManager.DoInTx(ctx, func(ctx context.Context) error {
+	if txErr := s.txManager.DoInTx(ctx, func(txCtx context.Context) error {
 		account = &Account{AccountName: params.AccountName}
 
-		accountID, err = s.accountStore.CreateAccount(ctx, account)
-		if err != nil {
-			return &errors.Error{Code: errors.ErrCodeInternal, Message: "creating account failed", Cause: err}
+		createdID, createErr := s.accountStore.CreateAccount(txCtx, account)
+		if createErr != nil {
+			if errors.IsError(createErr, errors.ErrCodeAlreadyExists) {
+				return createErr
+			}
+			return &errors.Error{Code: errors.ErrCodeInternal, Message: "creating account failed", Cause: createErr}
 		}
+		accountID = createdID
 
-		accountPassword = &AccountPassword{
+		accountPassword := &AccountPassword{
 			OfAccountId:    accountID,
 			HashedPassword: hash,
 		}
-		if err := s.accountPasswordStore.CreateAccountPassword(ctx, accountPassword); err != nil {
-			return &errors.Error{Code: errors.ErrCodeInternal, Message: "storing account password failed", Cause: err}
+		if passErr := s.accountPasswordStore.CreateAccountPassword(txCtx, accountPassword); passErr != nil {
+			return &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "storing account password failed",
+				Cause:   passErr,
+			}
 		}
 		return nil
-	}); err != nil {
-		return CreateAccountOutput{}, err
+	}); txErr != nil {
+		return CreateAccountOutput{}, txErr
 	}
 
 	return CreateAccountOutput{
@@ -144,7 +142,17 @@ func (s *service) CreateAccount(ctx context.Context, params CreateAccountParams)
 
 func (s *service) CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error) {
 	account, err := s.accountStore.GetAccountByAccountName(ctx, params.AccountName)
-	if (err != nil && stderrors.Is(err, errors.ErrNotFound)) || account == nil {
+	if err != nil {
+		if stderrors.Is(err, errors.ErrNotFound) {
+			return CreateSessionOutput{}, &errors.Error{Code: errors.ErrCodeNotFound, Message: "account not found"}
+		}
+		return CreateSessionOutput{}, &errors.Error{
+			Code:    errors.ErrCodeInternal,
+			Message: "failed to get account",
+			Cause:   err,
+		}
+	}
+	if account == nil {
 		return CreateSessionOutput{}, &errors.Error{Code: errors.ErrCodeNotFound, Message: "account not found"}
 	}
 
@@ -157,11 +165,11 @@ func (s *service) CreateSession(ctx context.Context, params CreateSessionParams)
 		}
 	}
 
-	if err := s.passwordHasher.Verify(ctx, params.Password, accountPassword.HashedPassword); err != nil {
+	if verifyErr := s.passwordHasher.Verify(ctx, params.Password, accountPassword.HashedPassword); verifyErr != nil {
 		return CreateSessionOutput{}, &errors.Error{
 			Code:    ErrCodeInvalidPassword,
 			Message: "invalid password",
-			Cause:   err,
+			Cause:   verifyErr,
 		}
 	}
 
@@ -171,15 +179,6 @@ func (s *service) CreateSession(ctx context.Context, params CreateSessionParams)
 	}
 
 	return CreateSessionOutput{Token: token, Account: account}, nil
-}
-
-func (s *service) isAccountNameTaken(ctx context.Context, accountName string) bool {
-	account, err := s.accountStore.GetAccountByAccountName(ctx, accountName)
-	if err != nil || account == nil {
-		return false
-	}
-
-	return true
 }
 
 func (s *service) VerifySession(ctx context.Context, params VerifySessionParams) (VerifySessionOutput, error) {

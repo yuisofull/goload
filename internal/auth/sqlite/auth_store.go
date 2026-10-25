@@ -56,6 +56,12 @@ func (s *authStore) CreateAccount(ctx context.Context, a *auth.Account) (uint64,
 			Args: []any{a.AccountName},
 		})
 		if err != nil {
+			if isSQLiteUniqueConstraint(err) {
+				return &errors.Error{
+					Code:    errors.ErrCodeAlreadyExists,
+					Message: "account already exists",
+				}
+			}
 			return err
 		}
 		id = conn.LastInsertRowID()
@@ -165,4 +171,9 @@ func (s *authStore) GetAccountPassword(ctx context.Context, ofAccountID uint64) 
 		return auth.AccountPassword{}, errors.ErrNotFound
 	}
 	return ap, nil
+}
+
+func isSQLiteUniqueConstraint(err error) bool {
+	code := sqlite.ErrCode(err)
+	return code == sqlite.SQLITE_CONSTRAINT || code == sqlite.SQLITE_CONSTRAINT_UNIQUE
 }

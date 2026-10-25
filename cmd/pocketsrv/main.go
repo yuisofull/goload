@@ -256,6 +256,14 @@ func runMigrations(pool *sqlitex.Pool) error {
 	if err != nil {
 		return err
 	}
+	err = sqlitex.ExecuteTransient(
+		conn,
+		`CREATE UNIQUE INDEX IF NOT EXISTS accounts_account_name_key ON accounts (account_name);`,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
 	err = sqlitex.ExecuteTransient(conn, `CREATE TABLE IF NOT EXISTS account_passwords (
         of_account_id INTEGER PRIMARY KEY,
         hashed_password TEXT NOT NULL

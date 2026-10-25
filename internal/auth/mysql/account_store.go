@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	stderrors "errors"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 
 	"github.com/yuisofull/goload/internal/auth"
 	"github.com/yuisofull/goload/internal/auth/mysql/sqlc"
 	"github.com/yuisofull/goload/internal/errors"
 )
+
+const mysqlERDupEntry uint16 = 1062
 
 type accountStore struct {
 	queries *sqlc.Queries
@@ -29,6 +31,12 @@ func (a *accountStore) CreateAccount(ctx context.Context, account *auth.Account)
 	}
 	result, err := q.CreateAccount(ctx, account.AccountName)
 	if err != nil {
+		if isMySQLDuplicate(err) {
+			return 0, &errors.Error{
+				Code:    errors.ErrCodeAlreadyExists,
+				Message: "account already exists",
+			}
+		}
 		return 0, &errors.Error{
 			Code:    errors.ErrCodeInternal,
 			Message: "failed to create account",
@@ -74,4 +82,9 @@ func (a *accountStore) GetAccountByAccountName(ctx context.Context, accountName 
 		Id:          account.ID,
 		AccountName: account.AccountName,
 	}, nil
+}
+
+func isMySQLDuplicate(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return stderrors.As(err, &mysqlErr) && mysqlErr.Number == mysqlERDupEntry
 }
