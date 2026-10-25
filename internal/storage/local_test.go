@@ -17,6 +17,7 @@ func TestLocalBackend_StoreGetRangeInfoDelete(t *testing.T) {
 	root := t.TempDir()
 	backend, err := storage.NewLocalBackend(root)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, backend.Close()) })
 
 	ctx := context.Background()
 	key := "downloads/example.txt"
@@ -63,9 +64,17 @@ func TestLocalBackend_StoreGetRangeInfoDelete(t *testing.T) {
 	assert.False(t, exists)
 }
 
+func TestLocalBackend_CloseIsIdempotent(t *testing.T) {
+	backend, err := storage.NewLocalBackend(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, backend.Close())
+	require.NoError(t, backend.Close())
+}
+
 func TestLocalBackend_RejectsTraversalKeys(t *testing.T) {
 	backend, err := storage.NewLocalBackend(t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, backend.Close()) })
 
 	err = backend.Store(context.Background(), "../escape.txt", strings.NewReader("x"), nil)
 	assert.Error(t, err)

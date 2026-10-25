@@ -104,6 +104,7 @@ func main() {
 		storage.WithLocalExpiry(24*time.Hour),
 	)
 	must(err)
+	defer func() { _ = storageBackend.Close() }()
 
 	b := inmem.NewBroker(100, logger)
 	pub := inmem.NewPublisher(b)

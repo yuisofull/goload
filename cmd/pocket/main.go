@@ -73,6 +73,7 @@ func main() {
 		storage.WithLocalExpiry(24*time.Hour),
 	)
 	must(err)
+	defer func() { _ = storageBackend.Close() }()
 
 	// Create in-memory broker
 	b := inmem.NewBroker(100, logger)

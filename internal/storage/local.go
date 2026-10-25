@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-kit/log"
@@ -25,6 +26,10 @@ type Local struct {
 
 	defaultExpiry time.Duration // 0 means no expiry policy
 	logger        log.Logger
+
+	reapCancel context.CancelFunc
+	reapDone   <-chan struct{}
+	closeOnce  sync.Once
 }
 
 // LocalOption configures a Local backend.
@@ -62,11 +67,62 @@ func NewLocalBackend(root string, opts ...LocalOption) (*Local, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve local storage root: %w", err)
 	}
-	l := &Local{root: absRoot}
+	l := &Local{root: absRoot, logger: log.NewNopLogger()}
 	for _, o := range opts {
 		o(l)
 	}
+	if l.logger == nil {
+		l.logger = log.NewNopLogger()
+	}
+
+	reapCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancelled in Close
+	done := make(chan struct{})
+	l.reapCancel = cancel
+	l.reapDone = done
+	go l.reapLoop(reapCtx, done)
+
 	return l, nil
+}
+
+func (l *Local) reapLoop(ctx context.Context, done chan struct{}) {
+	defer close(done)
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			deletedFiles, err := l.Reap(ctx)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				level.Error(l.logger).Log("msg", "error during local storage reap", "err", err)
+				continue
+			}
+			var deletedFilesStr string
+			if len(deletedFiles) > 0 {
+				deletedFilesStr = strings.Join(deletedFiles, ", ")
+			}
+			level.Info(l.logger).Log("msg", "finished reaping expired objects", "deletedFiles", deletedFilesStr)
+		}
+	}
+}
+
+// Close stops the background reaper. It is safe to call more than once.
+func (l *Local) Close() error {
+	l.closeOnce.Do(func() {
+		if l.reapCancel != nil {
+			l.reapCancel()
+		}
+		if l.reapDone != nil {
+			<-l.reapDone
+		}
+	})
+	return nil
 }
 
 func (l *Local) Store(ctx context.Context, key string, reader io.Reader, metadata *FileMetadata) error {
@@ -119,22 +175,6 @@ func (l *Local) Store(ctx context.Context, key string, reader io.Reader, metadat
 	if meta.ExpireAt.IsZero() && l.defaultExpiry > 0 {
 		meta.ExpireAt = meta.StoredAt.Add(l.defaultExpiry)
 	}
-
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		for range ticker.C {
-			deletedFiles, err := l.Reap(context.Background())
-			if err != nil {
-				level.Error(l.logger).Log("msg", "error during local storage reap", "err", err)
-			} else {
-				var deletedFilesStr string
-				if len(deletedFiles) > 0 {
-					deletedFilesStr = strings.Join(deletedFiles, ", ")
-				}
-				level.Info(l.logger).Log("msg", "finished reaping expired objects", "deletedFiles", deletedFilesStr)
-			}
-		}
-	}()
 
 	return l.writeMetadata(objectPath, &meta)
 }
