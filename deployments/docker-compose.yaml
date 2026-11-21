@@ -77,6 +77,27 @@ services:
       retries: 10
     networks:
       - goload-net
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: always
+    environment:
+      # consumer_timeout (60m) must exceed the longest task runtime (30m) or the
+      # broker force-nacks a long download's delivery.
+      - RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbit consumer_timeout 3600000
+      # Dedicated dev credential, not the default guest:guest.
+      - RABBITMQ_DEFAULT_USER=goload
+      - RABBITMQ_DEFAULT_PASS=goload-dev
+    ports:
+      # AMQP stays internal to the compose network (dispatch payloads can carry
+      # source credentials); only the management UI is published, on loopback.
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - goload-net
   minio:
     image: quay.io/minio/minio
     environment:
@@ -185,6 +206,8 @@ services:
         condition: service_completed_successfully
       kafka-init:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     environment:
       - LOG_LEVEL=debug
       - MYSQL_HOST=mysql
@@ -195,6 +218,8 @@ services:
       - REDIS_ADDRESS=redis:6379
       - KAFKA_BROKERS=broker:9092
       - KAFKA_VERSION=4.0.0
+      # Dispatch (task.created) rides the RabbitMQ work queue; lifecycle stays on Kafka.
+      - RABBITMQ_URL=amqp://goload:goload-dev@rabbitmq:5672/
       - GRPC_ADDRESS=0.0.0.0:8082
       - TOKEN_HMAC_SECRET=dev-secret-123456
       - MINIO_ENDPOINT=http://minio:9000
@@ -227,6 +252,8 @@ services:
         condition: service_healthy
       task:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
     environment:
@@ -234,6 +261,11 @@ services:
       - KAFKA_BROKERS=broker:9092
       - KAFKA_VERSION=4.0.0
       - KAFKA_CONSUMER_GROUP=download-service-group
+      # Ownership API over gRPC + dispatch from the RabbitMQ work queue: with
+      # both set the worker claims, heartbeats and commits (crash-safe) instead
+      # of acking on start. Unset either to fall back to the legacy Kafka path.
+      - TASK_SERVICE_GRPC_ADDRESS=task:8082
+      - RABBITMQ_URL=amqp://goload:goload-dev@rabbitmq:5672/
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin

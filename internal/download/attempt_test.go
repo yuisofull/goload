@@ -31,6 +31,9 @@ type fakeAttempts struct {
 	failErr      error   // returned by FailAttempt
 	releaseErr   error   // returned by ReleaseAttempt
 
+	// leaseExpiresAt is returned by ClaimTask and a successful RenewLease.
+	leaseExpiresAt time.Time
+
 	calls     []string
 	workers   []string
 	completed []events.AttemptResult
@@ -85,7 +88,7 @@ func (a *fakeAttempts) ClaimTask(_ context.Context, taskID uint64, workerID stri
 	if a.claimErr != nil {
 		return nil, a.claimErr
 	}
-	return &events.Attempt{TaskID: taskID, WorkerID: workerID, Generation: a.generation}, nil
+	return &events.Attempt{TaskID: taskID, WorkerID: workerID, Generation: a.generation, LeaseExpiresAt: a.leaseExpiresAt}, nil
 }
 
 func (a *fakeAttempts) RenewLease(
@@ -112,7 +115,7 @@ func (a *fakeAttempts) RenewLease(
 	if update.Storing && a.storingErr != nil {
 		return time.Time{}, a.storingErr
 	}
-	return time.Time{}, nil
+	return a.leaseExpiresAt, nil
 }
 
 func (a *fakeAttempts) CompleteAttempt(
@@ -498,6 +501,33 @@ func TestRunAttempt_RejectedHeartbeatStopsWithoutForcingAResult(t *testing.T) {
 	})
 }
 
+func TestRunAttempt_UnreachableRenewalStopsWhenLeaseExpires(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &keyedStorage{objects: map[string]bool{}}
+		dl := &blockingDownloader{started: make(chan struct{}, 1), release: make(chan struct{})}
+		// Claim grants a 30s lease; renewals then fail transiently (not fenced).
+		attempts := &fakeAttempts{generation: 1, leaseExpiresAt: time.Now().Add(30 * time.Second)}
+		svc := NewService(store, &busSpy{}, WithAttemptCoordinator(attempts, "worker-1"))
+		svc.RegisterDownloader("HTTP", dl)
+		done := make(chan error, 1)
+		go func() { done <- svc.RunAttempt(t.Context(), attemptRequest()) }()
+		synctest.Wait()
+
+		attempts.setRenewErr(errors.New("task service unreachable"))
+		time.Sleep(30*time.Second + DefaultRenewInterval + time.Second)
+		synctest.Wait()
+
+		select {
+		case <-done:
+		default:
+			t.Fatal("RunAttempt() still running after its lease expired and renewals kept failing")
+		}
+		if got := attempts.count("complete") + attempts.count("fail"); got != 0 {
+			t.Fatalf("complete+fail calls = %d: a lost lease must neither commit nor fail the task (the reconciler recovers it)", got)
+		}
+	})
+}
+
 func TestRunAttempt_RejectedStoringStepRemovesOnlyItsOwnObject(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := &keyedStorage{objects: map[string]bool{}}
@@ -521,6 +551,48 @@ func TestRunAttempt_RejectedStoringStepRemovesOnlyItsOwnObject(t *testing.T) {
 		}
 		if got := attempts.count("complete") + attempts.count("fail") + attempts.count("release"); got != 0 {
 			t.Fatalf("calls = %v: a fenced attempt must not force any outcome", attempts.log())
+		}
+	})
+}
+
+func TestRunAttempt_TransientStoringErrorReleasesInsteadOfFailing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &keyedStorage{objects: map[string]bool{}}
+		// A transient (non-fence) storing error must not fail a healthy download.
+		attempts := &fakeAttempts{generation: 2, storingErr: errors.New("task service unavailable")}
+		svc := NewService(store, &busSpy{}, WithAttemptCoordinator(attempts, "worker-1"))
+		svc.RegisterDownloader("HTTP", &fakeDownloader{})
+
+		if err := svc.RunAttempt(t.Context(), attemptRequest()); err != nil {
+			t.Fatalf("RunAttempt() error = %v, want nil", err)
+		}
+		if got := attempts.count("fail"); got != 0 {
+			t.Fatalf("fail calls = %d: a transient storing error must not fail a healthy download", got)
+		}
+		if got := attempts.count("release"); got != 1 {
+			t.Fatalf("release calls = %d, want 1: the task is handed back, not failed", got)
+		}
+	})
+}
+
+func TestRunAttempt_TaskTimeoutDuringStoringFailsInsteadOfReleasing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &keyedStorage{objects: map[string]bool{}}
+		// Storing keeps failing while the task's own deadline expires: a real timeout.
+		attempts := &fakeAttempts{generation: 2, storingErr: errors.New("task service unavailable")}
+		svc := NewService(store, &busSpy{},
+			WithAttemptCoordinator(attempts, "worker-1"),
+			WithTaskTimeout(500*time.Millisecond),
+		)
+		svc.RegisterDownloader("HTTP", &fakeDownloader{})
+
+		_ = svc.RunAttempt(t.Context(), attemptRequest())
+
+		if got := attempts.count("release"); got != 0 {
+			t.Fatalf("release calls = %d: a task that exceeded its own deadline must be failed, not handed back", got)
+		}
+		if got := attempts.count("fail"); got != 1 {
+			t.Fatalf("fail calls = %d, want 1", got)
 		}
 	})
 }

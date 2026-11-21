@@ -193,9 +193,10 @@ func TestRetryTask_ResetsRetryBudget(t *testing.T) {
 	require.Zero(t, st.RetryCount, "a user retry grants a fresh retry budget")
 	require.Nil(t, st.NextAttemptAt)
 	rows := f.unsent(t)
-	require.Len(t, rows, 1)
-	require.Equal(t, id, rows[0].AggregateID)
-	require.Equal(t, task.OutboxEventTaskCreated, rows[0].EventType)
+	require.Len(t, rows, 2)
+	require.Equal(t, task.OutboxEventTaskFailed, rows[0].EventType, "the terminal failure emits a lifecycle event")
+	require.Equal(t, id, rows[1].AggregateID)
+	require.Equal(t, task.OutboxEventTaskCreated, rows[1].EventType)
 
 	next, err := f.svc.ClaimTask(ctx, id, "worker-a")
 	require.NoError(t, err)

@@ -604,7 +604,9 @@ func TestFailAttempt_RetriesWithBackoffThenTerminal(t *testing.T) {
 	require.Equal(t, "still broken", *st.ErrorMessage)
 	_, err = f.svc.ClaimTask(ctx, id, "worker-a")
 	require.ErrorIs(t, err, events.ErrTaskNotClaimable)
-	require.Empty(t, f.unsent(t), "failures write no outbox event")
+	rows := f.unsent(t)
+	require.Len(t, rows, 1, "only the terminal failure writes a lifecycle event (retries write none)")
+	require.Equal(t, task.OutboxEventTaskFailed, rows[0].EventType)
 }
 
 func TestFailAttempt_NilCauseStoresUnknownError(t *testing.T) {

@@ -248,9 +248,26 @@ func (s *AttemptService) FailAttempt(
 	}
 
 	message := failureMessage(cause)
-	return s.transition(ctx, taskID, func(_ context.Context, st *AttemptState) (bool, error) {
-		if err := st.fail(workerID, generation, s.now(), message, s.backoff); err != nil {
+	return s.transition(ctx, taskID, func(ctx context.Context, st *AttemptState) (bool, error) {
+		now := s.now()
+		if err := st.fail(workerID, generation, now, message, s.backoff); err != nil {
 			return false, err
+		}
+		if st.Status != StatusFailed {
+			return true, nil
+		}
+		// Terminal failure: emit the lifecycle event in the same transaction, so
+		// a bus observer sees the failure exactly as it sees a completion.
+		event, err := NewTaskFailedOutboxEvent(taskID, message, now.UTC())
+		if err == nil {
+			err = s.outbox.InsertUnsent(ctx, event)
+		}
+		if err != nil {
+			return false, &errors.Error{
+				Code:    errors.ErrCodeInternal,
+				Message: "failed to enqueue task failed event",
+				Cause:   err,
+			}
 		}
 		return true, nil
 	})

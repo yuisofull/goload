@@ -38,6 +38,11 @@ type EventConsumer struct {
 	// the legacy path runs: ExecuteTask, acknowledged when the download starts.
 	attempts        download.AttemptRunner
 	redeliveryDelay time.Duration
+
+	// dispatchSubscriber, when set, is where task.created is consumed (RabbitMQ);
+	// control events stay on subscriber. Nil means all topics use subscriber.
+	dispatchSubscriber message.Subscriber
+	controlDisabled    bool
 }
 
 // Option configures an EventConsumer.
@@ -62,6 +67,22 @@ func WithRedeliveryDelay(d time.Duration) Option {
 	}
 }
 
+// WithDispatchSubscriber consumes task.created from a separate subscriber
+// (RabbitMQ serves one topic per instance); control events stay on the main one.
+func WithDispatchSubscriber(sub message.Subscriber) Option {
+	return func(ec *EventConsumer) {
+		if sub != nil {
+			ec.dispatchSubscriber = sub
+		}
+	}
+}
+
+// WithoutControlEvents skips the pause/cancel subscriptions. On the ownership
+// path a stale, generation-blind control event could cancel a newer attempt.
+func WithoutControlEvents() Option {
+	return func(ec *EventConsumer) { ec.controlDisabled = true }
+}
+
 // NewEventConsumer creates a new event consumer for the download service.
 func NewEventConsumer(
 	service download.Service,
@@ -83,31 +104,38 @@ func NewEventConsumer(
 
 // Start begins consuming events.
 func (ec *EventConsumer) Start(ctx context.Context) error {
-	taskCreatedCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskCreated))
+	dispatchSub := ec.subscriber
+	if ec.dispatchSubscriber != nil {
+		dispatchSub = ec.dispatchSubscriber
+	}
+	taskCreatedCh, err := dispatchSub.Subscribe(ctx, string(events.EventTaskCreated))
 	if err != nil {
 		return err
 	}
 	level.Info(ec.logger).Log("msg", "subscription started", "topic", "task.created")
-
-	taskPausedCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskPaused))
-	if err != nil {
-		return err
-	}
-	level.Info(ec.logger).Log("msg", "subscription started", "topic", "task.paused")
-
-	taskCancelledCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskCancelled))
-	if err != nil {
-		return err
-	}
-	level.Info(ec.logger).Log("msg", "subscription started", "topic", "task.cancelled")
 
 	createdDone := make(chan struct{})
 	go func() {
 		defer close(createdDone)
 		ec.processTaskCreatedEvents(ctx, taskCreatedCh)
 	}()
-	go ec.processTaskPausedEvents(ctx, taskPausedCh)
-	go ec.processTaskCancelledEvents(ctx, taskCancelledCh)
+
+	if !ec.controlDisabled {
+		taskPausedCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskPaused))
+		if err != nil {
+			return err
+		}
+		level.Info(ec.logger).Log("msg", "subscription started", "topic", "task.paused")
+
+		taskCancelledCh, err := ec.subscriber.Subscribe(ctx, string(events.EventTaskCancelled))
+		if err != nil {
+			return err
+		}
+		level.Info(ec.logger).Log("msg", "subscription started", "topic", "task.cancelled")
+
+		go ec.processTaskPausedEvents(ctx, taskPausedCh)
+		go ec.processTaskCancelledEvents(ctx, taskCancelledCh)
+	}
 
 	level.Info(ec.logger).Log("msg", "event consumer running, awaiting context done")
 	<-ctx.Done()

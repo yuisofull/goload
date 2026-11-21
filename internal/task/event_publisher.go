@@ -18,10 +18,23 @@ import (
 type Publisher struct {
 	publisher message.Publisher
 	outbox    OutboxTransport
+	// dispatch, when set, carries OutboxDestinationDispatch events (RabbitMQ);
+	// lifecycle events stay on outbox (Kafka). Nil means one transport for both.
+	dispatch OutboxTransport
 }
 
 // EventPublisherOption configures a Publisher.
 type EventPublisherOption func(*Publisher)
+
+// WithDispatchTransport routes dispatch events to t (the RabbitMQ work queue);
+// without it dispatch and lifecycle share one transport.
+func WithDispatchTransport(t OutboxTransport) EventPublisherOption {
+	return func(ep *Publisher) {
+		if t != nil {
+			ep.dispatch = t
+		}
+	}
+}
 
 // WithOutboxTransport sets the transport used to deliver outbox events, making
 // the "publish only when a subscriber exists" choice explicit at wiring time.
@@ -210,15 +223,15 @@ func (t *RetainingTransport) Deliver(topic string, msg *message.Message) error {
 	return t.pub.Publish(topic, msg)
 }
 
-// outboxTopic maps an outbox event type to the topic it is published on. The
-// existing transport and topics are kept; OutboxEvent.Destination is recorded
-// for later work and does not affect routing yet.
+// outboxTopic maps an outbox event type to the topic it is published on.
 func outboxTopic(eventType string) (string, bool) {
 	switch eventType {
 	case OutboxEventTaskCreated:
 		return "task.created", true
 	case OutboxEventTaskCompleted:
 		return "task.completed", true
+	case OutboxEventTaskFailed:
+		return "task.failed", true
 	default:
 		return "", false
 	}
@@ -247,5 +260,9 @@ func (ep *Publisher) PublishOutboxEvent(_ context.Context, event OutboxEvent) er
 		},
 	}
 
-	return ep.outbox.Deliver(topic, msg)
+	transport := ep.outbox
+	if event.Destination == OutboxDestinationDispatch && ep.dispatch != nil {
+		transport = ep.dispatch
+	}
+	return transport.Deliver(topic, msg)
 }

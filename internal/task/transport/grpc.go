@@ -38,6 +38,9 @@ type grpcServer struct {
 	generateDownloadURL   grpctransport.Handler
 }
 
+// GRPCServerOption configures the task gRPC server.
+type GRPCServerOption func(*grpcServer)
+
 func (s *grpcServer) CreateTask(ctx context.Context, req *pb.CreateTaskRequest) (*pb.TaskResponse, error) {
 	_, resp, err := s.createTask.ServeGRPC(ctx, req)
 	if err != nil {
@@ -213,12 +216,12 @@ func encodeError(_ context.Context, err error) error {
 	return errors.EncodeGRPCError(err)
 }
 
-func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger) pb.TaskServiceServer {
+func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger, opts ...GRPCServerOption) pb.TaskServiceServer {
 	options := []grpctransport.ServerOption{
 		grpctransport.ServerErrorHandler(transport.NewLogErrorHandler(level.Error(logger))),
 	}
 
-	return &grpcServer{
+	srv := &grpcServer{
 		createTask: grpctransport.NewServer(
 			endpoints.CreateTaskEndpoint,
 			decodeCreateTaskRequest,
@@ -310,6 +313,10 @@ func NewGRPCServer(endpoints taskendpoint.Set, logger log.Logger) pb.TaskService
 			encodeGenerateDownloadURLResponse,
 			options...),
 	}
+	for _, o := range opts {
+		o(srv)
+	}
+	return srv
 }
 
 func NewGRPCClient(conn *grpc.ClientConn, logger log.Logger) task.Service {

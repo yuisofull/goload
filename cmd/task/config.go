@@ -53,6 +53,8 @@ type Config struct {
 	MinioPresignPublicEndpoint string   `envconfig:"MINIO_PRESIGN_PUBLIC_ENDPOINT"`
 	MinioPresignAccessKey      string   `envconfig:"MINIO_PRESIGN_ACCESS_KEY"`
 	MinioPresignSecretKey      string   `envconfig:"MINIO_PRESIGN_SECRET_KEY"`
+	// RabbitMQURL set turns on ownership mode (dispatch via RabbitMQ).
+	RabbitMQURL string `envconfig:"RABBITMQ_URL"`
 }
 
 func loadConfig() (*Config, error) {

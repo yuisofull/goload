@@ -32,6 +32,11 @@ type Config struct {
 	MinioBucket        string        `envconfig:"MINIO_BUCKET"         default:"goload"`
 	MinioUseSSL        bool          `envconfig:"MINIO_USE_SSL"        default:"false"`
 	MinioFileExpiry    time.Duration `envconfig:"MINIO_FILE_EXPIRY"    default:"0"`
+
+	// Ownership mode (both set) vs legacy (both empty). WorkerID defaults to hostname-pid.
+	TaskGRPCAddress string `envconfig:"TASK_SERVICE_GRPC_ADDRESS"`
+	RabbitMQURL     string `envconfig:"RABBITMQ_URL"`
+	WorkerID        string `envconfig:"WORKER_ID"`
 }
 
 func loadConfig() (*Config, error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,13 +15,17 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/oklog/run"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/yuisofull/goload/internal/download"
 	"github.com/yuisofull/goload/internal/download/downloader"
 	downloadtransport "github.com/yuisofull/goload/internal/download/transport"
 	"github.com/yuisofull/goload/internal/storage"
+	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
+	rabbitmqpkg "github.com/yuisofull/goload/pkg/message/rabbitmq"
 )
 
 func main() {
@@ -39,6 +44,13 @@ func main() {
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
+
+	// Ownership mode needs both vars; half-configured is unsafe. See ADR-0011.
+	if (config.TaskGRPCAddress == "") != (config.RabbitMQURL == "") {
+		level.Error(logger).Log("msg", "TASK_SERVICE_GRPC_ADDRESS and RABBITMQ_URL must both be set (ownership mode) or both empty (legacy)")
+		os.Exit(1)
+	}
+	ownershipMode := config.TaskGRPCAddress != ""
 
 	// storage backend (MinIO) optional
 	var storageBackend storage.Backend
@@ -111,7 +123,24 @@ func main() {
 	}
 
 	dep := download.NewDownloadEventPublisher(pub)
-	svc := download.NewService(storageBackend, dep, download.WithStorageType(storage.TypeMinio))
+
+	svcOpts := []download.Option{download.WithStorageType(storage.TypeMinio)}
+	var taskConn *grpc.ClientConn
+	if ownershipMode {
+		taskConn, err = grpc.NewClient(config.TaskGRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to connect to task ownership API", "err", err)
+			os.Exit(1)
+		}
+		workerID := config.WorkerID
+		if workerID == "" {
+			workerID = defaultWorkerID()
+		}
+		svcOpts = append(svcOpts, download.WithAttemptCoordinator(tasktransport.NewTaskOwnershipGRPCClient(taskConn), workerID))
+		level.Info(logger).Log("msg", "ownership API enabled", "task_grpc", config.TaskGRPCAddress, "worker_id", workerID)
+	}
+
+	svc := download.NewService(storageBackend, dep, svcOpts...)
 
 	// Register concrete downloaders for each supported source type.
 	httpDL := downloader.NewHTTPDownloader(nil, downloader.WithHTTPLogger(logger))
@@ -131,8 +160,25 @@ func main() {
 		"registered_downloaders", "HTTP, HTTPS, FTP, BITTORRENT",
 	)
 
-	// loggingSvc := &loggingMiddleware{next: svc, logger: logger}
-	consumer := downloadtransport.NewEventConsumer(svc, sub, logger)
+	// Dispatch (task.created) rides the RabbitMQ work queue when configured; the
+	// control events (task.paused, task.cancelled) stay on the Kafka subscriber.
+	var dispatchSub message.Subscriber
+	var consumerOpts []downloadtransport.Option
+	if ownershipMode {
+		rabbitSub, err := rabbitmqpkg.NewSubscriber(&rabbitmqpkg.Config{URL: config.RabbitMQURL, Prefetch: 5}, rabbitmqpkg.WithLog(logger))
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to create rabbitmq dispatch subscriber", "err", err)
+			os.Exit(1)
+		}
+		dispatchSub = rabbitSub
+		level.Info(logger).Log("msg", "ownership mode: dispatch via RabbitMQ, control events disabled")
+		consumerOpts = append(consumerOpts,
+			downloadtransport.WithAttemptRunner(svc),
+			downloadtransport.WithDispatchSubscriber(dispatchSub),
+			downloadtransport.WithoutControlEvents(),
+		)
+	}
+	consumer := downloadtransport.NewEventConsumer(svc, sub, logger, consumerOpts...)
 
 	// readiness flag for health endpoint
 	var ready int32
@@ -203,8 +249,25 @@ func main() {
 					level.Error(logger).Log("msg", "error closing subscriber", "err", err)
 				}
 			}
+			if dispatchSub != nil {
+				if err := dispatchSub.Close(); err != nil {
+					level.Error(logger).Log("msg", "error closing dispatch subscriber", "err", err)
+				}
+			}
+			if taskConn != nil {
+				_ = taskConn.Close()
+			}
 		})
 	}
 
 	level.Info(logger).Log("exit", g.Run())
+}
+
+// defaultWorkerID is the owner identity when WORKER_ID is unset: hostname-pid.
+func defaultWorkerID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "download"
+	}
+	return fmt.Sprintf("%s-%d", host, os.Getpid())
 }

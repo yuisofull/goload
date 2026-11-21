@@ -16,7 +16,14 @@ const (
 	// DefaultRenewInterval is how often a running attempt renews its lease
 	// when no progress report renews it earlier. It must stay well below the
 	// task service's lease duration (task.DefaultLeaseDuration, 60s).
-	DefaultRenewInterval = 20 * time.Second
+	DefaultRenewInterval = 5 * time.Second
+
+	// leaseSafetyMargin is how long before its confirmed lease expiry a worker
+	// that can no longer renew stops the transfer, to yield before another can claim.
+	leaseSafetyMargin = 5 * time.Second
+
+	// leaseWatchInterval is how often the watchdog checks the lease deadline.
+	leaseWatchInterval = time.Second
 
 	// attemptCallTimeout bounds one call to the ownership API.
 	attemptCallTimeout = 10 * time.Second
@@ -26,6 +33,10 @@ const (
 	// completeRetryDelay is the pause between those tries.
 	completeRetryDelay = time.Second
 )
+
+// errOwnershipUnreachable: an ownership call failed transiently (not a fence),
+// so hand the attempt back rather than fail the download.
+var errOwnershipUnreachable = stderrors.New("ownership API unreachable")
 
 // AttemptCoordinator is the ownership API a download worker needs. The task
 // service's attempt service satisfies it directly; the shared types and
@@ -103,6 +114,16 @@ func WithRenewInterval(d time.Duration) Option {
 	}
 }
 
+// WithAttemptClock overrides the clock the lease watchdog measures against. It
+// must match the ownership API's clock. A nil clock is ignored.
+func WithAttemptClock(now func() time.Time) Option {
+	return func(s *service) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
+
 // attemptRun is the state of one claimed attempt while it executes.
 type attemptRun struct {
 	svc        *service
@@ -112,6 +133,8 @@ type attemptRun struct {
 	mu       sync.Mutex
 	progress Progress
 	storing  bool
+	// deadline is the last confirmed lease expiry; the heartbeat self-aborts past it.
+	deadline time.Time
 
 	// wake asks the heartbeat for an early renewal that carries progress.
 	wake chan struct{}
@@ -150,19 +173,58 @@ func (r *attemptRun) renew(ctx context.Context, storing bool) error {
 
 	callCtx, cancel := context.WithTimeout(ctx, attemptCallTimeout)
 	defer cancel()
-	_, err := r.svc.attempts.RenewLease(callCtx, r.taskID, r.svc.workerID, r.generation, update)
+	expiry, err := r.svc.attempts.RenewLease(callCtx, r.taskID, r.svc.workerID, r.generation, update)
+	if err == nil {
+		r.mu.Lock()
+		r.deadline = expiry
+		r.mu.Unlock()
+	}
 	if stderrors.Is(err, events.ErrAttemptRejected) {
 		r.fenced.Store(true)
 	}
 	return err
 }
 
-// heartbeat renews the lease until ctx ends: every renew interval, and
-// earlier whenever the transfer reports progress. A rejected renewal means the
-// attempt lost ownership; stop is called so the transfer aborts.
+// watchLease stops the transfer once the confirmed lease is within the safety
+// margin of expiring, measured on the service clock so a fake test clock stays
+// consistent with the lease. It runs on its own goroutine, so it fires even
+// while a renewal RPC blocks. A lost lease fences the attempt: settlement then
+// abandons it and the reconciler recovers the task, rather than recording a
+// failure against a lease that was merely unreachable.
+func (r *attemptRun) watchLease(ctx context.Context, stop context.CancelFunc) {
+	ticker := time.NewTicker(leaseWatchInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.mu.Lock()
+			dl := r.deadline
+			r.mu.Unlock()
+			if !dl.IsZero() && r.svc.now().After(dl.Add(-leaseSafetyMargin)) {
+				r.fenced.Store(true)
+				stop()
+				return
+			}
+		}
+	}
+}
+
+// heartbeat renews the lease until ctx ends: every renew interval, and earlier
+// whenever the transfer reports progress. A rejected renewal means the attempt
+// lost ownership; stop is called so the transfer aborts.
+//
+// A watchdog stops the transfer when the confirmed lease is within the safety
+// margin of expiring, even while a slow renewal RPC is in flight. Each
+// confirmed renewal pushes it out; losing the lease lets it fire, which fences
+// the attempt so settlement abandons it (the reconciler recovers the task)
+// rather than recording a failure against a lease that was merely unreachable.
 func (r *attemptRun) heartbeat(ctx context.Context, stop context.CancelFunc) {
 	ticker := time.NewTicker(r.svc.renewInterval)
 	defer ticker.Stop()
+
+	go r.watchLease(ctx, stop)
 
 	for {
 		select {
@@ -269,6 +331,7 @@ func (s *service) runAttempt(ctx context.Context, req TaskRequest, admitted bool
 		taskID:     req.TaskID,
 		generation: attempt.Generation,
 		wake:       make(chan struct{}, 1),
+		deadline:   attempt.LeaseExpiresAt,
 	}
 
 	// The claimed request carries the generation, which namespaces the
@@ -322,8 +385,35 @@ func (s *service) runTransfer(
 	return s.transfer(execution, downloader, transferHooks{
 		downloading: func(context.Context) error { return nil },
 		progress:    func(_ context.Context, p Progress) { run.reportProgress(p) },
-		storing:     func(ctx context.Context) error { return run.renew(ctx, true) },
+		storing:     run.confirmStoring,
 	})
+}
+
+// confirmStoring drives the DOWNLOADING -> STORING transition at EOF. The bytes
+// are already fetched, so a transient ownership error here must not fail the
+// task: it is retried within the lease, and a persistent one is reported as
+// errOwnershipUnreachable so settlement hands the task back without spending a
+// retry (the reconciler recovers it). A fence is returned as-is: the attempt
+// lost ownership and settlement abandons it.
+func (r *attemptRun) confirmStoring(ctx context.Context) error {
+	var err error
+	for try := 1; try <= completeTries; try++ {
+		if err = r.renew(ctx, true); err == nil {
+			return nil
+		}
+		if r.fenced.Load() {
+			return err
+		}
+		// A task deadline or cancel (even one that expired during the renewal) is
+		// a real failure, not an ownership outage.
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		if try < completeTries {
+			time.Sleep(completeRetryDelay)
+		}
+	}
+	return fmt.Errorf("%w: %v", errOwnershipUnreachable, err)
 }
 
 // settleSuccess commits the stored object as the task's result.
@@ -382,10 +472,14 @@ func (s *service) settleFailure(ctx context.Context, execution *taskExecution, r
 	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), attemptCallTimeout)
 	defer cancel()
 
+	// Hand the task back (no retry spent) rather than fail it when the download
+	// did not fail: the worker is shutting down, or an ownership call was
+	// unreachable (e.g. the storing transition after the bytes were fetched).
+	// Otherwise the transfer genuinely failed, so count the retry.
+	handBack := ctx.Err() != nil || stderrors.Is(cause, errOwnershipUnreachable)
+
 	var err error
-	if ctx.Err() != nil {
-		// The worker itself is shutting down: hand the task back instead of
-		// spending one of its retries.
+	if handBack {
 		err = s.attempts.ReleaseAttempt(callCtx, run.taskID, s.workerID, run.generation)
 	} else {
 		s.errorHandler(ctx, cause)

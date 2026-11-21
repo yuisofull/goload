@@ -76,6 +76,10 @@ type service struct {
 	attempts      AttemptCoordinator
 	workerID      string
 	renewInterval time.Duration
+	// now is the clock the lease watchdog measures against. It must match the
+	// clock the ownership API stamps leases with, or the watchdog misreads the
+	// deadline (real clock in production, a fake clock in tests).
+	now func() time.Time
 }
 
 type (
@@ -119,6 +123,7 @@ func NewService(storageBackend storage.Backend, publisher EventPublisher, opts .
 		maxConcurrent:      5,
 		storageType:        storage.TypeLocal,
 		renewInterval:      DefaultRenewInterval,
+		now:                time.Now,
 	}
 
 	for _, opt := range opts {

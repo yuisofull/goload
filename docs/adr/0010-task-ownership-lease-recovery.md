@@ -1,6 +1,6 @@
 # ADR-0010: Task ownership, leases, and generation fencing for crash-safe dispatch
 
-- Status: Accepted (target; PR2a #9 open, PR2b to follow)
+- Status: Accepted (merged in #11: pocket is crash-safe. Microservice mode reaches this API over gRPC in [ADR-0011](0011-rabbitmq-dispatch.md). Lifecycle events are notifications only; the task row is written through the ownership API.)
 - Date: 2026-11-16
 - Deciders: project
 

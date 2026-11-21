@@ -208,12 +208,16 @@ func startPipeline(t *testing.T, dl download.Downloader, o pipelineOpts) *pocket
 		workerAttempts = p.gate
 	}
 
-	dlSvc := download.NewService(
-		store,
-		download.NewDownloadEventPublisher(pub),
+	dlOpts := []download.Option{
 		download.WithStorageType(storage.TypeLocal),
 		download.WithAttemptCoordinator(workerAttempts, o.workerID),
-	)
+	}
+	if o.clock != nil {
+		// The lease watchdog must read the same clock the ownership API stamps
+		// leases with, or it would misread a fake-clock deadline.
+		dlOpts = append(dlOpts, download.WithAttemptClock(o.clock))
+	}
+	dlSvc := download.NewService(store, download.NewDownloadEventPublisher(pub), dlOpts...)
 	dlSvc.RegisterDownloader("HTTPS", dl)
 	worker := downloadtransport.NewEventConsumer(dlSvc, sub, logger, downloadtransport.WithAttemptRunner(dlSvc))
 

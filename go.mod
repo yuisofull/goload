@@ -18,6 +18,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.95
 	github.com/oklog/run v1.2.0
 	github.com/pkg/errors v0.9.1
+	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/redis/go-redis/v9 v9.11.0
 	github.com/samber/lo v1.51.0
 	github.com/stretchr/testify v1.11.1

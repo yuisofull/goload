@@ -23,6 +23,9 @@ const (
 	// OutboxEventTaskCompleted is the event_type of the lifecycle row written
 	// by CompleteAttempt in the transaction that completes the task.
 	OutboxEventTaskCompleted = "TaskCompleted"
+	// OutboxEventTaskFailed is the event_type of the lifecycle row written by
+	// FailAttempt in the transaction that marks the task terminally failed.
+	OutboxEventTaskFailed = "TaskFailed"
 )
 
 // OutboxEvent is one row of the task_outbox table: an event that must be
@@ -100,6 +103,21 @@ func NewTaskCreatedOutboxEvent(t *Task) (OutboxEvent, error) {
 // JSON already used on the task.completed topic. It is a notification only:
 // the task row is updated by the transaction that stores this event, and no
 // consumer may apply it to the task row again.
+func NewTaskFailedOutboxEvent(taskID uint64, message string, failedAt time.Time) (OutboxEvent, error) {
+	payload, err := json.Marshal(events.TaskFailedEvent{TaskID: taskID, Error: message, FailedAt: failedAt})
+	if err != nil {
+		return OutboxEvent{}, err
+	}
+	return OutboxEvent{
+		ID:          generateUUID(),
+		AggregateID: taskID,
+		Destination: OutboxDestinationLifecycle,
+		EventType:   OutboxEventTaskFailed,
+		Payload:     payload,
+		CreatedAt:   time.Now().UTC(),
+	}, nil
+}
+
 func NewTaskCompletedOutboxEvent(taskID uint64, result events.AttemptResult, completedAt time.Time) (OutboxEvent, error) {
 	event := events.TaskCompletedEvent{
 		TaskID:      taskID,

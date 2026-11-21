@@ -26,6 +26,7 @@ import (
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
 	kafkapkg "github.com/yuisofull/goload/pkg/message/kafka"
+	rabbitmqpkg "github.com/yuisofull/goload/pkg/message/rabbitmq"
 	"github.com/yuisofull/goload/pkg/middleware"
 )
 
@@ -78,6 +79,7 @@ func main() {
 	tx := taskmysql.NewTxManager(db)
 	outboxRepo := taskmysql.NewOutboxRepo(db)
 	attemptRepo := taskmysql.NewAttemptRepo(db)
+	reconcileRepo := taskmysql.NewReconcileRepo(db)
 
 	// The task service requires a message transport: it dispatches TaskCreated
 	// through the outbox relay and publishes task lifecycle events. Without a
@@ -106,10 +108,22 @@ func main() {
 		}
 	}
 
-	// event publisher wrapper
-	// Kafka retains messages without a live consumer, so outbox delivery
-	// publishes unconditionally.
-	dep := taskpkg.NewEventPublisher(pub, taskpkg.WithOutboxTransport(taskpkg.NewRetainingTransport(pub)))
+	// Ownership mode (crash-safe dispatch) is on when RABBITMQ_URL is set; unset
+	// keeps the legacy Kafka path. See docs/adr/0011-rabbitmq-dispatch.md.
+	ownershipMode := config.RabbitMQURL != ""
+
+	epOpts := []taskpkg.EventPublisherOption{taskpkg.WithOutboxTransport(taskpkg.NewRetainingTransport(pub))}
+	if ownershipMode {
+		dispatchPub, err := rabbitmqpkg.NewPublisher(&rabbitmqpkg.Config{URL: config.RabbitMQURL}, rabbitmqpkg.WithLogger(logger))
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to create rabbitmq dispatch publisher", "err", err)
+			os.Exit(1)
+		}
+		defer func() { _ = dispatchPub.Close() }()
+		epOpts = append(epOpts, taskpkg.WithDispatchTransport(taskpkg.NewRetainingTransport(dispatchPub)))
+		level.Info(logger).Log("msg", "ownership mode: dispatch transport is RabbitMQ (task.created)")
+	}
+	dep := taskpkg.NewEventPublisher(pub, epOpts...)
 
 	// Outbox relay: publishes the TaskCreated rows that CreateTask/RetryTask
 	// write in the task transaction, on the same Kafka topic as before.
@@ -204,6 +218,13 @@ func main() {
 
 	svc := taskpkg.NewService(repo, *dep, tx, outboxRepo, attemptRepo, append(svcOpts, taskpkg.WithLogger(logger))...)
 
+	var attemptSvc *taskpkg.AttemptService
+	var reconciler *taskpkg.Reconciler
+	if ownershipMode {
+		attemptSvc = taskpkg.NewAttemptService(attemptRepo, tx, outboxRepo)
+		reconciler = taskpkg.NewReconciler(reconcileRepo, repo, outboxRepo, taskpkg.WithReconcilerLogger(logger))
+	}
+
 	endpointSet := taskendpoint.New(svc)
 
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
@@ -216,6 +237,9 @@ func main() {
 	pbServer := tasktransport.NewGRPCServer(endpointSet, logger)
 	// register pb server using generated protobuf package
 	taskpb.RegisterTaskServiceServer(grpcServer, pbServer)
+	if ownershipMode {
+		taskpb.RegisterTaskOwnershipServer(grpcServer, tasktransport.NewTaskOwnershipGRPCServer(attemptSvc))
+	}
 
 	// Kafka subscriber for consuming download-service events (task.completed, task.failed, progress)
 	var taskEventConsumer *tasktransport.EventConsumer
@@ -233,13 +257,13 @@ func main() {
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to create kafka subscriber for task service", "err", err)
 		} else {
-			// The download workers of this deployment still report through
-			// lifecycle events: they cannot reach the ownership API until it
-			// is exposed over gRPC. Remove WithLegacyStateWrites with that
-			// exposure.
+			var consumerOpts []tasktransport.EventConsumerOption
+			if !ownershipMode {
+				consumerOpts = append(consumerOpts, tasktransport.WithLegacyStateWrites())
+			}
 			taskEventConsumer = tasktransport.NewEventConsumer(svc, taskSub, func(ctx context.Context, err error) {
 				level.Error(logger).Log("msg", "task event consumer error", "err", err)
-			}, tasktransport.WithLegacyStateWrites())
+			}, consumerOpts...)
 		}
 	}
 
@@ -284,6 +308,15 @@ func main() {
 			return outboxRelay.Run(relayCtx)
 		}, func(error) {
 			cancelRelay()
+		})
+	}
+
+	if reconciler != nil {
+		reconcileCtx, cancelReconcile := context.WithCancel(ctx)
+		g.Add(func() error {
+			return reconciler.Run(reconcileCtx)
+		}, func(error) {
+			cancelReconcile()
 		})
 	}
 
