@@ -110,6 +110,30 @@ func (r *outboxRepo) MarkSent(ctx context.Context, id string) error {
 	})
 }
 
+func (r *outboxRepo) OutboxBacklog(ctx context.Context) (int64, time.Time, error) {
+	var count int64
+	var oldest time.Time
+	err := r.withConn(ctx, func(conn *sqlite.Conn) error {
+		return sqlitex.Execute(
+			conn,
+			`SELECT COUNT(*), MIN(created_at) FROM task_outbox WHERE sent_at IS NULL`,
+			&sqlitex.ExecOptions{ResultFunc: func(stmt *sqlite.Stmt) error {
+				count = stmt.ColumnInt64(0)
+				if stmt.ColumnType(1) == sqlite.SQLITE_NULL {
+					return nil
+				}
+				t, perr := time.Parse(outboxTimeLayout, stmt.ColumnText(1))
+				if perr != nil {
+					return perr
+				}
+				oldest = t
+				return nil
+			}},
+		)
+	})
+	return count, oldest, err
+}
+
 // scanOutboxEvent maps one FetchUnsent row. Column order: id, aggregate_id,
 // destination, event_type, payload, created_at.
 func scanOutboxEvent(stmt *sqlite.Stmt) (task.OutboxEvent, error) {

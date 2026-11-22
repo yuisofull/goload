@@ -91,6 +91,23 @@ func (o *memOutbox) MarkSent(ctx context.Context, id string) error {
 	return nil
 }
 
+func (o *memOutbox) OutboxBacklog(_ context.Context) (int64, time.Time, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var count int64
+	var oldest time.Time
+	for _, row := range o.rows {
+		if row.SentAt != nil {
+			continue
+		}
+		count++
+		if oldest.IsZero() || row.CreatedAt.Before(oldest) {
+			oldest = row.CreatedAt
+		}
+	}
+	return count, oldest, nil
+}
+
 func (o *memOutbox) snapshot() []OutboxEvent {
 	o.mu.Lock()
 	defer o.mu.Unlock()

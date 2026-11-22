@@ -42,3 +42,25 @@ Troubleshooting
 - If the apigateway health endpoint is not responding, check `docker compose logs apigateway`.
 
 *** End Patch
+## Observability
+
+`docker compose up` also starts Prometheus (loopback `:9090`) and Grafana
+(loopback `:3000`, login `goload` / `goload-dev`). Grafana auto-provisions the
+Prometheus datasource and the "goload dispatch" dashboard, which answers whether
+a slow download waited for dispatch or spent its time transferring.
+
+Each service exposes `/metrics`: task on `:9102`, auth on `:9101`, download and
+apigateway on their existing HTTP ports (`:8083`, `:8080`). Prometheus finds
+them by DNS (type A on the service name), so scaling a service is scraped
+correctly:
+
+```
+docker compose up --scale download=2
+```
+
+Both download replicas are then scraped as separate targets. The DB-global
+gauges (`goload_outbox_*`, `goload_tasks_by_status`) are exported by every task
+replica, so their dashboard panels use `max(...)` to avoid counting them once
+per replica; the rate panels already use `sum(rate(...))`. For production,
+routing telemetry through an OTel Collector per service (a later feature)
+replaces direct scraping.

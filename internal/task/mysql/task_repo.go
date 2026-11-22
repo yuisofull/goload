@@ -214,6 +214,20 @@ func (r *taskRepo) GetByID(ctx context.Context, id uint64) (*task.Task, error) {
 	return toTask(t)
 }
 
+var _ task.StatusCounter = (*taskRepo)(nil)
+
+func (r *taskRepo) CountByStatus(ctx context.Context) (map[task.TaskStatus]int64, error) {
+	rows, err := r.queries.CountTasksByStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[task.TaskStatus]int64, len(rows))
+	for _, row := range rows {
+		out[task.TaskStatus(row.Status)] = row.Count
+	}
+	return out, nil
+}
+
 func (r *taskRepo) ListByAccountID(
 	ctx context.Context,
 	filter task.TaskFilter,

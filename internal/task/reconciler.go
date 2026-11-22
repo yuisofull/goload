@@ -46,6 +46,7 @@ type Reconciler struct {
 	batchSize          int
 	maxPerPass         int
 	logger             log.Logger
+	metrics            Metrics
 
 	// last remembers the dispatches of earlier sweeps. Only Run and RunOnce
 	// touch it; they must not be called concurrently.
@@ -116,6 +117,15 @@ func WithReconcilerClock(now func() time.Time) ReconcilerOption {
 	}
 }
 
+// WithReconcilerMetrics injects a metrics recorder. Nil keeps the no-op default.
+func WithReconcilerMetrics(m Metrics) ReconcilerOption {
+	return func(r *Reconciler) {
+		if m != nil {
+			r.metrics = m
+		}
+	}
+}
+
 // WithReconcilerLogger sets the reconciler logger. A nil logger is ignored.
 func WithReconcilerLogger(l log.Logger) ReconcilerOption {
 	return func(r *Reconciler) {
@@ -143,6 +153,7 @@ func NewReconciler(
 		batchSize:          DefaultReconcileBatchSize,
 		maxPerPass:         DefaultReconcileMaxPerPass,
 		logger:             log.NewNopLogger(),
+		metrics:            nopMetrics{},
 		last:               make(map[uint64]redispatchMark),
 	}
 	for _, o := range opts {
@@ -228,6 +239,7 @@ sweep:
 			if sent {
 				seen[candidate.TaskID] = redispatchMark{generation: candidate.Generation, at: now}
 				dispatched++
+				r.metrics.IncRedispatched()
 			}
 		}
 

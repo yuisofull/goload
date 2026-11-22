@@ -1,0 +1,40 @@
+global:
+  scrape_interval: 10s
+
+# DNS service discovery (type A) so that scaling a service - e.g.
+# `docker compose up --scale download=2` - scrapes every replica, each as its
+# own target/instance, instead of one static target that hides the others and
+# produces counter-reset artifacts when the connection flips.
+scrape_configs:
+  - job_name: task
+    dns_sd_configs:
+      - names: ["task"]
+        type: A
+        port: 9102
+    relabel_configs:
+      - target_label: service
+        replacement: task
+  - job_name: auth
+    dns_sd_configs:
+      - names: ["auth"]
+        type: A
+        port: 9101
+    relabel_configs:
+      - target_label: service
+        replacement: auth
+  - job_name: download
+    dns_sd_configs:
+      - names: ["download"]
+        type: A
+        port: 8083
+    relabel_configs:
+      - target_label: service
+        replacement: download
+  - job_name: apigateway
+    dns_sd_configs:
+      - names: ["apigateway"]
+        type: A
+        port: 8080
+    relabel_configs:
+      - target_label: service
+        replacement: apigateway

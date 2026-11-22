@@ -81,6 +81,17 @@ func (r *outboxRepo) MarkSent(ctx context.Context, id string) error {
 	})
 }
 
+func (r *outboxRepo) OutboxBacklog(ctx context.Context) (int64, time.Time, error) {
+	row, err := r.q(ctx).OutboxBacklog(ctx)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	// MIN(created_at) is interface{}; with parseTime it is time.Time, or nil
+	// when the backlog is empty.
+	oldest, _ := row.Oldest.(time.Time)
+	return row.Unsent, oldest, nil
+}
+
 // outboxEventFromRow maps a generated task_outbox row to the domain event.
 func outboxEventFromRow(row sqlc.TaskOutbox) task.OutboxEvent {
 	event := task.OutboxEvent{

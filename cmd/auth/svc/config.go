@@ -35,6 +35,7 @@ type Config struct {
 	AuthTokenExpiresIn              string `envconfig:"AUTH_TOKEN_EXPIRES_IN"               default:"24h"`
 	AuthTokenRegenerateBeforeExpiry string `envconfig:"AUTH_TOKEN_REGENERATE_BEFORE_EXPIRY" default:"1h"`
 	GRPCAddress                     string `envconfig:"AUTH_SERVICE_GRPC_ADDRESS"           default:"0.0.0.0:8081"`
+	MetricsAddress                  string `envconfig:"METRICS_ADDRESS"                     default:"0.0.0.0:9101"`
 }
 
 func loadConfig() (*Config, error) {

@@ -134,6 +134,10 @@ type pipelineOpts struct {
 	noReconciler bool
 	// gated routes the worker's ownership calls through an attemptGate.
 	gated bool
+	// taskMetrics and dlMetrics inject metrics recorders into the task and
+	// download services for the observability acceptance test.
+	taskMetrics task.Metrics
+	dlMetrics   download.Metrics
 }
 
 func startPocketPipeline(t *testing.T, dl download.Downloader) *pocketPipeline {
@@ -180,6 +184,9 @@ func startPipeline(t *testing.T, dl download.Downloader, o pipelineOpts) *pocket
 	if o.lease > 0 {
 		attemptOpts = append(attemptOpts, task.WithLeaseDuration(o.lease))
 	}
+	if o.taskMetrics != nil {
+		attemptOpts = append(attemptOpts, task.WithMetrics(o.taskMetrics))
+	}
 
 	// Mirror the pocket binary: the in-memory bus drops a message with no
 	// subscriber, so outbox delivery must wait for the download consumer.
@@ -216,6 +223,9 @@ func startPipeline(t *testing.T, dl download.Downloader, o pipelineOpts) *pocket
 		// The lease watchdog must read the same clock the ownership API stamps
 		// leases with, or it would misread a fake-clock deadline.
 		dlOpts = append(dlOpts, download.WithAttemptClock(o.clock))
+	}
+	if o.dlMetrics != nil {
+		dlOpts = append(dlOpts, download.WithMetrics(o.dlMetrics))
 	}
 	dlSvc := download.NewService(store, download.NewDownloadEventPublisher(pub), dlOpts...)
 	dlSvc.RegisterDownloader("HTTPS", dl)

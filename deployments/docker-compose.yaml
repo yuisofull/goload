@@ -349,6 +349,38 @@ services:
     networks:
       - goload-net
     restart: always
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: always
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      # Dev only, on loopback.
+      - "127.0.0.1:9090:9090"
+    networks:
+      - goload-net
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: always
+    environment:
+      # Dedicated dev credential, not admin:admin.
+      - GF_SECURITY_ADMIN_USER=goload
+      - GF_SECURITY_ADMIN_PASSWORD=goload-dev
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      # Dev only, on loopback.
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - goload-net
+
 networks:
   goload-net:
     driver: bridge

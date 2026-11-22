@@ -67,6 +67,10 @@ type OutboxRepository interface {
 	// MarkSent sets sent_at for the event. It is a no-op for an unknown or
 	// already-sent id.
 	MarkSent(ctx context.Context, id string) error
+	// OutboxBacklog returns the number of unsent events and the creation time
+	// of the oldest one (zero time when there are none). It drives the backlog
+	// gauges; a single COUNT + MIN, never derived from a fetched page.
+	OutboxBacklog(ctx context.Context) (unsent int64, oldest time.Time, err error)
 }
 
 // NewTaskCreatedOutboxEvent builds the outbox row for a TaskCreated event. The

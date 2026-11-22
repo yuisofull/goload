@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -250,6 +251,38 @@ func TestDownload_ReadsBodyCorrectly(t *testing.T) {
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
 	assert.Equal(t, payload, string(got))
+}
+
+// When the caller provides metadata, the concurrent path must not make its own
+// second HEAD probe (which would count toward the transfer timer).
+func TestDownload_ReusesKnownMetadataAndSkipsSecondProbe(t *testing.T) {
+	body := strings.Repeat("abcd", 1024)
+	var heads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			heads.Add(1)
+		}
+		w.Header().Set("Accept-Ranges", "bytes")
+		http.ServeContent(w, r, "file.bin", time.Time{}, strings.NewReader(body))
+	}))
+	defer srv.Close()
+
+	meta := &download.FileMetadata{
+		FileName: "file.bin",
+		FileSize: int64(len(body)),
+		Headers:  map[string]string{"Accept-Ranges": "bytes"},
+	}
+	rc, _, err := newDL().Download(context.Background(), srv.URL, nil, download.DownloadOptions{
+		Concurrency:   4,
+		KnownMetadata: meta,
+	})
+	require.NoError(t, err)
+	defer rc.Close()
+
+	got, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.Equal(t, body, string(got))
+	require.Equal(t, int32(0), heads.Load(), "no second HEAD probe when metadata is provided")
 }
 
 func TestDownload_BearerAuth(t *testing.T) {

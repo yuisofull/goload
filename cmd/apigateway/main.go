@@ -14,12 +14,14 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/oklog/run"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/yuisofull/goload/internal/apigateway"
 	"github.com/yuisofull/goload/internal/auth"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
+	"github.com/yuisofull/goload/internal/observability"
 	storagepkg "github.com/yuisofull/goload/internal/storage"
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
@@ -150,6 +152,21 @@ func main() {
 	httpHandler = middleware.RecoveryHTTPMiddleware(logger)(httpHandler)
 	httpHandler = middleware.LoggingHTTPMiddleware(logger)(httpHandler)
 	httpHandler = middleware.RequestIDHTTPMiddleware(httpHandler)
+
+	rec, metricsHandler, err := observability.NewRecorder("gateway")
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init metrics", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rec.Shutdown(context.Background()) }()
+	base := otelhttp.NewHandler(httpHandler, "http", otelhttp.WithMeterProvider(rec.MeterProvider()))
+	httpHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/metrics" {
+			metricsHandler.ServeHTTP(w, req)
+			return
+		}
+		base.ServeHTTP(w, req)
+	})
 
 	var g run.Group
 	{

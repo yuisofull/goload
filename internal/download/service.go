@@ -80,6 +80,8 @@ type service struct {
 	// clock the ownership API stamps leases with, or the watchdog misreads the
 	// deadline (real clock in production, a fake clock in tests).
 	now func() time.Time
+
+	metrics Metrics
 }
 
 type (
@@ -124,6 +126,7 @@ func NewService(storageBackend storage.Backend, publisher EventPublisher, opts .
 		storageType:        storage.TypeLocal,
 		renewInterval:      DefaultRenewInterval,
 		now:                time.Now,
+		metrics:            nopMetrics{},
 	}
 
 	for _, opt := range opts {
@@ -319,6 +322,9 @@ func (s *service) transfer(
 	if err != nil {
 		return nil, &errors.Error{Code: errors.ErrCodeInternal, Message: "failed to get file info", Cause: err}
 	}
+	// Reuse this metadata in Download so the concurrent HTTP path does not make
+	// a second probe, which the transfer timer (started at Download) would count.
+	downloadOpts.KnownMetadata = metadata
 
 	maxRetries := max(downloadOpts.MaxRetries, 0)
 	maxAttempts := maxRetries + 1
@@ -329,10 +335,18 @@ func (s *service) transfer(
 	var reader io.ReadCloser
 	var totalSize int64
 	var dlErr error
+	var transferStart time.Time
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Start the transfer clock at the successful fetch. The HTTP downloader
+		// can read the whole response body into memory inside Download (a small
+		// Range covers files up to a few MiB), so timing from the first Read of
+		// the returned reader would miss that and report microseconds. The probe
+		// and any failed attempts plus their backoff stay outside.
+		attemptStart := s.now()
 		reader, totalSize, dlErr = downloader.Download(ctx, taskReq.SourceURL, sourceAuth, downloadOpts)
 		if dlErr == nil {
+			transferStart = attemptStart
 			break
 		}
 
@@ -394,9 +408,24 @@ func (s *service) transfer(
 		}
 	})
 
+	// Transfer time spans the byte fetch and stream: it starts at the successful
+	// Download (transferStart, set above) and stops when the stream drains,
+	// before the storing/completion step runs.
+	transferRecorded := false
+	recordTransfer := func() {
+		if transferStart.IsZero() || transferRecorded {
+			return
+		}
+		transferRecorded = true
+		s.metrics.RecordTransfer(s.now().Sub(transferStart))
+	}
+
 	source := &drainNotifier{
-		reader:  progressReader,
-		onDrain: func() error { return hooks.storing(ctx) },
+		reader: progressReader,
+		onDrain: func() error {
+			recordTransfer()
+			return hooks.storing(ctx)
+		},
 	}
 	hash := md5.New()
 
@@ -412,6 +441,9 @@ func (s *service) transfer(
 		// io.EOF, so make sure the storing step ran before the result is used.
 		storeErr = source.fire()
 	}
+	// Stream drained on success and failed-mid-stream alike; record once if the
+	// stream ever started (the drain path above already recorded on success).
+	recordTransfer()
 	if storeErr != nil {
 		// storageKey belongs to this attempt alone (it carries the attempt
 		// generation), so this cleanup cannot remove an object stored by

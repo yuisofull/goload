@@ -271,8 +271,16 @@ func (h *HTTPDownloader) Download(
 	opts download.DownloadOptions,
 ) (io.ReadCloser, int64, error) {
 	if opts.Concurrency > 1 {
-		meta, err := h.GetFileInfo(ctx, rawURL, auth)
-		if err == nil && meta.FileSize > 0 &&
+		// Reuse metadata the caller already fetched; only probe again if it was
+		// not provided. The extra probe would otherwise count as transfer time.
+		meta := opts.KnownMetadata
+		if meta == nil {
+			var err error
+			if meta, err = h.GetFileInfo(ctx, rawURL, auth); err != nil {
+				meta = nil
+			}
+		}
+		if meta != nil && meta.FileSize > 0 &&
 			strings.Contains(strings.ToLower(meta.Headers["Accept-Ranges"]), "bytes") {
 			return h.downloadParallel(ctx, rawURL, auth, opts, meta.FileSize)
 		}

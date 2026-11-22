@@ -96,6 +96,34 @@ func TestOutboxRepo_InsertUnsentThenFetchUnsent(t *testing.T) {
 	require.Nil(t, got[0].SentAt)
 }
 
+func TestOutboxRepo_OutboxBacklog_CountsUnsentAndOldest(t *testing.T) {
+	pool := newTestPool(t)
+	repo := NewOutboxRepo(pool)
+	ctx := context.Background()
+	base := outboxTestTime()
+
+	// Oldest unsent, then two newer; one of the newer ones is marked sent.
+	require.NoError(t, repo.InsertUnsent(ctx, newOutboxEvent("evt-old", 1, base)))
+	require.NoError(t, repo.InsertUnsent(ctx, newOutboxEvent("evt-mid", 2, base.Add(time.Second))))
+	require.NoError(t, repo.InsertUnsent(ctx, newOutboxEvent("evt-new", 3, base.Add(2*time.Second))))
+	require.NoError(t, repo.MarkSent(ctx, "evt-mid"))
+
+	count, oldest, err := repo.OutboxBacklog(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), count, "two events remain unsent")
+	require.True(t, oldest.Equal(base), "oldest unsent is evt-old, not a page artifact")
+}
+
+func TestOutboxRepo_OutboxBacklog_EmptyIsZero(t *testing.T) {
+	pool := newTestPool(t)
+	repo := NewOutboxRepo(pool)
+
+	count, oldest, err := repo.OutboxBacklog(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, count)
+	require.True(t, oldest.IsZero())
+}
+
 func TestOutboxRepo_MarkSentRemovesFromFetchUnsent(t *testing.T) {
 	pool := newTestPool(t)
 	repo := NewOutboxRepo(pool)

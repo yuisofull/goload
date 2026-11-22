@@ -1,0 +1,89 @@
+{
+  "uid": "goload-dispatch",
+  "title": "goload dispatch",
+  "tags": ["goload"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Dispatch wait (creation -> first claim), since startup of current replicas",
+      "description": "From task creation to first committed claim, cumulative so the panel is populated from the very first download (a rate()-windowed histogram is blank until its second observation). created_at has whole-second precision, so sub-second values carry a 0-1s bias.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(goload_dispatch_wait_seconds_bucket) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(goload_dispatch_wait_seconds_bucket) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Transfer duration (stream only), since startup of current replicas",
+      "description": "Byte fetch + stream, excluding the metadata probe and the completion step. Cumulative, so the panel is populated from the first download.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(goload_transfer_duration_seconds_bucket) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(goload_transfer_duration_seconds_bucket) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Outbox backlog",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "max(goload_outbox_unsent)", "legendFormat": "unsent events" },
+        { "refId": "B", "expr": "max(goload_outbox_oldest_unsent_seconds)", "legendFormat": "oldest unsent age (s)" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Tasks by status",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "max by (status) (goload_tasks_by_status)", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Outcomes per second",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(goload_tasks_completed_total[5m]))", "legendFormat": "completed" },
+        { "refId": "B", "expr": "sum(rate(goload_tasks_failed_total[5m]))", "legendFormat": "failed" },
+        { "refId": "C", "expr": "sum(rate(goload_tasks_retried_total[5m]))", "legendFormat": "retried" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Dispatch health (relay + redelivery)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(goload_relay_published_total[5m])) by (result)", "legendFormat": "relay {{result}}" },
+        { "refId": "B", "expr": "sum(rate(goload_redelivered_total[5m]))", "legendFormat": "redelivered" },
+        { "refId": "C", "expr": "sum(rate(goload_reconciler_redispatched_total[5m]))", "legendFormat": "redispatched" }
+      ]
+    }
+  ]
+}

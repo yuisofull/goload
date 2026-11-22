@@ -25,6 +25,7 @@ type AttemptService struct {
 	now      func() time.Time
 	lease    time.Duration
 	backoff  func(retryCount int) time.Duration
+	metrics  Metrics
 }
 
 // AttemptServiceOption configures an AttemptService.
@@ -59,6 +60,15 @@ func WithRetryBackoff(backoff func(retryCount int) time.Duration) AttemptService
 	}
 }
 
+// WithMetrics injects a metrics recorder. A nil recorder keeps the no-op default.
+func WithMetrics(m Metrics) AttemptServiceOption {
+	return func(s *AttemptService) {
+		if m != nil {
+			s.metrics = m
+		}
+	}
+}
+
 // NewAttemptService creates the ownership API on top of the task tables.
 // tx must be the TxManager of the same database as attempts and outbox.
 func NewAttemptService(
@@ -74,6 +84,7 @@ func NewAttemptService(
 		now:      func() time.Time { return time.Now().UTC() },
 		lease:    DefaultLeaseDuration,
 		backoff:  DefaultRetryBackoff,
+		metrics:  nopMetrics{},
 	}
 	for _, o := range opts {
 		o(s)
@@ -133,6 +144,8 @@ func (s *AttemptService) ClaimTask(ctx context.Context, taskID uint64, workerID 
 	}
 
 	var attempt *events.Attempt
+	var createdAt time.Time
+	var firstClaim bool
 	err := s.transition(ctx, taskID, func(_ context.Context, st *AttemptState) (bool, error) {
 		if err := st.claim(workerID, s.now(), s.lease); err != nil {
 			return false, err
@@ -143,10 +156,21 @@ func (s *AttemptService) ClaimTask(ctx context.Context, taskID uint64, workerID 
 			Generation:     st.Generation,
 			LeaseExpiresAt: *st.LeaseExpiresAt,
 		}
+		createdAt = st.CreatedAt
+		firstClaim = st.Generation == 1
 		return true, nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	// Record once, after the claim commits, only for the first claim (a later
+	// re-claim after lease expiry has generation > 1 and is not dispatch wait).
+	// A negative wait means a clock/timezone skew between the DB-assigned
+	// created_at and the service clock; drop it rather than record garbage.
+	if firstClaim && !createdAt.IsZero() {
+		if wait := s.now().Sub(createdAt); wait >= 0 {
+			s.metrics.RecordDispatchWait(wait)
+		}
 	}
 	return attempt, nil
 }
@@ -199,7 +223,8 @@ func (s *AttemptService) CompleteAttempt(
 		}
 	}
 
-	return s.transition(ctx, taskID, func(ctx context.Context, st *AttemptState) (bool, error) {
+	var completed bool
+	err := s.transition(ctx, taskID, func(ctx context.Context, st *AttemptState) (bool, error) {
 		now := s.now()
 		alreadyDone, err := st.complete(workerID, generation, now, result)
 		if err != nil {
@@ -224,8 +249,16 @@ func (s *AttemptService) CompleteAttempt(
 				Cause:   err,
 			}
 		}
+		completed = true
 		return true, nil
 	})
+	if err != nil {
+		return err
+	}
+	if completed {
+		s.metrics.IncCompleted()
+	}
+	return nil
 }
 
 // failureMessage is the user-facing text stored for a failed attempt.
@@ -248,14 +281,17 @@ func (s *AttemptService) FailAttempt(
 	}
 
 	message := failureMessage(cause)
-	return s.transition(ctx, taskID, func(ctx context.Context, st *AttemptState) (bool, error) {
+	var terminal, retried bool
+	err := s.transition(ctx, taskID, func(ctx context.Context, st *AttemptState) (bool, error) {
 		now := s.now()
 		if err := st.fail(workerID, generation, now, message, s.backoff); err != nil {
 			return false, err
 		}
 		if st.Status != StatusFailed {
+			retried = true
 			return true, nil
 		}
+		terminal = true
 		// Terminal failure: emit the lifecycle event in the same transaction, so
 		// a bus observer sees the failure exactly as it sees a completion.
 		event, err := NewTaskFailedOutboxEvent(taskID, message, now.UTC())
@@ -271,6 +307,16 @@ func (s *AttemptService) FailAttempt(
 		}
 		return true, nil
 	})
+	if err != nil {
+		return err
+	}
+	switch {
+	case terminal:
+		s.metrics.IncFailed()
+	case retried:
+		s.metrics.IncRetried()
+	}
+	return nil
 }
 
 func (s *AttemptService) ReleaseAttempt(

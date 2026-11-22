@@ -35,6 +35,10 @@ type DownloadOptions struct {
 	MaxSpeed    *int64
 	MaxRetries  int
 	Timeout     *int
+	// KnownMetadata, when set, is metadata the caller already fetched. A
+	// downloader reuses it instead of making its own probe (HEAD) request,
+	// which would otherwise count toward the transfer timer.
+	KnownMetadata *FileMetadata
 }
 
 // ChecksumInfo mirrors checksum info for internal use.
