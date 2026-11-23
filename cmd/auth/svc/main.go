@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,6 +26,7 @@ import (
 	authmysql "github.com/yuisofull/goload/internal/auth/mysql"
 	authpb "github.com/yuisofull/goload/internal/auth/pb"
 	authtransport "github.com/yuisofull/goload/internal/auth/transport"
+	"github.com/yuisofull/goload/internal/observability"
 	rediscache "github.com/yuisofull/goload/pkg/cache/redis"
 	"github.com/yuisofull/goload/pkg/crypto/bcrypt"
 	"github.com/yuisofull/goload/pkg/middleware"
@@ -46,6 +48,24 @@ func main() {
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
+
+	rec, metricsHandler, err := observability.NewRecorder("auth")
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init metrics", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rec.Shutdown(context.Background()) }()
+
+	tracer, err := observability.NewTracer(context.Background(), "auth", observability.TraceConfig{
+		Endpoint:    config.TracingOTLPEndpoint,
+		SampleRatio: config.TracingSampleRatio,
+	})
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init tracing", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = tracer.Shutdown(context.Background()) }()
+	observability.LogErrors(func(err error) { level.Warn(logger).Log("msg", "telemetry error", "err", err) })
 
 	var redisClient *redis.Client
 	{
@@ -157,11 +177,13 @@ func main() {
 			os.Exit(1)
 		}
 
-		baseServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
-			middleware.RecoveryGRPCInterceptor(logger),
-			middleware.LoggingGRPCInterceptor(logger),
-			kitgrpc.Interceptor,
-		))
+		baseServer := grpc.NewServer(
+			grpc.StatsHandler(observability.GRPCServerHandler(rec, tracer)),
+			grpc.ChainUnaryInterceptor(
+				middleware.RecoveryGRPCInterceptor(logger),
+				middleware.LoggingGRPCInterceptor(logger),
+				kitgrpc.Interceptor,
+			))
 		authpb.RegisterAuthServiceServer(baseServer, grpcServer)
 
 		g.Add(func() error {
@@ -179,6 +201,21 @@ func main() {
 		}, func(error) {
 			baseServer.GracefulStop()
 			_ = grpcListener.Close()
+		})
+	}
+
+	{
+		metricsSrv := &http.Server{Addr: config.MetricsAddress, Handler: observability.MetricsMux(metricsHandler)}
+		g.Add(func() error {
+			level.Info(logger).Log("transport", "HTTP", "addr", config.MetricsAddress, "msg", "serving /metrics")
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return err
+			}
+			return nil
+		}, func(error) {
+			shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shCancel()
+			_ = metricsSrv.Shutdown(shCtx)
 		})
 	}
 

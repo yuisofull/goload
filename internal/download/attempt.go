@@ -354,7 +354,12 @@ func (s *service) runAttempt(ctx context.Context, req TaskRequest, admitted bool
 
 	var stored *transferResult
 	if hasDownloader {
-		stored, err = s.runTransfer(&taskExecution{task: claimed, ctx: execCtx, cancelFunc: stop}, downloader, run)
+		// The span covers the whole transfer step (fetch, stream, store); the
+		// storing-transition renewal shows as its child. The transfer metric
+		// measures the stream alone.
+		transferCtx, endTransfer := s.tracing.StartSpan(execCtx, "transfer")
+		stored, err = s.runTransfer(&taskExecution{task: claimed, ctx: transferCtx, cancelFunc: stop}, downloader, run)
+		endTransfer(err)
 	} else {
 		err = &errors.Error{
 			Code:    errors.ErrCodeInvalidInput,
@@ -417,7 +422,10 @@ func (r *attemptRun) confirmStoring(ctx context.Context) error {
 }
 
 // settleSuccess commits the stored object as the task's result.
-func (s *service) settleSuccess(ctx context.Context, run *attemptRun, stored *transferResult) error {
+func (s *service) settleSuccess(ctx context.Context, run *attemptRun, stored *transferResult) (err error) {
+	ctx, endComplete := s.tracing.StartSpan(ctx, "complete")
+	defer func() { endComplete(err) }()
+
 	result := events.AttemptResult{
 		FileName:    stored.FileName,
 		FileSize:    stored.FileSize,
@@ -427,7 +435,6 @@ func (s *service) settleSuccess(ctx context.Context, run *attemptRun, stored *tr
 		StorageKey:  stored.StorageKey,
 	}
 
-	var err error
 	for try := 1; try <= completeTries; try++ {
 		// A completion must not be cut short by a shutdown: the object is
 		// already stored.

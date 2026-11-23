@@ -41,6 +41,9 @@ type AttemptState struct {
 	// MaxRetries is the task's retry budget (tasks.max_retries). It is read
 	// with the state and never written back.
 	MaxRetries int
+	// CreatedAt is the task's creation time (tasks.created_at), read with the
+	// state and never written back. Used for the dispatch-wait metric.
+	CreatedAt time.Time
 
 	// Columns an attempt writes. Only complete attaches StorageType and
 	// StoragePath.
@@ -222,8 +225,9 @@ func (st *AttemptState) matchesResult(result events.AttemptResult) bool {
 	if (st.Checksum == nil) != (result.Checksum == nil) {
 		return false
 	}
-	if st.Checksum != nil && st.Checksum.ChecksumType != result.Checksum.ChecksumType ||
-		st.Checksum.ChecksumValue != result.Checksum.ChecksumValue {
+	if st.Checksum != nil &&
+		(st.Checksum.ChecksumType != result.Checksum.ChecksumType ||
+			st.Checksum.ChecksumValue != result.Checksum.ChecksumValue) {
 		return false
 	}
 	return true

@@ -25,6 +25,21 @@ type memOutbox struct {
 	markAttempts   map[string]int // MarkSent calls per event id
 	failFirstMarks map[string]int // fail this many first MarkSent calls per event id
 	markCtxErrs    []error        // ctx.Err() seen by each MarkSent call
+	traceErr       error
+}
+
+func (o *memOutbox) LatestTraceContext(_ context.Context, aggregateID uint64, eventType string) (map[string]string, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.traceErr != nil {
+		return nil, o.traceErr
+	}
+	for i := len(o.rows) - 1; i >= 0; i-- {
+		if o.rows[i].AggregateID == aggregateID && o.rows[i].EventType == eventType {
+			return o.rows[i].TraceContext, nil
+		}
+	}
+	return nil, nil
 }
 
 func (o *memOutbox) InsertUnsent(_ context.Context, event OutboxEvent) error {
@@ -89,6 +104,23 @@ func (o *memOutbox) MarkSent(ctx context.Context, id string) error {
 		}
 	}
 	return nil
+}
+
+func (o *memOutbox) OutboxBacklog(_ context.Context) (int64, time.Time, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var count int64
+	var oldest time.Time
+	for _, row := range o.rows {
+		if row.SentAt != nil {
+			continue
+		}
+		count++
+		if oldest.IsZero() || row.CreatedAt.Before(oldest) {
+			oldest = row.CreatedAt
+		}
+	}
+	return count, oldest, nil
 }
 
 func (o *memOutbox) snapshot() []OutboxEvent {

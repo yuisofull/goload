@@ -133,8 +133,8 @@ func (r *fakeRows) Columns() []string {
 		return r.columns
 	}
 	// The outbox fetch queries are SELECT *, so the row carries every column,
-	// sent_at included.
-	return []string{"id", "aggregate_id", "destination", "event_type", "payload", "created_at", "sent_at"}
+	// sent_at and trace_context included.
+	return []string{"id", "aggregate_id", "destination", "event_type", "payload", "created_at", "sent_at", "trace_context"}
 }
 
 func (r *fakeRows) Close() error { return nil }
@@ -171,7 +171,7 @@ func requireInsertCall(t *testing.T, call fakeCall) {
 	t.Helper()
 	require.Equal(t, "exec", call.kind)
 	require.Contains(t, call.query, "INSERT INTO task_outbox")
-	require.Len(t, call.args, 6)
+	require.Len(t, call.args, 7)
 	require.Equal(t, "evt-1", call.args[0])
 	require.Equal(t, int64(42), call.args[1])
 	require.Equal(t, "dispatch", call.args[2])
@@ -183,6 +183,7 @@ func requireInsertCall(t *testing.T, call fakeCall) {
 		createdAt.Equal(time.Date(2026, 1, 2, 3, 4, 5, 123456000, time.UTC)),
 		"created_at must be truncated to microseconds (DATETIME(6))",
 	)
+	require.Nil(t, call.args[6], "an event without trace context binds trace_context as NULL")
 }
 
 func TestOutboxRepo_InsertUnsent_JoinsCallerTx(t *testing.T) {
@@ -237,8 +238,9 @@ func TestOutboxRepo_FetchUnsent_MapsRowsAndPassesLimit(t *testing.T) {
 	fake, db := openFakeDB(t)
 	created := time.Date(2026, 1, 2, 3, 4, 5, 123456000, time.UTC)
 	fake.rows = [][]driver.Value{
-		{"evt-1", int64(42), "dispatch", "TaskCreated", []byte(`{"task_id":42}`), created, nil},
-		{"evt-2", int64(43), "dispatch", "TaskCreated", []byte(`{"task_id":43}`), created.Add(time.Second), nil},
+		{"evt-1", int64(42), "dispatch", "TaskCreated", []byte(`{"task_id":42}`), created, nil,
+			`{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`},
+		{"evt-2", int64(43), "dispatch", "TaskCreated", []byte(`{"task_id":43}`), created.Add(time.Second), nil, nil},
 	}
 
 	events, err := NewOutboxRepo(db).FetchUnsent(context.Background(), task.OutboxCursor{}, 10)
@@ -251,8 +253,12 @@ func TestOutboxRepo_FetchUnsent_MapsRowsAndPassesLimit(t *testing.T) {
 	require.Equal(t, `{"task_id":42}`, string(events[0].Payload))
 	require.True(t, created.Equal(events[0].CreatedAt))
 	require.Nil(t, events[0].SentAt)
+	require.Equal(t,
+		map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+		events[0].TraceContext)
 	require.Equal(t, "evt-2", events[1].ID)
 	require.Equal(t, uint64(43), events[1].AggregateID)
+	require.Nil(t, events[1].TraceContext, "a NULL trace_context reads as nil")
 
 	_, calls := fake.snapshot()
 	require.Len(t, calls, 1)
@@ -326,7 +332,7 @@ func TestOutboxRepo_FetchUnsent_CursorUsesKeysetPredicate(t *testing.T) {
 	fake, db := openFakeDB(t)
 	created := time.Date(2026, 1, 2, 3, 4, 5, 123456000, time.UTC)
 	fake.rows = [][]driver.Value{
-		{"evt-3", int64(43), "dispatch", "TaskCreated", []byte(`{}`), created.Add(time.Second), nil},
+		{"evt-3", int64(43), "dispatch", "TaskCreated", []byte(`{}`), created.Add(time.Second), nil, nil},
 	}
 
 	cursor := task.OutboxCursor{CreatedAt: created, ID: "evt-2"}
@@ -341,4 +347,40 @@ func TestOutboxRepo_FetchUnsent_CursorUsesKeysetPredicate(t *testing.T) {
 	require.Contains(t, calls[0].query, "(created_at > ? OR (created_at = ? AND id > ?))")
 	require.Contains(t, calls[0].query, "ORDER BY created_at ASC, id ASC")
 	require.Equal(t, []driver.Value{created, created, "evt-2", int64(5)}, calls[0].args)
+}
+
+func TestOutboxRepo_InsertUnsent_BindsTheTraceContextAsJSON(t *testing.T) {
+	fake, db := openFakeDB(t)
+	ev := sampleOutboxEvent()
+	ev.TraceContext = map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}
+
+	require.NoError(t, NewOutboxRepo(db).InsertUnsent(context.Background(), ev))
+
+	_, calls := fake.snapshot()
+	require.Len(t, calls, 1)
+	require.Equal(t, `{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`, calls[0].args[6])
+}
+
+func TestOutboxRepo_LatestTraceContext_ReadsTheNewestRowOfTheTaskAndType(t *testing.T) {
+	fake, db := openFakeDB(t)
+	fake.columns = []string{"trace_context"}
+	fake.rows = [][]driver.Value{{`{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}`}}
+
+	got, err := NewOutboxRepo(db).LatestTraceContext(context.Background(), 42, task.OutboxEventTaskCreated)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}, got)
+
+	_, calls := fake.snapshot()
+	require.Len(t, calls, 1)
+	require.Contains(t, calls[0].query, "ORDER BY created_at DESC, id DESC")
+	require.Equal(t, []driver.Value{int64(42), "TaskCreated"}, calls[0].args)
+}
+
+func TestOutboxRepo_LatestTraceContext_NoRowIsNil(t *testing.T) {
+	fake, db := openFakeDB(t)
+	fake.columns = []string{"trace_context"}
+
+	got, err := NewOutboxRepo(db).LatestTraceContext(context.Background(), 42, task.OutboxEventTaskCreated)
+	require.NoError(t, err)
+	require.Nil(t, got)
 }

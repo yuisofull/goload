@@ -50,11 +50,12 @@ var attemptStateColumnNames = []string{
 	"status", "owner_id", "lease_expires_at", "attempt_generation", "retry_count", "next_attempt_at",
 	"max_retries", "file_name", "storage_type", "storage_path", "checksum_type", "checksum_value",
 	"progress", "downloaded_bytes", "total_bytes", "error_message", "completed_at",
-	"result_content_type", "result_file_size",
+	"result_content_type", "result_file_size", "created_at",
 }
 
 // attemptLease is already truncated to microseconds, as DATETIME(6) stores it.
 var attemptLease = time.Date(2026, 1, 2, 3, 5, 5, 123456000, time.UTC)
+var attemptCreated = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // openAttemptFakeDB is openFakeDB primed with attempt-state rows.
 func openAttemptFakeDB(t *testing.T, rows ...[]driver.Value) (*fakeDB, *sql.DB) {
@@ -71,7 +72,7 @@ func ownedAttemptRow() []driver.Value {
 		"STORING", "worker-a", attemptLease, int64(4), int64(1), nil,
 		int64(3), "file.bin", "minio", "42/4/file-0011223344556677.bin", "md5", "abc123",
 		float64(55.5), int64(555), int64(1000), "previous failure", nil,
-		"application/zip", int64(2048),
+		"application/zip", int64(2048), attemptCreated,
 	}
 }
 
@@ -95,6 +96,7 @@ func ownedAttemptState() *task.AttemptState {
 		ErrorMessage:   &message,
 		ContentType:    "application/zip",
 		FileSize:       2048,
+		CreatedAt:      attemptCreated,
 	}
 }
 
@@ -125,7 +127,7 @@ func TestAttemptRepo_LockAttemptState_NullColumnsMapToZeroValues(t *testing.T) {
 		"PENDING", nil, nil, int64(0), int64(0), nil,
 		int64(3), "file.bin", "", "", nil, nil,
 		nil, nil, nil, nil, nil,
-		"", int64(0),
+		"", int64(0), attemptCreated,
 	})
 	attempts := NewAttemptRepo(db)
 
@@ -141,6 +143,7 @@ func TestAttemptRepo_LockAttemptState_NullColumnsMapToZeroValues(t *testing.T) {
 		Status:     task.StatusPending,
 		MaxRetries: 3,
 		FileName:   "file.bin",
+		CreatedAt:  attemptCreated,
 	}, got)
 }
 
@@ -178,7 +181,7 @@ func TestAttemptRepo_GetAttemptState_ReadsWithoutLock(t *testing.T) {
 		"COMPLETED", nil, nil, int64(4), int64(1), nil,
 		int64(3), "file.bin", "minio", "42/4/file-0011223344556677.bin", "md5", "abc123",
 		float64(100), int64(1000), int64(1000), nil, completedAt,
-		"text/plain", int64(1000),
+		"text/plain", int64(1000), attemptCreated,
 	})
 
 	got, err := NewAttemptRepo(db).GetAttemptState(context.Background(), 42)
@@ -198,6 +201,7 @@ func TestAttemptRepo_GetAttemptState_ReadsWithoutLock(t *testing.T) {
 		CompletedAt: &completedAt,
 		ContentType: "text/plain",
 		FileSize:    1000,
+		CreatedAt:   attemptCreated,
 	}, got)
 	steps, calls := fake.snapshot()
 	require.Equal(t, []string{"query"}, steps)

@@ -92,6 +92,7 @@ type service struct {
 	// token store for one-time tokens fallback
 	tokenStore TokenStore
 	logger     log.Logger
+	tracing    Tracing
 }
 
 const bittorrentDataURLPrefix = "data:application/x-bittorrent;base64,"
@@ -185,6 +186,7 @@ func NewService(
 		outbox:   outbox,
 		attempts: attempts,
 		logger:   log.NewNopLogger(),
+		tracing:  nopTracing{},
 	}
 	for _, o := range opts {
 		o(s)
@@ -354,6 +356,7 @@ func (s *service) enqueueTaskCreated(ctx context.Context, t *Task) error {
 	if err != nil {
 		return err
 	}
+	event.TraceContext = s.tracing.Inject(ctx)
 	return s.outbox.InsertUnsent(ctx, event)
 }
 

@@ -42,3 +42,44 @@ Troubleshooting
 - If the apigateway health endpoint is not responding, check `docker compose logs apigateway`.
 
 *** End Patch
+## Observability
+
+`docker compose up` also starts Prometheus (loopback `:9090`) and Grafana
+(loopback `:3000`, login `goload` / `goload-dev`). Grafana auto-provisions the
+Prometheus datasource and the "goload dispatch" dashboard, which answers whether
+a slow download waited for dispatch or spent its time transferring.
+
+Each service exposes `/metrics`: task on `:9102`, auth on `:9101`, download and
+apigateway on their existing HTTP ports (`:8083`, `:8080`). Prometheus finds
+them by DNS (type A on the service name), so scaling a service is scraped
+correctly:
+
+```
+docker compose up --scale download=2
+```
+
+Both download replicas are then scraped as separate targets. The DB-global
+gauges (`goload_outbox_*`, `goload_tasks_by_status`) are exported by every task
+replica, so their dashboard panels use `max(...)` to avoid counting them once
+per replica; the rate panels already use `sum(rate(...))`. For production,
+routing telemetry through an OTel Collector per service (a later feature)
+replaces direct scraping.
+
+### Tracing
+
+Compose also starts Jaeger (UI on loopback `:16686`, also a Grafana datasource).
+One download is one trace: the gateway request, the task gRPC call that writes
+the outbox row, the relay's `publish task.created`, the worker's
+`process task.created`, its `transfer`, the fenced `complete` call back to
+task, and the `publish task.completed` event. The trace context rides on the
+outbox row (`trace_context`) and the message headers; a redispatch or retry
+reuses the task's stored context, so it joins the same trace.
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` (an OTLP/gRPC URL, e.g. `http://jaeger:4317`;
+unset: no export) and `TRACING_SAMPLE_RATIO` (default `1`) configure each
+service. If Jaeger is down, spans are dropped and downloads are unaffected.
+Worker spans cover ownership mode (RabbitMQ dispatch); in the legacy Kafka
+dispatch mode the trace ends at `publish task.created`.
+
+`scripts/trace-smoke.sh` creates one download through the stack and checks that
+Jaeger holds it as one trace across gateway, task and download.

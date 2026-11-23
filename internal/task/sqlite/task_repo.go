@@ -41,6 +41,24 @@ func (r *taskRepo) withConn(ctx context.Context, fn func(conn *sqlite.Conn) erro
 	return fn(conn)
 }
 
+var _ task.StatusCounter = (*taskRepo)(nil)
+
+func (r *taskRepo) CountByStatus(ctx context.Context) (map[task.TaskStatus]int64, error) {
+	out := make(map[task.TaskStatus]int64)
+	err := r.withConn(ctx, func(conn *sqlite.Conn) error {
+		return sqlitex.Execute(conn, `SELECT status, COUNT(*) FROM tasks GROUP BY status`, &sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				out[task.TaskStatus(stmt.ColumnText(0))] = stmt.ColumnInt64(1)
+				return nil
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *taskRepo) Create(ctx context.Context, t *task.Task) (*task.Task, error) {
 	sourceAuth, _ := json.Marshal(t.SourceAuth)
 	metadata, _ := json.Marshal(t.Metadata)

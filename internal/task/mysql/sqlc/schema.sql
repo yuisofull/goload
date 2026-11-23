@@ -48,6 +48,7 @@ CREATE TABLE
         payload MEDIUMBLOB NOT NULL,
         created_at DATETIME(6) NOT NULL,
         sent_at DATETIME(6) NULL DEFAULT NULL,
+        trace_context TEXT NULL,
         PRIMARY KEY (id),
         INDEX task_outbox_unsent_idx (sent_at, created_at),
         INDEX task_outbox_aggregate_idx (aggregate_id)

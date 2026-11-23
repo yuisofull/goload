@@ -12,6 +12,40 @@ import (
 	"time"
 )
 
+const countTasksByStatus = `-- name: CountTasksByStatus :many
+SELECT status, COUNT(*) AS count
+FROM tasks
+GROUP BY status
+`
+
+type CountTasksByStatusRow struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+}
+
+func (q *Queries) CountTasksByStatus(ctx context.Context) ([]CountTasksByStatusRow, error) {
+	rows, err := q.db.QueryContext(ctx, countTasksByStatus)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountTasksByStatusRow
+	for rows.Next() {
+		var i CountTasksByStatusRow
+		if err := rows.Scan(&i.Status, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createTask = `-- name: CreateTask :execresult
 INSERT INTO tasks (of_account_id, file_name, source_url, source_type, source_auth, headers,
                    storage_type, storage_path, status,
@@ -74,7 +108,7 @@ func (q *Queries) DeleteTask(ctx context.Context, id uint64) error {
 }
 
 const fetchUnsentOutbox = `-- name: FetchUnsentOutbox :many
-SELECT id, aggregate_id, destination, event_type, payload, created_at, sent_at
+SELECT id, aggregate_id, destination, event_type, payload, created_at, sent_at, trace_context
 FROM task_outbox
 WHERE sent_at IS NULL
 ORDER BY created_at ASC, id ASC
@@ -98,6 +132,7 @@ func (q *Queries) FetchUnsentOutbox(ctx context.Context, limit int32) ([]TaskOut
 			&i.Payload,
 			&i.CreatedAt,
 			&i.SentAt,
+			&i.TraceContext,
 		); err != nil {
 			return nil, err
 		}
@@ -113,7 +148,7 @@ func (q *Queries) FetchUnsentOutbox(ctx context.Context, limit int32) ([]TaskOut
 }
 
 const fetchUnsentOutboxAfter = `-- name: FetchUnsentOutboxAfter :many
-SELECT id, aggregate_id, destination, event_type, payload, created_at, sent_at
+SELECT id, aggregate_id, destination, event_type, payload, created_at, sent_at, trace_context
 FROM task_outbox
 WHERE sent_at IS NULL AND (created_at > ? OR (created_at = ? AND id > ?))
 ORDER BY created_at ASC, id ASC
@@ -149,6 +184,7 @@ func (q *Queries) FetchUnsentOutboxAfter(ctx context.Context, arg FetchUnsentOut
 			&i.Payload,
 			&i.CreatedAt,
 			&i.SentAt,
+			&i.TraceContext,
 		); err != nil {
 			return nil, err
 		}
@@ -167,7 +203,7 @@ const getAttemptState = `-- name: GetAttemptState :one
 SELECT status, owner_id, lease_expires_at, attempt_generation, retry_count, next_attempt_at,
        max_retries, file_name, storage_type, storage_path, checksum_type, checksum_value,
        progress, downloaded_bytes, total_bytes, error_message, completed_at,
-       result_content_type, result_file_size
+       result_content_type, result_file_size, created_at
 FROM tasks
 WHERE id = ?
 `
@@ -192,6 +228,7 @@ type GetAttemptStateRow struct {
 	CompletedAt       sql.NullTime    `json:"completed_at"`
 	ResultContentType string          `json:"result_content_type"`
 	ResultFileSize    int64           `json:"result_file_size"`
+	CreatedAt         sql.NullTime    `json:"created_at"`
 }
 
 func (q *Queries) GetAttemptState(ctx context.Context, id uint64) (GetAttemptStateRow, error) {
@@ -217,6 +254,7 @@ func (q *Queries) GetAttemptState(ctx context.Context, id uint64) (GetAttemptSta
 		&i.CompletedAt,
 		&i.ResultContentType,
 		&i.ResultFileSize,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -282,17 +320,18 @@ func (q *Queries) GetTaskCountByAccountId(ctx context.Context, ofAccountID uint6
 }
 
 const insertOutbox = `-- name: InsertOutbox :execresult
-INSERT INTO task_outbox (id, aggregate_id, destination, event_type, payload, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO task_outbox (id, aggregate_id, destination, event_type, payload, created_at, trace_context)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertOutboxParams struct {
-	ID          string    `json:"id"`
-	AggregateID uint64    `json:"aggregate_id"`
-	Destination string    `json:"destination"`
-	EventType   string    `json:"event_type"`
-	Payload     []byte    `json:"payload"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string         `json:"id"`
+	AggregateID  uint64         `json:"aggregate_id"`
+	Destination  string         `json:"destination"`
+	EventType    string         `json:"event_type"`
+	Payload      []byte         `json:"payload"`
+	CreatedAt    time.Time      `json:"created_at"`
+	TraceContext sql.NullString `json:"trace_context"`
 }
 
 func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) (sql.Result, error) {
@@ -303,7 +342,28 @@ func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) (sql
 		arg.EventType,
 		arg.Payload,
 		arg.CreatedAt,
+		arg.TraceContext,
 	)
+}
+
+const latestOutboxTraceContext = `-- name: LatestOutboxTraceContext :one
+SELECT trace_context
+FROM task_outbox
+WHERE aggregate_id = ? AND event_type = ?
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type LatestOutboxTraceContextParams struct {
+	AggregateID uint64 `json:"aggregate_id"`
+	EventType   string `json:"event_type"`
+}
+
+func (q *Queries) LatestOutboxTraceContext(ctx context.Context, arg LatestOutboxTraceContextParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, latestOutboxTraceContext, arg.AggregateID, arg.EventType)
+	var trace_context sql.NullString
+	err := row.Scan(&trace_context)
+	return trace_context, err
 }
 
 const listReconcilable = `-- name: ListReconcilable :many
@@ -433,7 +493,7 @@ const lockAttemptState = `-- name: LockAttemptState :one
 SELECT status, owner_id, lease_expires_at, attempt_generation, retry_count, next_attempt_at,
        max_retries, file_name, storage_type, storage_path, checksum_type, checksum_value,
        progress, downloaded_bytes, total_bytes, error_message, completed_at,
-       result_content_type, result_file_size
+       result_content_type, result_file_size, created_at
 FROM tasks
 WHERE id = ?
 FOR UPDATE
@@ -459,6 +519,7 @@ type LockAttemptStateRow struct {
 	CompletedAt       sql.NullTime    `json:"completed_at"`
 	ResultContentType string          `json:"result_content_type"`
 	ResultFileSize    int64           `json:"result_file_size"`
+	CreatedAt         sql.NullTime    `json:"created_at"`
 }
 
 func (q *Queries) LockAttemptState(ctx context.Context, id uint64) (LockAttemptStateRow, error) {
@@ -484,6 +545,7 @@ func (q *Queries) LockAttemptState(ctx context.Context, id uint64) (LockAttemptS
 		&i.CompletedAt,
 		&i.ResultContentType,
 		&i.ResultFileSize,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -502,6 +564,24 @@ type MarkOutboxSentParams struct {
 func (q *Queries) MarkOutboxSent(ctx context.Context, arg MarkOutboxSentParams) error {
 	_, err := q.db.ExecContext(ctx, markOutboxSent, arg.SentAt, arg.ID)
 	return err
+}
+
+const outboxBacklog = `-- name: OutboxBacklog :one
+SELECT COUNT(*) AS unsent, MIN(created_at) AS oldest
+FROM task_outbox
+WHERE sent_at IS NULL
+`
+
+type OutboxBacklogRow struct {
+	Unsent int64       `json:"unsent"`
+	Oldest interface{} `json:"oldest"`
+}
+
+func (q *Queries) OutboxBacklog(ctx context.Context) (OutboxBacklogRow, error) {
+	row := q.db.QueryRowContext(ctx, outboxBacklog)
+	var i OutboxBacklogRow
+	err := row.Scan(&i.Unsent, &i.Oldest)
+	return i, err
 }
 
 const saveAttemptState = `-- name: SaveAttemptState :exec

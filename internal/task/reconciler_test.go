@@ -333,3 +333,27 @@ func TestReconciler_RunOnce_PersistentBacklogDoesNotStarveTheTail(t *testing.T) 
 		require.True(t, seen[id], "task %d was starved", id)
 	}
 }
+
+// A redispatch joins the trace of the task's last dispatch, so a duplicate or a
+// retry stays in the download's trace.
+func TestReconciler_RunOnce_RedispatchKeepsTheTaskTrace(t *testing.T) {
+	f := newReconcilerFixture([]uint64{1})
+	carrier := map[string]string{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}
+	f.outbox.rows = []OutboxEvent{{ID: "first", AggregateID: 1, Destination: OutboxDestinationDispatch, EventType: OutboxEventTaskCreated, TraceContext: carrier}}
+	f.candidates.set(ReconcileCandidate{TaskID: 1})
+
+	require.Equal(t, 1, f.sweep(t))
+
+	rows := f.outbox.snapshot()
+	require.Len(t, rows, 2)
+	require.Equal(t, carrier, rows[1].TraceContext)
+}
+
+func TestReconciler_RunOnce_TraceLookupFailureStillRedispatches(t *testing.T) {
+	f := newReconcilerFixture([]uint64{1})
+	f.outbox.traceErr = errors.New("trace lookup failed")
+	f.candidates.set(ReconcileCandidate{TaskID: 1})
+
+	require.Equal(t, 1, f.sweep(t))
+	require.Equal(t, []uint64{1}, f.dispatched(t))
+}

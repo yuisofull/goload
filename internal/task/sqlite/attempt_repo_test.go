@@ -55,6 +55,8 @@ func TestAttemptRepo_GetAttemptState_FreshTask(t *testing.T) {
 	got, err := NewAttemptRepo(pool).GetAttemptState(context.Background(), id)
 
 	require.NoError(t, err)
+	require.False(t, got.CreatedAt.IsZero(), "created_at is read from the row")
+	got.CreatedAt = time.Time{} // read-only, DB-assigned; checked above
 	require.Equal(t, &task.AttemptState{
 		TaskID:     id,
 		Status:     task.StatusPending,
@@ -117,6 +119,8 @@ func TestAttemptRepo_LockAndSaveRoundTrip(t *testing.T) {
 
 	got, err := attempts.GetAttemptState(ctx, id)
 	require.NoError(t, err)
+	require.False(t, got.CreatedAt.IsZero(), "created_at is read from the row")
+	want.CreatedAt = got.CreatedAt // read-only, DB-assigned; not part of the save round-trip
 	require.Equal(t, want, got)
 }
 

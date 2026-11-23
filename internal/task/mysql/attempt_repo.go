@@ -127,6 +127,7 @@ func attemptStateFromRow(taskID uint64, row sqlc.GetAttemptStateRow) *task.Attem
 		Generation: row.AttemptGeneration,
 		RetryCount: int(row.RetryCount),
 		MaxRetries: int(row.MaxRetries),
+		CreatedAt:  row.CreatedAt.Time,
 		FileName:   row.FileName,
 		// Kept exactly as stored (no normalization), so a save writes the
 		// same value back.

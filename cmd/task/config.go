@@ -55,6 +55,11 @@ type Config struct {
 	MinioPresignSecretKey      string   `envconfig:"MINIO_PRESIGN_SECRET_KEY"`
 	// RabbitMQURL set turns on ownership mode (dispatch via RabbitMQ).
 	RabbitMQURL string `envconfig:"RABBITMQ_URL"`
+
+	MetricsAddress string `envconfig:"METRICS_ADDRESS" default:"0.0.0.0:9102"`
+
+	TracingOTLPEndpoint string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	TracingSampleRatio  float64 `envconfig:"TRACING_SAMPLE_RATIO" default:"1"`
 }
 
 func loadConfig() (*Config, error) {

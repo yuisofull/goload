@@ -27,6 +27,7 @@ import (
 	"github.com/yuisofull/goload/internal/download"
 	"github.com/yuisofull/goload/internal/download/downloader"
 	downloadtransport "github.com/yuisofull/goload/internal/download/transport"
+	"github.com/yuisofull/goload/internal/observability"
 	"github.com/yuisofull/goload/internal/storage"
 	"github.com/yuisofull/goload/internal/task"
 	tasksqlite "github.com/yuisofull/goload/internal/task/sqlite"
@@ -89,6 +90,24 @@ func main() {
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
+
+	rec, metricsHandler, err := observability.NewRecorder("pocket")
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init metrics", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rec.Shutdown(context.Background()) }()
+
+	tracer, err := observability.NewTracer(context.Background(), "pocket", observability.TraceConfig{
+		Endpoint:    cfg.TracingOTLPEndpoint,
+		SampleRatio: cfg.TracingSampleRatio,
+	})
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init tracing", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = tracer.Shutdown(context.Background()) }()
+	observability.LogErrors(func(err error) { level.Warn(logger).Log("msg", "telemetry error", "err", err) })
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -158,7 +177,35 @@ func main() {
 	taskPub := task.NewEventPublisher(pub, task.WithOutboxTransport(task.NewRequireSubscriberTransport(pub)))
 	// Outbox relay: publishes the TaskCreated rows that CreateTask/RetryTask
 	// write in the task transaction, on the same in-memory bus as before.
-	outboxRelay := task.NewOutboxRelay(outboxRepo, taskPub, task.WithOutboxRelayLogger(logger))
+	outboxRelay := task.NewOutboxRelay(outboxRepo, taskPub, task.WithOutboxRelayLogger(logger), task.WithOutboxRelayMetrics(rec), task.WithOutboxRelayTracing(tracer))
+	if err := rec.RegisterOutboxGauge(func(ctx context.Context) (int64, float64, error) {
+		n, oldest, berr := outboxRepo.OutboxBacklog(ctx)
+		if berr != nil {
+			return 0, 0, berr
+		}
+		var age float64
+		if n > 0 && !oldest.IsZero() {
+			age = time.Since(oldest).Seconds()
+		}
+		return n, age, nil
+	}); err != nil {
+		level.Error(logger).Log("msg", "failed to register outbox gauge", "err", err)
+	}
+	if sc, ok := taskRepo.(task.StatusCounter); ok {
+		if err := rec.RegisterTasksByStatusGauge(func(ctx context.Context) (map[string]int64, error) {
+			counts, cerr := sc.CountByStatus(ctx)
+			if cerr != nil {
+				return nil, cerr
+			}
+			out := make(map[string]int64, len(task.AllStatuses))
+			for _, s := range task.AllStatuses {
+				out[string(s)] = counts[s]
+			}
+			return out, nil
+		}); err != nil {
+			level.Error(logger).Log("msg", "failed to register tasks-by-status gauge", "err", err)
+		}
+	}
 	secret := []byte(cfg.TokenHMACSecret)
 	tokenStore := task.NewTokenStore(
 		inmemcache.New[string, storage.TokenMetadata](5*time.Minute),
@@ -168,16 +215,17 @@ func main() {
 		task.WithTokenStore(tokenStore),
 		task.WithTaskSourceStore(storageBackend),
 		task.WithTaskSourcePresigner(storageBackend),
+		task.WithTracing(tracer),
 	)
 
 	// Ownership API: the download worker claims every task through it, renews
 	// the lease while it runs and commits the result under the generation of
 	// its claim. workerID identifies this process as the owner.
-	attemptSvc := task.NewAttemptService(attemptRepo, tx, outboxRepo)
+	attemptSvc := task.NewAttemptService(attemptRepo, tx, outboxRepo, task.WithMetrics(rec), task.WithAttemptTracing(tracer))
 	workerID := uuid.NewString()
 	// Reconciler: dispatches due PENDING tasks and attempts whose lease
 	// expired again. This is what recovers work after a crash.
-	reconciler := task.NewReconciler(reconcileRepo, taskRepo, outboxRepo, task.WithReconcilerLogger(logger))
+	reconciler := task.NewReconciler(reconcileRepo, taskRepo, outboxRepo, task.WithReconcilerLogger(logger), task.WithReconcilerMetrics(rec))
 
 	// Lifecycle events are notifications only; the task row is written
 	// through the ownership API.
@@ -190,6 +238,8 @@ func main() {
 		storageBackend,
 		downloadPub,
 		download.WithStorageType(storage.TypeLocal),
+		download.WithMetrics(rec),
+		download.WithTracing(tracer),
 		download.WithErrorHandler(func(_ context.Context, err error) {
 			level.Error(logger).Log("msg", "download failed", "err", err)
 		}),
@@ -206,10 +256,11 @@ func main() {
 
 	// Every dispatch runs as a claimed attempt and is acknowledged only once
 	// its outcome is committed.
-	consumer := downloadtransport.NewEventConsumer(dlSvc, sub, logger, downloadtransport.WithAttemptRunner(dlSvc))
+	consumer := downloadtransport.NewEventConsumer(dlSvc, sub, logger, downloadtransport.WithAttemptRunner(dlSvc), downloadtransport.WithMetrics(rec), downloadtransport.WithTracing(tracer))
 
 	endpoints := apigateway.NewGatewayEndpoints(taskSvc, authMiddleware, authSvc)
 	handler := apigateway.NewHTTPHandlerWithDownload(endpoints, logger, storageBackend, tokenStore)
+	handler.Use(observability.RouteSpanNames)
 
 	if cfg.PocketWebDir != "" {
 		handler.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +288,8 @@ func main() {
 	httpHandler = middleware.LoggingHTTPMiddleware(logger)(httpHandler)
 	httpHandler = middleware.RequestIDHTTPMiddleware(httpHandler)
 
+	httpHandler = observability.PublicHTTPHandler(httpHandler, rec, tracer)
+
 	var g run.Group
 	{
 		srv := &http.Server{Addr: cfg.HTTPAddress, Handler: httpHandler}
@@ -248,6 +301,22 @@ func main() {
 			ctxSh, cancelSh := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancelSh()
 			srv.Shutdown(ctxSh)
+		})
+	}
+	{
+		// /metrics queries SQLite on every scrape, so it serves on a separate
+		// admin listener bound to loopback by default, not the public API port.
+		metricsSrv := &http.Server{Addr: cfg.MetricsAddress, Handler: observability.MetricsMux(metricsHandler)}
+		g.Add(func() error {
+			level.Info(logger).Log("transport", "HTTP", "addr", cfg.MetricsAddress, "msg", "serving /metrics")
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return err
+			}
+			return nil
+		}, func(error) {
+			ctxSh, cancelSh := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelSh()
+			_ = metricsSrv.Shutdown(ctxSh)
 		})
 	}
 	g.Add(func() error {

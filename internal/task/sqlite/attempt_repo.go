@@ -26,7 +26,7 @@ const lockTaskRowSQL = `UPDATE tasks SET attempt_generation = attempt_generation
 const selectAttemptStateSQL = `SELECT status, owner_id, lease_expires_at, attempt_generation, retry_count, next_attempt_at,
        max_retries, file_name, storage_type, storage_path, checksum_type, checksum_value,
        progress, downloaded_bytes, total_bytes, error_message, completed_at,
-       result_content_type, result_file_size
+       result_content_type, result_file_size, created_at
 FROM tasks
 WHERE id = ?`
 
@@ -168,6 +168,7 @@ func scanAttemptState(stmt *sqlite.Stmt, taskID uint64) (*task.AttemptState, err
 			TotalBytes:      stmt.ColumnInt64(14),
 		},
 	}
+	state.CreatedAt = parseSqliteTime(stmt.ColumnText(19))
 
 	var err error
 	if state.LeaseExpiresAt, err = columnTime(stmt, 2); err != nil {

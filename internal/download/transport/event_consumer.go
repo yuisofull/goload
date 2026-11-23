@@ -13,6 +13,7 @@ import (
 	"github.com/yuisofull/goload/internal/errors"
 	"github.com/yuisofull/goload/internal/events"
 	"github.com/yuisofull/goload/pkg/message"
+	"github.com/yuisofull/goload/pkg/message/rabbitmq"
 )
 
 const (
@@ -38,6 +39,8 @@ type EventConsumer struct {
 	// the legacy path runs: ExecuteTask, acknowledged when the download starts.
 	attempts        download.AttemptRunner
 	redeliveryDelay time.Duration
+	metrics         download.Metrics
+	tracing         download.Tracing
 
 	// dispatchSubscriber, when set, is where task.created is consumed (RabbitMQ);
 	// control events stay on subscriber. Nil means all topics use subscriber.
@@ -73,6 +76,24 @@ func WithDispatchSubscriber(sub message.Subscriber) Option {
 	return func(ec *EventConsumer) {
 		if sub != nil {
 			ec.dispatchSubscriber = sub
+		}
+	}
+}
+
+// WithMetrics injects a metrics recorder (used to count broker redeliveries).
+func WithMetrics(m download.Metrics) Option {
+	return func(ec *EventConsumer) {
+		if m != nil {
+			ec.metrics = m
+		}
+	}
+}
+
+// WithTracing continues each dispatch's trace from its message headers.
+func WithTracing(t download.Tracing) Option {
+	return func(ec *EventConsumer) {
+		if t != nil {
+			ec.tracing = t
 		}
 	}
 }
@@ -160,6 +181,14 @@ func (ec *EventConsumer) processTaskCreatedEvents(ctx context.Context, ch <-chan
 	defer running.Wait()
 
 	for msg := range ch {
+		if ec.metrics != nil {
+			// The broker sets this per delivery on the dispatch (RabbitMQ) path;
+			// it is absent (and a no-op) on the legacy Kafka path.
+			if redelivered, ok := rabbitmq.MessageRedeliveredFromCtx(msg.Context()); ok && redelivered {
+				ec.metrics.IncRedelivered()
+			}
+		}
+
 		var event events.TaskCreatedEvent
 		if err := json.Unmarshal(msg.Payload, &event); err != nil {
 			level.Error(ec.logger).Log("msg", "failed to unmarshal TaskCreatedEvent", "err", err)
@@ -222,7 +251,14 @@ func (ec *EventConsumer) runAttempt(
 	req download.TaskRequest,
 	run func(context.Context, download.TaskRequest) error,
 ) {
-	err := run(ctx, req)
+	// The span decorates the consumer's ctx (never replaces it), so a consumer
+	// shutdown still cancels the attempt.
+	runCtx, endSpan := ctx, func(error) {}
+	if ec.tracing != nil {
+		runCtx, endSpan = ec.tracing.StartConsume(ctx, msg.Metadata, req.TaskID)
+	}
+	err := run(runCtx, req)
+	endSpan(err)
 	if err == nil {
 		msg.Ack()
 		return

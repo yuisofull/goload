@@ -9,12 +9,8 @@ import (
 
 // ownershipColumns are the task ownership columns in the order they are
 // added. lease_expires_at and next_attempt_at hold fixed-width UTC text (see
-// outboxTimeLayout). SQLite has no ADD COLUMN IF NOT EXISTS, so
-// EnsureOwnershipSchema adds only the columns that are still missing.
-var ownershipColumns = []struct {
-	name string
-	ddl  string
-}{
+// outboxTimeLayout).
+var ownershipColumns = []addedColumn{
 	{"owner_id", `ALTER TABLE tasks ADD COLUMN owner_id TEXT;`},
 	{"lease_expires_at", `ALTER TABLE tasks ADD COLUMN lease_expires_at TEXT;`},
 	{"attempt_generation", `ALTER TABLE tasks ADD COLUMN attempt_generation INTEGER NOT NULL DEFAULT 0;`},
@@ -30,28 +26,15 @@ var ownershipColumns = []struct {
 // on every start, after the tasks table is created. Existing rows read as
 // unowned, generation 0, retry count 0.
 func EnsureOwnershipSchema(conn *sqlite.Conn) error {
-	existing := map[string]bool{}
-	err := sqlitex.ExecuteTransient(conn, `PRAGMA table_info(tasks);`, &sqlitex.ExecOptions{
-		ResultFunc: func(stmt *sqlite.Stmt) error {
-			// table_info columns: cid, name, type, notnull, dflt_value, pk
-			existing[stmt.ColumnText(1)] = true
-			return nil
-		},
-	})
+	existing, err := columnNames(conn, "tasks")
 	if err != nil {
 		return err
 	}
 	if len(existing) == 0 {
 		return errors.New("sqlite: tasks table does not exist; create it before the ownership columns")
 	}
-
-	for _, column := range ownershipColumns {
-		if existing[column.name] {
-			continue
-		}
-		if err := sqlitex.ExecuteTransient(conn, column.ddl, nil); err != nil {
-			return err
-		}
+	if err := addMissingColumns(conn, existing, ownershipColumns); err != nil {
+		return err
 	}
 
 	// The reconciler looks for claimable tasks by status and lease expiry;

@@ -47,11 +47,12 @@ type Task struct {
 }
 
 type TaskOutbox struct {
-	ID          string       `json:"id"`
-	AggregateID uint64       `json:"aggregate_id"`
-	Destination string       `json:"destination"`
-	EventType   string       `json:"event_type"`
-	Payload     []byte       `json:"payload"`
-	CreatedAt   time.Time    `json:"created_at"`
-	SentAt      sql.NullTime `json:"sent_at"`
+	ID           string         `json:"id"`
+	AggregateID  uint64         `json:"aggregate_id"`
+	Destination  string         `json:"destination"`
+	EventType    string         `json:"event_type"`
+	Payload      []byte         `json:"payload"`
+	CreatedAt    time.Time      `json:"created_at"`
+	SentAt       sql.NullTime   `json:"sent_at"`
+	TraceContext sql.NullString `json:"trace_context"`
 }

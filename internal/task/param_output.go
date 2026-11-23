@@ -71,6 +71,13 @@ const (
 	StatusPaused      TaskStatus = "PAUSED"
 )
 
+// AllStatuses lists every task status, for metrics that report one series per
+// status (including the ones currently at zero).
+var AllStatuses = []TaskStatus{
+	StatusPending, StatusDownloading, StatusStoring,
+	StatusCompleted, StatusFailed, StatusCancelled, StatusPaused,
+}
+
 func (s TaskStatus) String() string {
 	return string(s)
 }

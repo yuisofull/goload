@@ -78,8 +78,8 @@ FROM tasks
 WHERE id = ?;
 
 -- name: InsertOutbox :execresult
-INSERT INTO task_outbox (id, aggregate_id, destination, event_type, payload, created_at)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO task_outbox (id, aggregate_id, destination, event_type, payload, created_at, trace_context)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: FetchUnsentOutbox :many
 SELECT *
@@ -100,11 +100,28 @@ UPDATE task_outbox
 SET sent_at = ?
 WHERE id = ? AND sent_at IS NULL;
 
+-- name: LatestOutboxTraceContext :one
+SELECT trace_context
+FROM task_outbox
+WHERE aggregate_id = ? AND event_type = ?
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- name: OutboxBacklog :one
+SELECT COUNT(*) AS unsent, MIN(created_at) AS oldest
+FROM task_outbox
+WHERE sent_at IS NULL;
+
+-- name: CountTasksByStatus :many
+SELECT status, COUNT(*) AS count
+FROM tasks
+GROUP BY status;
+
 -- name: GetAttemptState :one
 SELECT status, owner_id, lease_expires_at, attempt_generation, retry_count, next_attempt_at,
        max_retries, file_name, storage_type, storage_path, checksum_type, checksum_value,
        progress, downloaded_bytes, total_bytes, error_message, completed_at,
-       result_content_type, result_file_size
+       result_content_type, result_file_size, created_at
 FROM tasks
 WHERE id = ?;
 
@@ -112,7 +129,7 @@ WHERE id = ?;
 SELECT status, owner_id, lease_expires_at, attempt_generation, retry_count, next_attempt_at,
        max_retries, file_name, storage_type, storage_path, checksum_type, checksum_value,
        progress, downloaded_bytes, total_bytes, error_message, completed_at,
-       result_content_type, result_file_size
+       result_content_type, result_file_size, created_at
 FROM tasks
 WHERE id = ?
 FOR UPDATE;

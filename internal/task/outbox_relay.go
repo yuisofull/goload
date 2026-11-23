@@ -31,6 +31,8 @@ type OutboxRelay struct {
 	interval  time.Duration
 	batchSize int
 	logger    log.Logger
+	metrics   Metrics
+	tracing   Tracing
 }
 
 // OutboxRelayOption configures an OutboxRelay.
@@ -61,6 +63,15 @@ func WithOutboxRelayLogger(l log.Logger) OutboxRelayOption {
 	return func(r *OutboxRelay) { r.logger = l }
 }
 
+// WithOutboxRelayMetrics injects a metrics recorder. Nil keeps the no-op default.
+func WithOutboxRelayMetrics(m Metrics) OutboxRelayOption {
+	return func(r *OutboxRelay) {
+		if m != nil {
+			r.metrics = m
+		}
+	}
+}
+
 // NewOutboxRelay creates a relay that reads from repo and publishes through pub.
 func NewOutboxRelay(repo OutboxRepository, pub *Publisher, opts ...OutboxRelayOption) *OutboxRelay {
 	r := &OutboxRelay{
@@ -69,6 +80,8 @@ func NewOutboxRelay(repo OutboxRepository, pub *Publisher, opts ...OutboxRelayOp
 		interval:  DefaultOutboxPollInterval,
 		batchSize: DefaultOutboxBatchSize,
 		logger:    log.NewNopLogger(),
+		metrics:   nopMetrics{},
+		tracing:   nopTracing{},
 	}
 	for _, o := range opts {
 		o(r)
@@ -147,9 +160,18 @@ func (r *OutboxRelay) RunOnce(ctx context.Context) (int, error) {
 }
 
 func (r *OutboxRelay) relayOne(ctx context.Context, event OutboxEvent) error {
-	if err := r.pub.PublishOutboxEvent(ctx, event); err != nil {
+	// The publish span continues the trace stored with the row; the message
+	// carries the span's own carrier so the consumer continues from it.
+	topic, _ := outboxTopic(event.EventType)
+	outgoing, endSpan := r.tracing.StartPublish(ctx, event.TraceContext, topic, event.ID)
+	event.TraceContext = outgoing
+	err := r.pub.PublishOutboxEvent(ctx, event)
+	endSpan(err)
+	if err != nil {
+		r.metrics.RecordRelayPublish(false)
 		return fmt.Errorf("publish outbox event %s: %w", event.ID, err)
 	}
+	r.metrics.RecordRelayPublish(true)
 
 	// The event is on the wire. Mark it even if ctx was cancelled meanwhile,
 	// so a clean shutdown does not become a duplicate publish on the next start.

@@ -37,6 +37,9 @@ type Config struct {
 	TaskGRPCAddress string `envconfig:"TASK_SERVICE_GRPC_ADDRESS"`
 	RabbitMQURL     string `envconfig:"RABBITMQ_URL"`
 	WorkerID        string `envconfig:"WORKER_ID"`
+
+	TracingOTLPEndpoint string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	TracingSampleRatio  float64 `envconfig:"TRACING_SAMPLE_RATIO" default:"1"`
 }
 
 func loadConfig() (*Config, error) {

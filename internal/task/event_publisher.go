@@ -259,6 +259,11 @@ func (ep *Publisher) PublishOutboxEvent(_ context.Context, event OutboxEvent) er
 			"taskID":    formatTaskID(event.AggregateID),
 		},
 	}
+	for key, value := range event.TraceContext {
+		if _, taken := msg.Metadata[key]; !taken {
+			msg.Metadata[key] = value
+		}
+	}
 
 	transport := ep.outbox
 	if event.Destination == OutboxDestinationDispatch && ep.dispatch != nil {

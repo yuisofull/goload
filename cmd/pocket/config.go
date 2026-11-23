@@ -28,6 +28,7 @@ import "github.com/kelseyhightower/envconfig"
 type Config struct {
 	LogLevel             string `envconfig:"LOG_LEVEL"              default:"debug"`
 	HTTPAddress          string `envconfig:"HTTP_ADDRESS"           default:"0.0.0.0:8080"`
+	MetricsAddress       string `envconfig:"METRICS_ADDRESS"        default:"127.0.0.1:9103"`
 	PocketDBPath         string `envconfig:"POCKET_DB_PATH"         default:"./goload.db"`
 	PocketDataDir        string `envconfig:"POCKET_DATA_DIR"        default:"./data"`
 	PocketWebDir         string `envconfig:"POCKET_WEB_DIR"         default:"./public/dist"`
@@ -37,6 +38,9 @@ type Config struct {
 	CORSExposedHeaders   string `envconfig:"CORS_EXPOSED_HEADERS"   default:"Content-Length,Content-Range,Content-Disposition"`
 	CORSAllowCredentials bool   `envconfig:"CORS_ALLOW_CREDENTIALS" default:"false"`
 	CORSPreflightMaxAge  int    `envconfig:"CORS_PREFLIGHT_MAX_AGE" default:"600"`
+
+	TracingOTLPEndpoint string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	TracingSampleRatio  float64 `envconfig:"TRACING_SAMPLE_RATIO" default:"1"`
 }
 
 func loadConfig() (*Config, error) {

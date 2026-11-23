@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,10 +15,12 @@ import (
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/oklog/run"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 
+	"github.com/yuisofull/goload/internal/observability"
 	storagepkg "github.com/yuisofull/goload/internal/storage"
 	taskpkg "github.com/yuisofull/goload/internal/task"
 	taskendpoint "github.com/yuisofull/goload/internal/task/endpoint"
@@ -47,10 +50,31 @@ func main() {
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
 
+	rec, metricsHandler, err := observability.NewRecorder("task")
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init metrics", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rec.Shutdown(context.Background()) }()
+
+	tracer, err := observability.NewTracer(context.Background(), "task", observability.TraceConfig{
+		Endpoint:    config.TracingOTLPEndpoint,
+		SampleRatio: config.TracingSampleRatio,
+	})
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init tracing", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = tracer.Shutdown(context.Background()) }()
+	observability.LogErrors(func(err error) { level.Warn(logger).Log("msg", "telemetry error", "err", err) })
+
 	// Setup MySQL
 	var db *sql.DB
 	{
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+		// loc=UTC + session time_zone='+00:00' so the DB-assigned created_at is
+		// read back as true UTC; otherwise the dispatch-wait metric is shifted
+		// by the server's session offset.
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&time_zone=%%27%%2B00%%3A00%%27",
 			config.MySQLUsername,
 			config.MySQLPassword,
 			config.MySQLHost,
@@ -127,7 +151,35 @@ func main() {
 
 	// Outbox relay: publishes the TaskCreated rows that CreateTask/RetryTask
 	// write in the task transaction, on the same Kafka topic as before.
-	outboxRelay := taskpkg.NewOutboxRelay(outboxRepo, dep, taskpkg.WithOutboxRelayLogger(logger))
+	outboxRelay := taskpkg.NewOutboxRelay(outboxRepo, dep, taskpkg.WithOutboxRelayLogger(logger), taskpkg.WithOutboxRelayMetrics(rec), taskpkg.WithOutboxRelayTracing(tracer))
+	if err := rec.RegisterOutboxGauge(func(ctx context.Context) (int64, float64, error) {
+		n, oldest, berr := outboxRepo.OutboxBacklog(ctx)
+		if berr != nil {
+			return 0, 0, berr
+		}
+		var age float64
+		if n > 0 && !oldest.IsZero() {
+			age = time.Since(oldest).Seconds()
+		}
+		return n, age, nil
+	}); err != nil {
+		level.Error(logger).Log("msg", "failed to register outbox gauge", "err", err)
+	}
+	if sc, ok := repo.(taskpkg.StatusCounter); ok {
+		if err := rec.RegisterTasksByStatusGauge(func(ctx context.Context) (map[string]int64, error) {
+			counts, cerr := sc.CountByStatus(ctx)
+			if cerr != nil {
+				return nil, cerr
+			}
+			out := make(map[string]int64, len(taskpkg.AllStatuses))
+			for _, s := range taskpkg.AllStatuses {
+				out[string(s)] = counts[s]
+			}
+			return out, nil
+		}); err != nil {
+			level.Error(logger).Log("msg", "failed to register tasks-by-status gauge", "err", err)
+		}
+	}
 
 	// Optional: presigner (MinIO) and token store (Redis) for GenerateDownloadURL
 	var svcOpts []taskpkg.ServiceOption
@@ -216,22 +268,24 @@ func main() {
 		svcOpts = append(svcOpts, taskpkg.WithTokenStore(ts))
 	}
 
-	svc := taskpkg.NewService(repo, *dep, tx, outboxRepo, attemptRepo, append(svcOpts, taskpkg.WithLogger(logger))...)
+	svc := taskpkg.NewService(repo, *dep, tx, outboxRepo, attemptRepo, append(svcOpts, taskpkg.WithLogger(logger), taskpkg.WithTracing(tracer))...)
 
 	var attemptSvc *taskpkg.AttemptService
 	var reconciler *taskpkg.Reconciler
 	if ownershipMode {
-		attemptSvc = taskpkg.NewAttemptService(attemptRepo, tx, outboxRepo)
-		reconciler = taskpkg.NewReconciler(reconcileRepo, repo, outboxRepo, taskpkg.WithReconcilerLogger(logger))
+		attemptSvc = taskpkg.NewAttemptService(attemptRepo, tx, outboxRepo, taskpkg.WithMetrics(rec), taskpkg.WithAttemptTracing(tracer))
+		reconciler = taskpkg.NewReconciler(reconcileRepo, repo, outboxRepo, taskpkg.WithReconcilerLogger(logger), taskpkg.WithReconcilerMetrics(rec))
 	}
 
 	endpointSet := taskendpoint.New(svc)
 
-	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
-		middleware.RecoveryGRPCInterceptor(logger),
-		middleware.LoggingGRPCInterceptor(logger),
-		kitgrpc.Interceptor,
-	))
+	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(observability.GRPCServerHandler(rec, tracer)),
+		grpc.ChainUnaryInterceptor(
+			middleware.RecoveryGRPCInterceptor(logger),
+			middleware.LoggingGRPCInterceptor(logger),
+			kitgrpc.Interceptor,
+		))
 
 	// register service
 	pbServer := tasktransport.NewGRPCServer(endpointSet, logger)
@@ -317,6 +371,21 @@ func main() {
 			return reconciler.Run(reconcileCtx)
 		}, func(error) {
 			cancelReconcile()
+		})
+	}
+
+	{
+		metricsSrv := &http.Server{Addr: config.MetricsAddress, Handler: observability.MetricsMux(metricsHandler)}
+		g.Add(func() error {
+			level.Info(logger).Log("transport", "HTTP", "addr", config.MetricsAddress, "msg", "serving /metrics")
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				return err
+			}
+			return nil
+		}, func(error) {
+			shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shCancel()
+			_ = metricsSrv.Shutdown(shCtx)
 		})
 	}
 

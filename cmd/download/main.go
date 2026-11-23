@@ -21,6 +21,7 @@ import (
 	"github.com/yuisofull/goload/internal/download"
 	"github.com/yuisofull/goload/internal/download/downloader"
 	downloadtransport "github.com/yuisofull/goload/internal/download/transport"
+	"github.com/yuisofull/goload/internal/observability"
 	"github.com/yuisofull/goload/internal/storage"
 	tasktransport "github.com/yuisofull/goload/internal/task/transport"
 	"github.com/yuisofull/goload/pkg/message"
@@ -44,6 +45,24 @@ func main() {
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
 		logger = log.With(logger, "caller", log.DefaultCaller)
 	}
+
+	rec, metricsHandler, err := observability.NewRecorder("download")
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init metrics", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = rec.Shutdown(context.Background()) }()
+
+	tracer, err := observability.NewTracer(context.Background(), "download", observability.TraceConfig{
+		Endpoint:    config.TracingOTLPEndpoint,
+		SampleRatio: config.TracingSampleRatio,
+	})
+	if err != nil {
+		level.Error(logger).Log("msg", "failed to init tracing", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = tracer.Shutdown(context.Background()) }()
+	observability.LogErrors(func(err error) { level.Warn(logger).Log("msg", "telemetry error", "err", err) })
 
 	// Ownership mode needs both vars; half-configured is unsafe. See ADR-0011.
 	if (config.TaskGRPCAddress == "") != (config.RabbitMQURL == "") {
@@ -124,10 +143,13 @@ func main() {
 
 	dep := download.NewDownloadEventPublisher(pub)
 
-	svcOpts := []download.Option{download.WithStorageType(storage.TypeMinio)}
+	svcOpts := []download.Option{download.WithStorageType(storage.TypeMinio), download.WithMetrics(rec), download.WithTracing(tracer)}
 	var taskConn *grpc.ClientConn
 	if ownershipMode {
-		taskConn, err = grpc.NewClient(config.TaskGRPCAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		taskConn, err = grpc.NewClient(config.TaskGRPCAddress,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStatsHandler(observability.GRPCClientHandler(rec, tracer)),
+		)
 		if err != nil {
 			level.Error(logger).Log("msg", "failed to connect to task ownership API", "err", err)
 			os.Exit(1)
@@ -163,7 +185,7 @@ func main() {
 	// Dispatch (task.created) rides the RabbitMQ work queue when configured; the
 	// control events (task.paused, task.cancelled) stay on the Kafka subscriber.
 	var dispatchSub message.Subscriber
-	var consumerOpts []downloadtransport.Option
+	consumerOpts := []downloadtransport.Option{downloadtransport.WithMetrics(rec), downloadtransport.WithTracing(tracer)}
 	if ownershipMode {
 		rabbitSub, err := rabbitmqpkg.NewSubscriber(&rabbitmqpkg.Config{URL: config.RabbitMQURL, Prefetch: 5}, rabbitmqpkg.WithLog(logger))
 		if err != nil {
@@ -212,6 +234,7 @@ func main() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("starting"))
 	})
+	mux.Handle("/metrics", metricsHandler)
 
 	srv := &http.Server{Addr: ":8083", Handler: mux}
 	{

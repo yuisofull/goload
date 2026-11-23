@@ -45,6 +45,9 @@ type Config struct {
 	CORSExposedHeaders     string `envconfig:"CORS_EXPOSED_HEADERS"      default:"Content-Length,Content-Range,Content-Disposition"`
 	CORSAllowCredentials   bool   `envconfig:"CORS_ALLOW_CREDENTIALS"    default:"false"`
 	CORSPreflightMaxAge    int    `envconfig:"CORS_PREFLIGHT_MAX_AGE"    default:"600"`
+
+	TracingOTLPEndpoint string  `envconfig:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	TracingSampleRatio  float64 `envconfig:"TRACING_SAMPLE_RATIO" default:"1"`
 }
 
 func loadConfig() (*Config, error) {

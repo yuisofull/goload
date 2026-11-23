@@ -46,6 +46,37 @@ type OutboxEvent struct {
 	CreatedAt time.Time
 	// SentAt is nil until the relay has published the event.
 	SentAt *time.Time
+	// TraceContext is the W3C trace carrier (traceparent, tracestate) captured
+	// when the event was recorded, so the asynchronous relay continues the
+	// producer's trace. Nil when there was none, including rows written before
+	// tracing existed.
+	TraceContext map[string]string
+}
+
+// MarshalTraceContext encodes a trace carrier for the outbox row. ok is false
+// when there is nothing to store, so the column stays NULL.
+func MarshalTraceContext(tc map[string]string) (string, bool) {
+	if len(tc) == 0 {
+		return "", false
+	}
+	b, err := json.Marshal(tc)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
+// UnmarshalTraceContext decodes a stored carrier. An empty or garbled value
+// reads as nil: a bad trace context must never stop an event from dispatching.
+func UnmarshalTraceContext(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	var tc map[string]string
+	if err := json.Unmarshal([]byte(s), &tc); err != nil || len(tc) == 0 {
+		return nil
+	}
+	return tc
 }
 
 // OutboxCursor positions FetchUnsent. The zero value starts at the oldest row.
@@ -67,6 +98,13 @@ type OutboxRepository interface {
 	// MarkSent sets sent_at for the event. It is a no-op for an unknown or
 	// already-sent id.
 	MarkSent(ctx context.Context, id string) error
+	// OutboxBacklog returns the number of unsent events and the creation time
+	// of the oldest one (zero time when there are none). It drives the backlog
+	// gauges; a single COUNT + MIN, never derived from a fetched page.
+	OutboxBacklog(ctx context.Context) (unsent int64, oldest time.Time, err error)
+	// LatestTraceContext returns the trace carrier of the aggregate's newest
+	// row of eventType, or nil when there is none or it has no carrier.
+	LatestTraceContext(ctx context.Context, aggregateID uint64, eventType string) (map[string]string, error)
 }
 
 // NewTaskCreatedOutboxEvent builds the outbox row for a TaskCreated event. The

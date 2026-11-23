@@ -28,13 +28,14 @@ func TestEnsureOutboxSchema_CreatesTableAndIsIdempotent(t *testing.T) {
 		},
 	}))
 	require.Equal(t, map[string]string{
-		"id":           "TEXT",
-		"aggregate_id": "INTEGER",
-		"destination":  "TEXT",
-		"event_type":   "TEXT",
-		"payload":      "BLOB",
-		"created_at":   "TEXT",
-		"sent_at":      "TEXT",
+		"id":            "TEXT",
+		"aggregate_id":  "INTEGER",
+		"destination":   "TEXT",
+		"event_type":    "TEXT",
+		"payload":       "BLOB",
+		"created_at":    "TEXT",
+		"sent_at":       "TEXT",
+		"trace_context": "TEXT",
 	}, columns)
 
 	var indexes []string
